@@ -74,7 +74,7 @@ claude plugins add ./plugins/code-review-jj
 
 ## Author
 
-Anthropic (support@anthropic.com)
+muloka (muloka@users.noreply.github.com)
 
 ## Version
 

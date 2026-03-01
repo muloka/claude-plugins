@@ -69,7 +69,7 @@ claude plugins add ./plugins/feature-dev-jj
 
 ## Author
 
-Sid Bidasaria (sbidasaria@anthropic.com)
+muloka (muloka@users.noreply.github.com)
 
 ## Version
 

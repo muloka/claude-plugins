@@ -2,8 +2,8 @@
   "name": "code-review-jj",
   "description": "Automated code review for pull requests using multiple specialized agents with confidence-based scoring (jj/Jujutsu edition)",
   "author": {
-    "name": "Anthropic",
-    "email": "support@anthropic.com"
+    "name": "muloka",
+    "email": "muloka@users.noreply.github.com"
   },
   "hooks": {
     "PreToolUse": [

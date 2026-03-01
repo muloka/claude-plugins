@@ -84,7 +84,7 @@ claude plugins add ./plugins/pr-review-toolkit-jj
 
 ## Author
 
-Daisy (daisy@anthropic.com)
+muloka (muloka@users.noreply.github.com)
 
 ## Version
 

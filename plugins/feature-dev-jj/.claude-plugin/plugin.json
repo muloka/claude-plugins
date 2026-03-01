@@ -2,8 +2,8 @@
   "name": "feature-dev-jj",
   "description": "Comprehensive feature development workflow with specialized agents for codebase exploration, architecture design, and quality review (jj/Jujutsu edition)",
   "author": {
-    "name": "Anthropic",
-    "email": "support@anthropic.com"
+    "name": "muloka",
+    "email": "muloka@users.noreply.github.com"
   },
   "hooks": {
     "PreToolUse": [

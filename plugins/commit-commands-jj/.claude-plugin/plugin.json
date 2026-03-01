@@ -2,8 +2,8 @@
   "name": "commit-commands-jj",
   "description": "Streamline your jj (Jujutsu) workflow with simple commands for committing, pushing, and creating pull requests",
   "author": {
-    "name": "Anthropic",
-    "email": "support@anthropic.com"
+    "name": "muloka",
+    "email": "muloka@users.noreply.github.com"
   },
   "hooks": {
     "PreToolUse": [
