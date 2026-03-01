@@ -446,7 +446,7 @@ claude plugins add ./plugins/commit-commands-jj
 
 ## Author
 
-muloka (muloka@users.noreply.github.com)
+[muloka](https://github.com/muloka)
 
 ## Version
 

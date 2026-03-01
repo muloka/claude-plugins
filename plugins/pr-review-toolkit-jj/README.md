@@ -84,7 +84,7 @@ claude plugins add ./plugins/pr-review-toolkit-jj
 
 ## Author
 
-muloka (muloka@users.noreply.github.com)
+[muloka](https://github.com/muloka)
 
 ## Version
 
