@@ -27,9 +27,11 @@ After installing, run the setup command in your jj project:
 /workspace-setup
 ```
 
-This configures the `WorktreeCreate` and `WorktreeRemove` hooks in your project's `.claude/settings.local.json`. Restart your Claude Code session after setup.
+This copies the hook scripts to `.claude/scripts/` in your project and configures the `WorktreeCreate` and `WorktreeRemove` hooks in `.claude/settings.local.json`. Restart your Claude Code session after setup.
 
 **Why is this needed?** Claude Code currently doesn't pick up `WorktreeCreate`/`WorktreeRemove` hooks from plugins — they must be in project or user settings. The `/workspace-setup` command handles this for you.
+
+**After plugin updates:** Re-run `/workspace-setup` to refresh the scripts in `.claude/scripts/`.
 
 ## Usage
 
