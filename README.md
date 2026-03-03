@@ -1,17 +1,39 @@
 # Claude Code Plugins for jj (Jujutsu)
 
-Claude Code plugins for **jj (Jujutsu)** workflows — commit management, code review, PR review, and feature development.
+Claude Code plugins for **jj (Jujutsu)** workflows — worktree isolation via jj workspaces, commit management, code review, PR review, and feature development.
 
-All plugins include a `PreToolUse` hook (`block-raw-git.sh`) that intercepts Bash tool calls and blocks raw `git` commands, keeping your workflow pure jj.
+All plugins include a `PreToolUse` hook (`block-raw-git.sh`) that intercepts Bash tool calls and blocks raw `git` commands, keeping your workflow pure jj. When Claude reaches for `git add` or `git commit`, the hook catches it and suggests the jj equivalent.
 
 ## Plugins
 
 | Plugin | Description | Commands | Agents |
 |--------|-------------|:--------:|:------:|
+| **workspace-jj** | Worktree isolation for jj repos via `jj workspace` hooks | 1 | — |
 | **commit-commands-jj** | jj commit workflows — commit, push, PR creation, and more | 10 | — |
 | **code-review-jj** | Automated code review with confidence-based scoring | 1 | — |
 | **pr-review-toolkit-jj** | Specialized PR review agents | 1 | 6 |
 | **feature-dev-jj** | Feature development with exploration, architecture, and review | 1 | 3 |
+
+## workspace-jj
+
+Enables Claude Code's `--worktree` flag and subagent `isolation: "worktree"` in jj repositories. Claude Code uses git worktrees by default for isolated parallel sessions — this plugin replaces that with jj workspaces via `WorktreeCreate` and `WorktreeRemove` hooks, so `--worktree` works natively in jj repos.
+
+**Setup:**
+
+```bash
+# 1. Install
+/install-plugin https://github.com/muloka/claude-plugins/tree/main/plugins/workspace-jj
+
+# 2. Run setup in your jj project (copies hook scripts, configures settings)
+/workspace-setup
+
+# 3. Restart Claude Code, then use worktrees
+claude --worktree feature-auth
+```
+
+Claude Code doesn't pick up `WorktreeCreate`/`WorktreeRemove` hooks from plugins — they must be in project settings. The `/workspace-setup` command handles this by copying scripts to `.claude/scripts/` and configuring `.claude/settings.local.json`.
+
+**Requires:** [jj](https://martinvonz.github.io/jj/) and [jq](https://jqlang.github.io/jq/)
 
 ## commit-commands-jj
 
@@ -27,7 +49,7 @@ Automated code review for pull requests using confidence-based scoring.
 
 ## pr-review-toolkit-jj
 
-Comprehensive PR review using six specialized agents:
+Comprehensive PR review using six specialized agents, each running a focused pass:
 
 | Agent | Purpose |
 |-------|---------|
@@ -42,10 +64,10 @@ Comprehensive PR review using six specialized agents:
 
 ## feature-dev-jj
 
-Guided feature development workflow with three specialized agents:
+Guided feature development pipeline — explore, then architect, then review:
 
-| Agent | Purpose |
-|-------|---------|
+| Agent | Phase |
+|-------|-------|
 | **code-explorer** | Deep codebase analysis — traces execution paths, maps architecture |
 | **code-architect** | Designs feature architectures following existing patterns and conventions |
 | **code-reviewer** | Reviews code for bugs, logic errors, security vulnerabilities, and quality |
@@ -57,11 +79,18 @@ Guided feature development workflow with three specialized agents:
 Install any plugin directly from GitHub using Claude Code:
 
 ```
+/install-plugin https://github.com/muloka/claude-plugins/tree/main/plugins/workspace-jj
 /install-plugin https://github.com/muloka/claude-plugins/tree/main/plugins/commit-commands-jj
 /install-plugin https://github.com/muloka/claude-plugins/tree/main/plugins/code-review-jj
 /install-plugin https://github.com/muloka/claude-plugins/tree/main/plugins/pr-review-toolkit-jj
 /install-plugin https://github.com/muloka/claude-plugins/tree/main/plugins/feature-dev-jj
 ```
+
+**Note:** After installing workspace-jj, run `/workspace-setup` in your jj project and restart Claude Code.
+
+## Acknowledgments
+
+Originally modelled off of Anthropic's [claude-plugins-official](https://github.com/anthropics/claude-plugins-official).
 
 ## License
 
