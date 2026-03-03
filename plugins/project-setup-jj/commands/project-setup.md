@@ -89,7 +89,7 @@ For each file: if an identical file already exists, skip it. If a different vers
 
 ### Step 5: Create or update CLAUDE.md
 
-Read the CLAUDE.md template from the plugin's `templates/CLAUDE.md.template`.
+Read the CLAUDE.md template from the plugin's `templates/CLAUDE.md.template`. The template is a slim policy directive (~5 lines) — not a full reference guide. It uses an `## VCS` heading (h2) so it fits naturally into any existing CLAUDE.md heading hierarchy.
 
 Then handle three cases:
 

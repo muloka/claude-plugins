@@ -8,7 +8,7 @@ When starting a new Claude Code project that uses jj, there's no automated way t
 
 - **SessionStart hook** — shows current jj change, status, and workflow reminder when a session starts
 - **Hookify rules** — 3 warn-level rules that nudge toward jj best practices
-- **CLAUDE.md template** — jj policy, workflow guide, and Git→jj translation table
+- **CLAUDE.md template** — slim jj VCS policy directive
 - **Permissions** — pre-allows jj commands and gh CLI, denies raw git
 
 ## Installation
@@ -34,7 +34,7 @@ This creates/updates the following in your project:
 | `.claude/hookify.warn-raw-git.local.md` | Warn when raw git commands detected |
 | `.claude/hookify.require-jj-workflow.local.md` | Remind to run `jj new` before edits |
 | `.claude/hookify.warn-git-internals.local.md` | Warn on `.git/` access or git plumbing |
-| `CLAUDE.md` | jj workflow instructions (created or updated) |
+| `CLAUDE.md` | jj VCS policy directive (created or updated) |
 
 **Restart Claude Code** after running `/project-setup` for the SessionStart hook to take effect.
 
