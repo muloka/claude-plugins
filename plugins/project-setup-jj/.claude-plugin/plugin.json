@@ -1,0 +1,21 @@
+{
+  "name": "project-setup-jj",
+  "description": "Bootstrap jj (Jujutsu) workflow enforcement for any Claude Code project with a single /project-setup command",
+  "author": {
+    "name": "muloka",
+    "email": "muloka@users.noreply.github.com"
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/block-raw-git.sh"
+          }
+        ]
+      }
+    ]
+  }
+}

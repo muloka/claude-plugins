@@ -1,0 +1,45 @@
+<!-- jj-project-setup:start -->
+# jj (Jujutsu) VCS Policy
+
+This project uses **jj (Jujutsu)** as its version control system. **Never use raw git commands.** Use jj equivalents instead. The only exceptions are `jj git` subcommands (e.g. `jj git push`, `jj git fetch`) and the `gh` CLI for GitHub operations.
+
+## Workflow
+
+1. **Check status:** `jj status`
+2. **Start a fresh change:** `jj new`
+3. **Set intent:** `jj describe -m "what you're doing"`
+4. **Make your changes** (edit files normally)
+5. **Review changes:** `jj diff`
+6. **Commit:** `jj commit -m "message"` (or let the change auto-commit)
+7. **Push:** `jj git push`
+
+## Git → jj Translation
+
+| Git | jj |
+|-----|-----|
+| `git status` | `jj status` |
+| `git diff` | `jj diff` |
+| `git log` | `jj log` |
+| `git add` | _(not needed — jj tracks all files automatically)_ |
+| `git commit -m "msg"` | `jj commit -m "msg"` |
+| `git commit --amend` | `jj describe -m "msg"` (amend description) or `jj squash` (fold into parent) |
+| `git push` | `jj git push` |
+| `git pull` / `git fetch` | `jj git fetch` |
+| `git checkout -b branch` | `jj new` + `jj bookmark create branch -r @` |
+| `git branch` | `jj bookmark list` |
+| `git branch -d name` | `jj bookmark delete name` |
+| `git merge` | `jj new branch1 branch2` (create merge commit) |
+| `git rebase` | `jj rebase -d destination` |
+| `git stash` | _(not needed — every change is automatically saved)_ |
+| `git blame file` | `jj file annotate file` |
+| `git remote -v` | `jj git remote list` |
+| `git rev-parse HEAD` | `jj log -r @ --no-graph -T commit_id` |
+| `git reset --hard` | `jj undo` or `jj restore` |
+
+## Key jj Concepts
+
+- **No staging area:** jj tracks all file changes automatically. No `git add` needed.
+- **Changes vs commits:** A "change" is a mutable working unit. It becomes a "commit" when you move past it with `jj new` or `jj commit`.
+- **Bookmarks (not branches):** jj uses "bookmarks" instead of git "branches". They point to changes.
+- **Undo anything:** `jj undo` reverts the last jj operation. `jj op log` shows operation history.
+<!-- jj-project-setup:end -->

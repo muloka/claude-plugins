@@ -1,12 +1,23 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "muloka-claude-plugins",
-  "description": "jj (Jujutsu) plugins for Claude Code — commit workflows, code review, PR review, feature development, and workspace isolation",
+  "description": "jj (Jujutsu) plugins for Claude Code — project setup, commit workflows, code review, PR review, feature development, and workspace isolation",
   "owner": {
     "name": "muloka",
     "email": "muloka@users.noreply.github.com"
   },
   "plugins": [
+    {
+      "name": "project-setup-jj",
+      "description": "Bootstrap jj (Jujutsu) workflow enforcement for any Claude Code project with a single /project-setup command",
+      "author": {
+        "name": "muloka",
+        "email": "muloka@users.noreply.github.com"
+      },
+      "source": "./plugins/project-setup-jj",
+      "category": "productivity",
+      "homepage": "https://github.com/muloka/claude-plugins/tree/main/plugins/project-setup-jj"
+    },
     {
       "name": "commit-commands-jj",
       "description": "Commands for jj (Jujutsu) commit workflows including commit, push, and PR creation",
