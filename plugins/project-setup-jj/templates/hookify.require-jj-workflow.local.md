@@ -7,6 +7,9 @@ conditions:
   - field: transcript
     operator: not_contains
     pattern: jj new
+  - field: transcript
+    operator: regex_match
+    pattern: Edit|Write|NotebookEdit
 ---
 
 **Reminder:** `jj new` was not detected in this session.
