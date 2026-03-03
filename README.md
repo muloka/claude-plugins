@@ -1,6 +1,6 @@
 # Claude Code Plugins for jj (Jujutsu)
 
-Claude Code plugins for **jj (Jujutsu)** workflows — worktree isolation via jj workspaces, commit management, code review, PR review, and feature development.
+Claude Code plugins for **jj (Jujutsu)** workflows — project setup, worktree isolation via jj workspaces, commit management, code review, PR review, and feature development.
 
 All plugins include a `PreToolUse` hook (`block-raw-git.sh`) that intercepts Bash tool calls and blocks raw `git` commands, keeping your workflow pure jj. When Claude reaches for `git add` or `git commit`, the hook catches it and suggests the jj equivalent.
 
@@ -8,11 +8,30 @@ All plugins include a `PreToolUse` hook (`block-raw-git.sh`) that intercepts Bas
 
 | Plugin | Description | Commands | Agents |
 |--------|-------------|:--------:|:------:|
+| **project-setup-jj** | Bootstrap jj workflow enforcement with `/project-setup` | 1 | — |
 | **workspace-jj** | Worktree isolation for jj repos via `jj workspace` hooks | 1 | — |
 | **commit-commands-jj** | jj commit workflows — commit, push, PR creation, and more | 10 | — |
 | **code-review-jj** | Automated code review with confidence-based scoring | 1 | — |
 | **pr-review-toolkit-jj** | Specialized PR review agents | 1 | 6 |
 | **feature-dev-jj** | Feature development with exploration, architecture, and review | 1 | 3 |
+
+## project-setup-jj
+
+Bootstrap jj workflow enforcement for any project with a single command. Sets up a SessionStart hook (shows jj context each session), hookify rules (warn on raw git usage), permissions (allow jj/gh, deny git), and a CLAUDE.md policy directive.
+
+**Setup:**
+
+```bash
+# 1. Install
+/install-plugin https://github.com/muloka/claude-plugins/tree/main/plugins/project-setup-jj
+
+# 2. Run setup in your jj project
+/project-setup
+
+# 3. Restart Claude Code for SessionStart hook
+```
+
+**Requires:** [jj](https://martinvonz.github.io/jj/) and [jq](https://jqlang.github.io/jq/)
 
 ## workspace-jj
 
@@ -79,6 +98,7 @@ Guided feature development pipeline — explore, then architect, then review:
 Install any plugin directly from GitHub using Claude Code:
 
 ```
+/install-plugin https://github.com/muloka/claude-plugins/tree/main/plugins/project-setup-jj
 /install-plugin https://github.com/muloka/claude-plugins/tree/main/plugins/workspace-jj
 /install-plugin https://github.com/muloka/claude-plugins/tree/main/plugins/commit-commands-jj
 /install-plugin https://github.com/muloka/claude-plugins/tree/main/plugins/code-review-jj
