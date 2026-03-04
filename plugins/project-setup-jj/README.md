@@ -7,7 +7,7 @@ Bootstrap jj (Jujutsu) workflow enforcement for any Claude Code project with a s
 When starting a new Claude Code project that uses jj, there's no automated way to set up jj workflow enforcement. This plugin adds a `/project-setup` command that configures everything in one step:
 
 - **SessionStart hook** — shows current jj change, status, and workflow reminder when a session starts
-- **Hookify rules** — 3 warn-level rules that nudge toward jj best practices
+- **PreToolUse guard hook** — prompts you to run `jj new` before editing into a non-empty change
 - **CLAUDE.md template** — slim jj VCS policy directive
 - **Permissions** — pre-allows jj commands and gh CLI, denies raw git
 
@@ -30,10 +30,8 @@ This creates/updates the following in your project:
 | File | Purpose |
 |------|---------|
 | `.claude/scripts/jj-session-start.sh` | SessionStart hook showing jj context |
+| `.claude/scripts/require-jj-new.sh` | PreToolUse hook — prompts `jj new` before editing non-empty changes |
 | `.claude/settings.local.json` | Hook registration + jj permissions |
-| `.claude/hookify.warn-raw-git.local.md` | Warn when raw git commands detected |
-| `.claude/hookify.require-jj-workflow.local.md` | Remind to run `jj new` before edits |
-| `.claude/hookify.warn-git-internals.local.md` | Warn on `.git/` access or git plumbing |
 | `CLAUDE.md` | jj VCS policy directive (created or updated) |
 
 **Restart Claude Code** after running `/project-setup` for the SessionStart hook to take effect.
@@ -63,7 +61,6 @@ Working copy status:
 Running `/project-setup` multiple times is safe. It will:
 - Overwrite scripts with the latest version
 - Merge settings without duplicating entries
-- Update hookify rules to the latest version
 - Update the jj section in CLAUDE.md (via markers) without touching other content
 
 ## Related Plugins
