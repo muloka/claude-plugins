@@ -15,15 +15,6 @@
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/block-raw-git.sh"
           }
         ]
-      },
-      {
-        "matcher": "Edit|Write|NotebookEdit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/require-jj-new.sh"
-          }
-        ]
       }
     ]
   }
