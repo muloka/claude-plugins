@@ -216,12 +216,10 @@ def load_rules(event: Optional[str] = None) -> List[Rule]:
             if not rule:
                 continue
 
-            # Filter by event if specified
-            # Use `is not None` so event=None (unrecognized tools in
-            # PostToolUse) still filters out stop/bash/file rules
-            if event is not None:
-                if rule.event != 'all' and rule.event != event:
-                    continue
+            # Always filter by event type. When event=None (unrecognized
+            # tools like Read/Agent), only 'all' rules pass through.
+            if rule.event != 'all' and rule.event != event:
+                continue
 
             # Only include enabled rules
             if rule.enabled:
