@@ -5,7 +5,7 @@ allowed-tools: Bash(jj:*), Bash(cp:*), Bash(chmod:*), Bash(mkdir:*), Bash(cat:*)
 
 ## Your Task
 
-Bootstrap jj (Jujutsu) workflow enforcement for the current project. This sets up a SessionStart hook, hookify rules, permissions, and CLAUDE.md instructions so that every Claude Code session in this project uses jj properly.
+Bootstrap jj (Jujutsu) workflow enforcement for the current project. This sets up a SessionStart hook, a PreToolUse guard hook, permissions, and CLAUDE.md instructions so that every Claude Code session in this project uses jj properly.
 
 **CRITICAL: This is a jj (Jujutsu) plugin. You MUST NOT use ANY raw git commands — not even for context discovery. Always use jj equivalents. The only exceptions are `jj git` subcommands and `gh` CLI.**
 
@@ -77,15 +77,36 @@ Replace `<project-root>` with the actual absolute path from `jj root`.
 
 **Merge strategy:** Use `jq` to deep-merge. For array fields (`allow`, `deny`, hook arrays), concatenate and deduplicate. For object fields, merge recursively. Preserve any existing settings not related to jj.
 
-### Step 4: Create hookify rules
+### Step 4: Copy require-jj-new hook script
 
-Copy the 3 hookify rule templates from the plugin's `templates/` directory to `.claude/` in the project root:
+Copy `require-jj-new.sh` from the plugin's `scripts/` directory to the project's `.claude/scripts/`:
 
-- `hookify.warn-raw-git.local.md`
-- `hookify.require-jj-workflow.local.md`
-- `hookify.warn-git-internals.local.md`
+```bash
+cp <plugin-scripts-dir>/require-jj-new.sh "$(jj root)/.claude/scripts/"
+chmod +x "$(jj root)/.claude/scripts/require-jj-new.sh"
+```
 
-For each file: if an identical file already exists, skip it. If a different version exists, overwrite it (the plugin version is canonical).
+Then merge a PreToolUse hook entry into `.claude/settings.local.json` (using the same deep-merge strategy as Step 3):
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "<project-root>/.claude/scripts/require-jj-new.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Replace `<project-root>` with the actual absolute path from `jj root`.
 
 ### Step 5: Create or update CLAUDE.md
 
@@ -104,11 +125,11 @@ The CLAUDE.md file is at the project root (from `jj root`).
 Show a summary of what was set up:
 
 - SessionStart hook script copied to `.claude/scripts/jj-session-start.sh`
-- Settings updated in `.claude/settings.local.json` (SessionStart hook + permissions)
-- Hookify rules created in `.claude/` (list the 3 files)
+- PreToolUse guard hook copied to `.claude/scripts/require-jj-new.sh`
+- Settings updated in `.claude/settings.local.json` (SessionStart hook + PreToolUse hook + permissions)
 - CLAUDE.md created/updated with jj workflow instructions
 
 Remind the user to:
-- **Restart Claude Code** for the SessionStart hook to take effect
+- **Restart Claude Code** for the hooks to take effect
 - Optionally run `/workspace-setup` if they want worktree isolation via jj workspaces
-- Optionally add `.claude/scripts/` and `.claude/*.local.md` to their ignore patterns if they don't want to track these in version control
+- Optionally add `.claude/scripts/` to their ignore patterns if they don't want to track these in version control
