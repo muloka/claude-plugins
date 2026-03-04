@@ -72,6 +72,17 @@
       "source": "./plugins/workspace-jj",
       "category": "productivity",
       "homepage": "https://github.com/muloka/claude-plugins/tree/main/plugins/workspace-jj"
+    },
+    {
+      "name": "hookify",
+      "description": "Easily create hooks to prevent unwanted behaviors by analyzing conversation patterns",
+      "author": {
+        "name": "Daisy Hollman",
+        "email": "daisy@anthropic.com"
+      },
+      "source": "./plugins/hookify",
+      "category": "productivity",
+      "homepage": "https://github.com/anthropics/claude-code/tree/main/plugins/hookify"
     }
   ]
 }

@@ -14,6 +14,7 @@ All plugins include a `PreToolUse` hook (`block-raw-git.sh`) that intercepts Bas
 | **code-review-jj** | Automated code review with confidence-based scoring | 1 | — |
 | **pr-review-toolkit-jj** | Specialized PR review agents | 1 | 6 |
 | **feature-dev-jj** | Feature development with exploration, architecture, and review | 1 | 3 |
+| **hookify** | Patched fork — prevent unwanted behaviors via conversation analysis | 4 | 1 |
 
 ## project-setup-jj
 
@@ -92,6 +93,16 @@ Guided feature development pipeline — explore, then architect, then review:
 | **code-reviewer** | Reviews code for bugs, logic errors, security vulnerabilities, and quality |
 
 **Command:** `/feature-dev`
+
+## hookify (patched fork)
+
+Temporary fork of [hookify](https://github.com/anthropics/claude-code/tree/main/plugins/hookify) from `anthropics/claude-code` with a bug fix for `stop` event rules leaking into `PostToolUse` context for unrecognized tools (e.g., Agent). This caused `require-jj-workflow` warnings to fire spuriously in plan mode after subagent completion.
+
+**Fix:** `config_loader.py` — changed `if event:` to `if event is not None:` so `None` (unrecognized tool) still filters out `stop`/`bash`/`file` rules instead of bypassing the filter entirely.
+
+**Dependency:** The `project-setup-jj` plugin installs hookify rules (e.g., `require-jj-workflow`). If you use `project-setup-jj`, install this patched hookify instead of the upstream version.
+
+This fork will be removed once the fix is merged upstream.
 
 ## Installation
 
