@@ -1,4 +1,4 @@
-# Hookify Plugin (patched fork)
+# Hookify-jj Plugin (patched fork)
 
 > **Fork note:** This is a patched fork of [hookify](https://github.com/anthropics/claude-code/tree/main/plugins/hookify) from `anthropics/claude-code`. Fix: `stop` event rules were leaking into `PostToolUse` for unrecognized tools (Agent, Read, etc.) due to `None` bypassing the event filter. Will be removed once merged upstream.
 
