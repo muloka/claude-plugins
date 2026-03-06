@@ -7,8 +7,8 @@ description: Undo the last jj operation
 
 ## Context
 
-- Recent operations: !`jj op log --limit 5`
-- Current change: !`jj log -r @ --no-graph`
+- Recent operations (JSON): !`jj op log --limit 5 --no-graph -T 'json(self) ++ "\n"'`
+- Current change (JSON): !`jj log -r @ --no-graph -T 'json(self) ++ "\n"'`
 - Current status: !`jj status`
 
 ## Git → jj translation
@@ -26,7 +26,7 @@ In jj, every operation is recorded in the operation log, and `jj undo` reverses 
 
 1. Review the operation log (shown in context above) to identify the last operation
 2. Run `jj undo`
-3. Confirm the result with `jj status` and `jj log --limit 5`
+3. Confirm the result with `jj status` and `jj log --limit 5 --no-graph -T 'json(self) ++ "\n"'`
 4. Report what was undone (describe the operation that was reversed)
 
 Notes:

@@ -7,9 +7,9 @@ description: Fetch from remote and rebase the current change onto trunk
 
 ## Context
 
-- Current change: !`jj log -r @ --no-graph`
+- Current change (JSON): !`jj log -r @ --no-graph -T 'json(self) ++ "\n"'`
 - Current status: !`jj status`
-- Trunk state: !`jj log -r 'trunk()' --no-graph --limit 1`
+- Trunk state (JSON): !`jj log -r 'trunk()' --no-graph --limit 1 -T 'json(self) ++ "\n"'`
 
 ## Git → jj translation
 
@@ -27,10 +27,10 @@ Sync fetches the latest remote state and rebases your current work onto trunk. T
 1. Fetch from the remote: `jj git fetch`
 2. Rebase onto trunk: `jj rebase -d main@origin`
    - If that fails (e.g., remote is not named `origin` or branch is not `main`), fall back to `jj rebase -d trunk()`
-3. Check for conflicts: `jj log -r 'conflicts()'`
+3. Check for conflicts: `jj log -r 'conflicts()' --no-graph -T 'json(self) ++ "\n"'`
    - If conflicts exist, report them clearly so the user can resolve them
    - If no conflicts, report success
-4. Show the final state: `jj log --limit 10`
+4. Show the final state: `jj log --limit 10 --no-graph -T 'json(self) ++ "\n"'`
 
 Notes:
 - `jj git fetch` auto-prunes deleted remote tracking refs

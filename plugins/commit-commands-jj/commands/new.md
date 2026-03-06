@@ -7,8 +7,8 @@ description: Start a new jj change on top of the current one (or a specified rev
 
 ## Context
 
-- Current change: !`jj log -r @ --no-graph`
-- Recent changes: !`jj log --limit 10`
+- Current change (JSON): !`jj log -r @ --no-graph -T 'json(self) ++ "\n"'`
+- Recent changes (JSON): !`jj log --limit 10 --no-graph -T 'json(self) ++ "\n"'`
 - Current status: !`jj status`
 
 ## Git → jj translation
@@ -27,7 +27,7 @@ In jj, `jj new` creates a new empty change on top of the current working copy ch
 1. Run `jj new` to create a new empty change on top of the current one
    - If the user specifies a target revision, run `jj new <revision>` instead
 2. If the user stated what they intend to work on, describe the new change: `jj describe -m "<intent>"`
-3. Confirm the new change with `jj log -r @ --no-graph`
+3. Confirm the new change with `jj log -r @ --no-graph -T 'json(self) ++ "\n"'`
 
 Notes:
 - `jj new` does NOT require the current change to be committed first — jj auto-snapshots the working copy

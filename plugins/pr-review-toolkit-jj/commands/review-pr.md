@@ -9,8 +9,8 @@ allowed-tools: ["Bash", "Glob", "Grep", "Read", "Task"]
 ## Context
 
 - Current jj status: !`jj status`
-- Changed files: !`jj diff --summary`
-- Current change: !`jj log -r @ --no-graph`
+- Changed files (JSON): !`jj diff -T '"{ \"path\": " ++ self.path().display().escape_json() ++ ", \"status\": " ++ self.status().escape_json() ++ " }\n"'`
+- Current change (JSON): !`jj log -r @ --no-graph -T 'json(self) ++ "\n"'`
 - Open PRs: !`gh pr list --state open --limit 5`
 
 # Comprehensive PR Review
@@ -37,7 +37,7 @@ Run a comprehensive pull request review using multiple specialized agents, each 
    - **all** - Run all applicable reviews (default)
 
 3. **Identify Changed Files**
-   - Run `jj diff --summary` to see modified files
+   - Run `jj diff -T '"{ \"path\": " ++ self.path().display().escape_json() ++ ", \"status\": " ++ self.status().escape_json() ++ " }\n"'` to see modified files as JSON
    - Check if PR already exists: `gh pr view`
    - Identify file types and what reviews apply
 

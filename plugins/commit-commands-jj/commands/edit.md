@@ -7,8 +7,8 @@ description: Edit an earlier jj change by moving the working copy to it
 
 ## Context
 
-- Current change: !`jj log -r @ --no-graph`
-- Recent changes: !`jj log --limit 15`
+- Current change (JSON): !`jj log -r @ --no-graph -T 'json(self) ++ "\n"'`
+- Recent changes (JSON): !`jj log --limit 15 --no-graph -T 'json(self) ++ "\n"'`
 - Current status: !`jj status`
 
 ## Git → jj translation

@@ -7,9 +7,9 @@ description: Squash the current jj change into its parent
 
 ## Context
 
-- Current change: !`jj log -r @ --no-graph`
-- Parent change: !`jj log -r @- --no-graph`
-- Current diff: !`jj diff`
+- Current change (JSON): !`jj log -r @ --no-graph -T 'json(self) ++ "\n"'`
+- Parent change (JSON): !`jj log -r @- --no-graph -T 'json(self) ++ "\n"'`
+- Changed files (JSON): !`jj diff -T '"{ \"path\": " ++ self.path().display().escape_json() ++ ", \"status\": " ++ self.status().escape_json() ++ " }\n"'`
 - Current status: !`jj status`
 
 ## Git → jj translation
@@ -29,9 +29,9 @@ In jj, `jj squash` moves all changes from the current change into its parent and
    - If the current change is empty (no diff), report "nothing to squash" and stop
 2. Run `jj squash`
    - If the user specified a target revision, run `jj squash --into <rev>` instead
-3. Review the combined description on the parent change: `jj log -r @ --no-graph`
+3. Review the combined description on the parent change: `jj log -r @ --no-graph -T 'json(self) ++ "\n"'`
    - If the combined description looks awkward (e.g., duplicated text or concatenated fragments), clean it up with `jj describe -m "<cleaned-up-msg>"`
-4. Show the result: `jj log --limit 5`
+4. Show the result: `jj log --limit 5 --no-graph -T 'json(self) ++ "\n"'`
 
 Notes:
 - After squashing, the working copy moves to the (now-combined) parent change

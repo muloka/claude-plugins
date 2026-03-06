@@ -7,7 +7,7 @@ description: Discard a jj change (current or specified revision)
 
 ## Context
 
-- Current change: !`jj log -r @ --no-graph`
+- Current change (JSON): !`jj log -r @ --no-graph -T 'json(self) ++ "\n"'`
 - Current diff stats: !`jj diff --stat`
 - Current status: !`jj status`
 
@@ -28,7 +28,7 @@ In jj, `jj abandon` discards a change entirely. Descendants are rebased onto its
    - If it does, warn the user that the change has uncommitted work that will be lost
 2. Run `jj abandon`
    - If the user specified a revision, run `jj abandon <revision>` instead
-3. Show the result: `jj log --limit 5` and `jj status`
+3. Show the result: `jj log --limit 5 --no-graph -T 'json(self) ++ "\n"'` and `jj status`
 4. Remind the user: run `/undo` if this was a mistake
 
 Notes:

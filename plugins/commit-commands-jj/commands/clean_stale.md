@@ -7,7 +7,7 @@ allowed-tools: Bash(jj bookmark:*), Bash(jj workspace:*), Bash(jj git fetch:*)
 
 ## Context
 
-- Current bookmarks: !`jj bookmark list --all`
+- Current bookmarks (JSON): !`jj bookmark list --all -T 'json(self) ++ "\n"'`
 - Current workspaces: !`jj workspace list`
 
 ## Your Task
@@ -27,7 +27,7 @@ You need to execute the following commands to clean up stale local bookmarks and
 2. **List all bookmarks to find stale ones**
    Execute this command:
    ```bash
-   jj bookmark list --all
+   jj bookmark list --all -T 'json(self) ++ "\n"'
    ```
 
    Look for local bookmarks whose remote counterpart has been deleted. These appear as bookmarks that exist locally but have no corresponding remote tracking bookmark, or bookmarks marked as deleted on remote.

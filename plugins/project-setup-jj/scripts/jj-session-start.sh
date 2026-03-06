@@ -10,7 +10,7 @@ if ! jj root >/dev/null 2>&1; then
 fi
 
 # Gather jj context
-current_change=$(jj log -r @ --no-graph 2>/dev/null || echo "(unable to read current change)")
+current_change=$(jj log -r @ --no-graph -T 'json(self) ++ "\n"' 2>/dev/null || echo "(unable to read current change)")
 working_status=$(jj status 2>/dev/null || echo "(unable to read status)")
 
 # Escape string for JSON embedding

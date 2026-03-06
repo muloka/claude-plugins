@@ -8,9 +8,9 @@ description: Set or update the description of the current jj change
 ## Context
 
 - Current jj status: !`jj status`
-- Current jj diff (working copy changes): !`jj diff`
-- Current change: !`jj log -r @ --no-graph`
-- Recent changes: !`jj log --limit 10`
+- Changed files (JSON): !`jj diff -T '"{ \"path\": " ++ self.path().display().escape_json() ++ ", \"status\": " ++ self.status().escape_json() ++ " }\n"'`
+- Current change (JSON): !`jj log -r @ --no-graph -T 'json(self) ++ "\n"'`
+- Recent changes (JSON): !`jj log --limit 10 --no-graph -T 'json(self) ++ "\n"'`
 
 ## Git → jj translation
 

@@ -12,7 +12,7 @@ disable-model-invocation: false
 ## Context
 
 - Open pull requests: !`gh pr list --state open --limit 5`
-- Current change: !`jj log -r @ --no-graph`
+- Current change (JSON): !`jj log -r @ --no-graph -T 'json(self) ++ "\n"'`
 
 If the user provided a PR number/URL as $ARGUMENTS, use that. Otherwise, use the open PR list above.
 
