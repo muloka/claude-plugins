@@ -4,6 +4,8 @@ Claude Code plugins for **jj (Jujutsu)** workflows — project setup, worktree i
 
 All plugins include a `PreToolUse` hook (`block-raw-git.sh`) that intercepts Bash tool calls and blocks raw `git` commands, keeping your workflow pure jj. When Claude reaches for `git add` or `git commit`, the hook catches it and suggests the jj equivalent.
 
+All jj output commands (`jj log`, `jj diff`, `jj bookmark list`, `jj op log`) use JSON templates (`-T 'json(self)'`) by default, giving Claude Code structured, machine-parseable output instead of human-readable text. Requires jj >= 0.31.0.
+
 ## Plugins
 
 | Plugin | Description | Commands | Agents |
