@@ -33,6 +33,13 @@ This copies the hook scripts to `.claude/scripts/` in your project and configure
 
 **After plugin updates:** Re-run `/workspace-setup` to refresh the scripts in `.claude/scripts/`.
 
+## Commands
+
+| Command | Description |
+|---------|-------------|
+| `/workspace-setup` | Configure worktree hooks for the current project |
+| `/workspace-list` | List all active jj workspaces (JSON output) |
+
 ## Usage
 
 ```bash
@@ -41,6 +48,9 @@ claude --worktree feature-auth
 
 # Auto-generated name
 claude --worktree
+
+# List active workspaces
+/workspace-list
 ```
 
 Subagents can also use workspace isolation with `isolation: "worktree"` in their frontmatter.
