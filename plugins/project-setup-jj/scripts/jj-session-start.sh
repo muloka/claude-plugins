@@ -12,6 +12,7 @@ fi
 # Gather jj context
 current_change=$(jj log -r @ --no-graph -T 'json(self) ++ "\n"' 2>/dev/null || echo "(unable to read current change)")
 working_status=$(jj status 2>/dev/null || echo "(unable to read status)")
+repo_config=$(jj config list -T 'json(self) ++ "\n"' 2>/dev/null || echo "(unable to read config)")
 
 # Escape string for JSON embedding
 escape_for_json() {
@@ -31,6 +32,9 @@ ${current_change}
 
 Working copy status:
 ${working_status}
+
+Repository config (JSON):
+${repo_config}
 
 == jj Workflow Reminder ==
 - Use \`jj new\` to start a fresh change before making edits
