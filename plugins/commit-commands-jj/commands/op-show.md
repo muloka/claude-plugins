@@ -20,7 +20,7 @@ description: Inspect a single jj operation with JSON output
 
 Inspect a specific operation from the operation log. If no operation ID is given, show the most recent operation.
 
-1. If an operation ID was provided as an argument, run `jj op show ${1} -T 'json(self) ++ "\n"'`
+1. If an operation ID was provided as an argument, run `jj op show <arg> -T 'json(self) ++ "\n"'`
 2. If no argument, use the most recent operation from the context above
 3. Present the operation details: ID, timestamp, user, description, and what changes it made
 4. If the user wants to understand the impact, suggest `jj op diff --from <prev-op> --to <op>`

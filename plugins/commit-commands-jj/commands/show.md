@@ -7,7 +7,7 @@ description: Inspect a single jj revision with JSON output
 
 ## Context
 
-- Revision metadata (JSON): !`jj show -r ${1:-@} --no-graph -T 'json(self) ++ "\n"' -s`
+- Revision metadata (JSON): !`jj show -r @ --no-graph -T 'json(self) ++ "\n"' -s`
 
 ## Git → jj translation
 
@@ -20,9 +20,10 @@ description: Inspect a single jj revision with JSON output
 
 Show a summary of the specified revision (default: `@`).
 
-1. Present the revision metadata from context above: change ID, commit ID, author, description, and parent(s)
-2. Show the file-level summary (added/modified/deleted files)
-3. If the user wants the full diff, run `jj diff -r ${1:-@}`
+1. If an argument was provided, run `jj show -r <arg> --no-graph -T 'json(self) ++ "\n"' -s` for that revision instead
+2. Present the revision metadata: change ID, commit ID, author, description, and parent(s)
+3. Show the file-level summary (added/modified/deleted files)
+4. If the user wants the full diff, run `jj diff -r <rev>`
 
 Notes:
 - `jj show` combines commit metadata + diff in one command
