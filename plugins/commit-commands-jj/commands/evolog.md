@@ -7,7 +7,7 @@ description: Show how a jj change has evolved over time
 
 ## Context
 
-- Evolution log (JSON): !`jj evolog -r ${1:-@} --no-graph -T 'json(self) ++ "\n"'`
+- Evolution log (JSON): !`jj evolog -r @ --no-graph -T 'json(self) ++ "\n"'`
 - Current change (JSON): !`jj log -r @ --no-graph -T 'json(self) ++ "\n"'`
 
 ## Git → jj translation
@@ -20,9 +20,10 @@ description: Show how a jj change has evolved over time
 
 Show the evolution history of a change (default: `@`). In jj, every modification to a change (rebase, describe, squash, conflict resolution) creates a new version. `jj evolog` shows all versions.
 
-1. Present the evolution entries from context above in chronological order
-2. For each entry, highlight: what changed (description update, rebase, content change), when, and by which operation
-3. Summarize the change's journey (e.g., "created → described → rebased onto main → squashed fixup")
+1. If an argument was provided, run `jj evolog -r <arg> --no-graph -T 'json(self) ++ "\n"'` for that revision instead
+2. Present the evolution entries in chronological order
+3. For each entry, highlight: what changed (description update, rebase, content change), when, and by which operation
+4. Summarize the change's journey (e.g., "created → described → rebased onto main → squashed fixup")
 
 Notes:
 - This is jj's equivalent of per-commit reflog — it shows the full history of a single change
