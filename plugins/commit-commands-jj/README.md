@@ -321,6 +321,83 @@ Discards a jj change entirely, rebasing descendants onto its parent.
 - Recoverable with `/undo` — nothing is permanently lost
 - Accepts a revset for abandoning multiple changes
 
+### `/show`
+
+Inspects a single revision with JSON-structured metadata and file summary.
+
+**What it does:**
+1. Shows revision metadata (change ID, commit ID, author, description, parents) via JSON
+2. Lists modified/added/deleted files
+3. Optionally shows the full diff on request
+
+**Usage:**
+```bash
+/show          # inspect current change (@)
+/show qpvuntsm # inspect a specific revision
+```
+
+**Features:**
+- Same Commit JSON type as `jj log` — structured, machine-parseable
+- Combines metadata + file summary in one command
+- Accepts any revset expression
+
+### `/evolog`
+
+Shows how a change has evolved over time — every rebase, describe, squash, and conflict resolution.
+
+**What it does:**
+1. Presents the evolution history of a change in chronological order
+2. Highlights what changed at each step (description update, rebase, content change)
+3. Summarizes the change's journey
+
+**Usage:**
+```bash
+/evolog          # evolution of current change (@)
+/evolog qpvuntsm # evolution of a specific change
+```
+
+**Features:**
+- jj's equivalent of per-commit reflog — full history of a single change
+- Useful for debugging "what happened to this change?" after syncs or collaboration
+- Each entry includes the operation that caused the mutation
+- The change ID stays the same across all versions — only the commit ID changes
+
+### `/op-show`
+
+Inspects a single operation from the operation log with JSON output.
+
+**What it does:**
+1. Shows operation details: ID, timestamp, user, description
+2. Pairs with `/undo` — inspect before deciding whether to reverse
+
+**Usage:**
+```bash
+/op-show          # inspect most recent operation
+/op-show <op-id>  # inspect a specific operation
+```
+
+**Features:**
+- Same Operation JSON type as `jj op log` — structured, machine-parseable
+- Every repository mutation is recorded as an operation
+- Use `jj op diff` for before/after comparison
+
+### `/tag-list`
+
+Lists all tags in the repository with JSON-structured output.
+
+**What it does:**
+1. Shows all tags with their target commit metadata
+2. Reports if no tags exist
+
+**Usage:**
+```bash
+/tag-list
+```
+
+**Features:**
+- Same CommitRef JSON type as `jj bookmark list`
+- Use `jj show -r <tag-name>` for details on a tag's target
+
 ### `/clean_stale`
 
 Cleans up stale local bookmarks and workspaces (replaces `/clean_gone` from the Git plugin).
@@ -411,6 +488,25 @@ claude plugins add ./plugins/commit-commands-jj
 - Always check the diff before abandoning — modifications will be lost
 - Use `/undo` immediately if you abandoned by mistake
 - Descendants are rebased onto the parent, not deleted
+
+### Using `/show`
+- Use to quickly inspect any revision's metadata and file changes
+- Accepts change IDs, commit IDs, bookmarks, or revsets
+- For full diff content, ask after seeing the summary
+
+### Using `/evolog`
+- Use to debug "what happened to this change?" after unexpected state
+- Especially useful after syncs, rebases, or multi-agent collaboration
+- Pairs well with `/undo` — understand evolution before reversing
+
+### Using `/op-show`
+- Use to inspect an operation before deciding to `/undo` it
+- Find operation IDs with `jj op log`
+- For comparing before/after state, use `jj op diff`
+
+### Using `/tag-list`
+- Use to see all tags in the repository
+- For tag details, follow up with `/show <tag-name>`
 
 ### Using `/clean_stale`
 - Run periodically to keep your bookmark list clean
