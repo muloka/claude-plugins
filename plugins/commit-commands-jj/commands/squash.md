@@ -10,6 +10,7 @@ description: Squash the current jj change into its parent
 - Current change (JSON): !`jj log -r @ --no-graph -T 'json(self) ++ "\n"'`
 - Parent change (JSON): !`jj log -r @- --no-graph -T 'json(self) ++ "\n"'`
 - Changed files (JSON): !`jj diff -T '"{ \"path\": " ++ self.path().display().escape_json() ++ ", \"status\": " ++ self.status().escape_json() ++ " }\n"'`
+- Change stats (JSON): !`jj log -r @ --no-graph -T 'self.diff().stat().files().map(|entry| "{ \"path\": " ++ entry.path().display().escape_json() ++ ", \"lines_added\": " ++ entry.lines_added() ++ ", \"lines_removed\": " ++ entry.lines_removed() ++ ", \"bytes_delta\": " ++ entry.bytes_delta() ++ " }\n")'`
 - Current status: !`jj status`
 
 ## Git → jj translation

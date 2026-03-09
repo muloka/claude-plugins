@@ -10,6 +10,7 @@ allowed-tools: ["Bash", "Glob", "Grep", "Read", "Task"]
 
 - Current jj status: !`jj status`
 - Changed files (JSON): !`jj diff -T '"{ \"path\": " ++ self.path().display().escape_json() ++ ", \"status\": " ++ self.status().escape_json() ++ " }\n"'`
+- Change stats (JSON): !`jj log -r @ --no-graph -T 'self.diff().stat().files().map(|entry| "{ \"path\": " ++ entry.path().display().escape_json() ++ ", \"lines_added\": " ++ entry.lines_added() ++ ", \"lines_removed\": " ++ entry.lines_removed() ++ ", \"bytes_delta\": " ++ entry.bytes_delta() ++ " }\n")'`
 - Current change (JSON): !`jj log -r @ --no-graph -T 'json(self) ++ "\n"'`
 - Open PRs: !`gh pr list --state open --limit 5`
 
