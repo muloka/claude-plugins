@@ -28,10 +28,10 @@ In jj, `jj squash` moves all changes from the current change into its parent and
 
 1. Check if the current change has any modifications (from the diff/status above)
    - If the current change is empty (no diff), report "nothing to squash" and stop
-2. Run `jj squash`
-   - If the user specified a target revision, run `jj squash --into <rev>` instead
-3. Review the combined description on the parent change: `jj log -r @ --no-graph -T 'json(self) ++ "\n"'`
-   - If the combined description looks awkward (e.g., duplicated text or concatenated fragments), clean it up with `jj describe -m "<cleaned-up-msg>"`
+2. Construct a combined description from the current change and parent descriptions (from context above). Write a clean, concise message that captures both — do not just concatenate them.
+3. Run `jj squash -m "<combined-description>"`
+   - Always use `-m` to avoid opening an editor (agents cannot interact with editors)
+   - If the user specified a target revision, run `jj squash --into <rev> -m "<combined-description>"` instead
 4. Show the result: `jj log --limit 5 --no-graph -T 'json(self) ++ "\n"'`
 
 Notes:
