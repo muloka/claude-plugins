@@ -1,5 +1,5 @@
 ---
-allowed-tools: Bash(jj op log:*), Bash(jj undo:*), Bash(jj log:*), Bash(jj status:*)
+allowed-tools: Bash(jj op log:*), Bash(jj op revert:*), Bash(jj log:*), Bash(jj status:*)
 description: Undo the last jj operation
 ---
 
@@ -16,23 +16,24 @@ description: Undo the last jj operation
 | Git | jj |
 |---|---|
 | `git reflog` | `jj op log` |
-| `git reset HEAD~1` | `jj undo` |
+| `git reset HEAD~1` | `jj op revert` |
 | `git status` | `jj status` |
 | `git log --oneline -5` | `jj log --limit 5` |
 
 ## Your task
 
-In jj, every operation is recorded in the operation log, and `jj undo` reverses the last one. This is a safe undo — it restores the repository to its state before the last operation.
+In jj, every operation is recorded in the operation log, and `jj op revert` reverses the last one. This is a safe undo — it restores the repository to its state before the last operation.
 
 1. Review the operation log (shown in context above) to identify the last operation
-2. Run `jj undo`
+2. Run `jj op revert <op-id>` using the most recent operation ID from the log
 3. Confirm the result with `jj status` and `jj log --limit 5 --no-graph -T 'json(self) ++ "\n"'`
 4. Report what was undone (describe the operation that was reversed)
 
 Notes:
-- `jj undo` only reverses the most recent operation
-- For undoing older operations, use `jj op restore <op-id>` (the op IDs are visible in `jj op log`)
-- The undo itself is an operation and can be undone with another `jj undo`
+- `jj op revert` reverses a specific operation (use the most recent op ID to undo the last one)
+- For restoring to an older state, use `jj op restore <op-id>` (the op IDs are visible in `jj op log`)
+- The revert itself is an operation and can be reverted
 - This is much safer than git's approach — no risk of losing commits
+- Do NOT use `jj undo` — it is deprecated and will be removed in a future version
 
 You have the capability to call multiple tools in a single response. Perform the undo using a single message. Do not use any other tools or do anything else. Do not send any other text or messages besides these tool calls.
