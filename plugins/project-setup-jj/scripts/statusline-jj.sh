@@ -3,7 +3,7 @@
 # Receives JSON session data on stdin, outputs a single status line
 #
 # Layout:
-#   [Model] bookmark change-id description TRUNK_STATE | N% | $cost
+#   [Model] bookmark change-id description TRUNK_STATE | N%
 #
 # Trunk states:
 #   @trunk  — sitting on trunk
@@ -17,11 +17,9 @@ input=$(cat)
 # Session info from stdin JSON
 MODEL=$(echo "$input" | jq -r '.model.display_name // "unknown"')
 PCT=$(echo "$input" | jq -r '.context_window.used_percentage // 0' | cut -d. -f1)
-COST=$(echo "$input" | jq -r '.cost.total_cost_usd // 0')
-
 # Quick bail if not a jj repo
 if ! jj root >/dev/null 2>&1; then
-  printf '[%s] %s%% | $%s' "$MODEL" "$PCT" "$COST"
+  printf '[%s] %s%%' "$MODEL" "$PCT"
   exit 0
 fi
 
@@ -83,4 +81,4 @@ else
   printf '%s\n%s' "$CACHE_KEY" "$JJ_INFO" > "$CACHE_FILE"
 fi
 
-printf '[%s] %s | %s%% | $%s' "$MODEL" "$JJ_INFO" "$PCT" "$COST"
+printf '[%s] %s | %s%%' "$MODEL" "$JJ_INFO" "$PCT"
