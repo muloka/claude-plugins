@@ -87,13 +87,13 @@ Fields:
 
 Commands that bootstrap project configuration (e.g. `project-setup`) must be fully idempotent:
 
-- **Marker comments** for CLAUDE.md sections:
+- **Marker comments** for CLAUDE.md sections with content hash for update detection:
   ```
-  <!-- jj-project-setup:start -->
+  <!-- jj-project-setup:start hash:422ef786 -->
   …content…
   <!-- jj-project-setup:end -->
   ```
-  If markers exist, replace content between them. If CLAUDE.md exists without markers, prepend. If no CLAUDE.md, create it.
+  The hash is the first 8 chars of `md5` of the template body (content between markers). On setup: if markers exist and hash matches, skip ("already up to date"). If hash differs or markers are legacy (no hash), replace the section. If no markers, prepend. If no CLAUDE.md, create it.
 
 - **`jq` deep-merge** for `.claude/settings.local.json` — concatenate and deduplicate arrays (`allow`, `deny`), merge objects recursively, preserve unrelated keys.
 

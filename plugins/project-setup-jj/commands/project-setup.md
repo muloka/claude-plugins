@@ -1,6 +1,6 @@
 ---
 description: Bootstrap jj (Jujutsu) workflow enforcement for this project
-allowed-tools: Bash(jj:*), Bash(cp:*), Bash(chmod:*), Bash(mkdir:*), Bash(cat:*), Bash(jq:*), Bash(ls:*), Bash(dirname:*), Bash(realpath:*), Read, Write
+allowed-tools: Bash(jj:*), Bash(cp:*), Bash(chmod:*), Bash(mkdir:*), Bash(cat:*), Bash(jq:*), Bash(ls:*), Bash(dirname:*), Bash(realpath:*), Bash(md5:*), Bash(sed:*), Bash(grep:*), Read, Write
 ---
 
 ## Your Task
@@ -110,13 +110,14 @@ Replace `<project-root>` with the actual absolute path from `jj root`.
 
 ### Step 5: Create or update CLAUDE.md
 
-Read the CLAUDE.md template from the plugin's `templates/CLAUDE.md.template`. The template is a slim policy directive (~5 lines) — not a full reference guide. It uses an `## VCS` heading (h2) so it fits naturally into any existing CLAUDE.md heading hierarchy.
+Read the CLAUDE.md template from the plugin's `templates/CLAUDE.md.template`. The template includes a content hash in its start marker (`<!-- jj-project-setup:start hash:<hex> -->`) for version tracking. It uses an `## VCS` heading (h2) so it fits naturally into any existing CLAUDE.md heading hierarchy.
 
-Then handle three cases:
+Then handle four cases:
 
 1. **No CLAUDE.md exists:** Create it from the template.
-2. **CLAUDE.md exists with `<!-- jj-project-setup:start -->` marker:** Replace the section between `<!-- jj-project-setup:start -->` and `<!-- jj-project-setup:end -->` (inclusive) with the template content.
-3. **CLAUDE.md exists without the marker:** Prepend the template content followed by a blank line, preserving all existing content.
+2. **CLAUDE.md exists with `<!-- jj-project-setup:start hash:<hex> -->` marker:** Extract the hash from the installed marker and compare it to the hash in the template. If they match, the section is up to date — skip (report "CLAUDE.md already up to date"). If they differ, replace the section between the start and `<!-- jj-project-setup:end -->` markers (inclusive) with the template content.
+3. **CLAUDE.md exists with `<!-- jj-project-setup:start -->` (no hash — legacy):** Replace the section between markers with the template content (upgrades to the hashed format).
+4. **CLAUDE.md exists without any marker:** Prepend the template content followed by a blank line, preserving all existing content.
 
 The CLAUDE.md file is at the project root (from `jj root`).
 
@@ -127,7 +128,7 @@ Show a summary of what was set up:
 - SessionStart hook script copied to `.claude/scripts/jj-session-start.sh`
 - PreToolUse guard hook copied to `.claude/scripts/require-jj-new.sh`
 - Settings updated in `.claude/settings.local.json` (SessionStart hook + PreToolUse hook + permissions)
-- CLAUDE.md created/updated with jj workflow instructions
+- CLAUDE.md created/updated with jj workflow instructions (or "already up to date" if hash matches)
 
 Remind the user to:
 - **Restart Claude Code** for the hooks to take effect

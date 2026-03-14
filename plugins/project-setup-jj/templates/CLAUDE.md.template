@@ -1,5 +1,13 @@
-<!-- jj-project-setup:start -->
+<!-- jj-project-setup:start hash:422ef786 -->
 ## VCS — jj (Jujutsu)
 
 This project uses **jj (Jujutsu)** as its VCS. Never use raw git commands. Use jj equivalents instead (e.g. `jj log`, `jj status`, `jj diff`). The only exceptions are `jj git` subcommands (e.g. `jj git push`) and the `gh` CLI for GitHub operations.
+
+### Superpowers overrides
+
+When superpowers skills reference git-based workflows, use these jj-native replacements:
+
+| Superpowers skill | Use instead | Why |
+|---|---|---|
+| `finishing-a-development-branch` | `/finish` | jj-native: bookmarks, `jj git push`, workspace cleanup |
 <!-- jj-project-setup:end -->

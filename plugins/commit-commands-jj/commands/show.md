@@ -26,7 +26,7 @@ Show a summary of the specified revision (default: `@`).
 4. If the user wants the full diff, run `jj diff -r <rev>`
 
 Notes:
-- `jj show` combines commit metadata + diff in one command
+- `jj show` combines revision metadata + diff in one command
 - Use `-r <rev>` to inspect any revision (change IDs, commit IDs, bookmarks, or revsets)
 - The JSON metadata uses the same Commit type as `jj log`
 

@@ -36,6 +36,6 @@ Notes:
 - `jj git fetch` auto-prunes deleted remote tracking refs
 - `trunk()` is a revset that resolves to the trunk bookmark (usually `main@origin`)
 - If the current change is already on trunk, the rebase is a no-op
-- Conflicts in jj are first-class — they are recorded in the commit, not in the working copy
+- Conflicts in jj are first-class — they are recorded in the change, not left as markers in the working copy
 
 You have the capability to call multiple tools in a single response. Perform the sync using a single message. Do not use any other tools or do anything else. Do not send any other text or messages besides these tool calls.

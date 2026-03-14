@@ -24,12 +24,12 @@ description: Finalize the current jj change with a description
 
 ## Your task
 
-In jj, the working copy IS already a commit. The natural flow is:
+In jj, the working copy IS already a change. The natural flow is:
 1. Review changes in the working copy (already there — no staging needed)
 2. `jj commit -m "<msg>"` — describes the current change and starts a new empty one on top
 
 Based on the above changes, finalize the current jj change with an appropriate description.
 
-There is no `git add` equivalent in jj. All working copy changes are automatically included. If the user needs partial commits, they should use `jj split` before running `/commit`.
+There is no `git add` equivalent in jj. All working copy changes are automatically included. If the user needs to split changes, they should use `jj split` before running `/commit`.
 
-You have the capability to call multiple tools in a single response. Create the commit using a single message. Do not use any other tools or do anything else. Do not send any other text or messages besides these tool calls.
+You have the capability to call multiple tools in a single response. Finalize the change using a single message. Do not use any other tools or do anything else. Do not send any other text or messages besides these tool calls.
