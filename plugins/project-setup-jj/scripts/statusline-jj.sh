@@ -40,12 +40,18 @@ else
   if [ "$ON_TRUNK" = "yes" ]; then
     TRUNK_STATE="@trunk"
   else
-    # Count changes between trunk and @
-    AHEAD=$(jj log -r 'trunk()..@' --no-graph -T '"x"' 2>/dev/null | wc -c | tr -d ' ')
+    # Count non-empty changes between trunk and @
+    AHEAD=$(jj log -r '(trunk()..@) ~ empty()' --no-graph -T '"x"' 2>/dev/null | wc -c | tr -d ' ')
     if [ "$AHEAD" -gt 0 ] 2>/dev/null; then
       TRUNK_STATE="+${AHEAD}"
     else
-      TRUNK_STATE="⎇"
+      # All changes are empty — check if descended from trunk at all
+      ALL=$(jj log -r 'trunk()..@' --no-graph -T '"x"' 2>/dev/null | wc -c | tr -d ' ')
+      if [ "$ALL" -gt 0 ] 2>/dev/null; then
+        TRUNK_STATE="@trunk"
+      else
+        TRUNK_STATE="⎇"
+      fi
     fi
   fi
 
