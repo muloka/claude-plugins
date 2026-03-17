@@ -1,6 +1,6 @@
 {
-  "name": "feature-dev-jj",
-  "description": "Comprehensive feature development workflow with specialized agents for codebase exploration, architecture design, and quality review (jj/Jujutsu edition)",
+  "name": "peer-review-jj",
+  "description": "Unified change review for jj repos — generalist-first with emergent specialists, two-phase pipeline, structured findings",
   "author": {
     "name": "muloka",
     "email": "muloka@users.noreply.github.com"
@@ -13,6 +13,10 @@
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/block-raw-git.sh"
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/block-review-markers.sh"
           }
         ]
       }
