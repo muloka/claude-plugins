@@ -67,6 +67,16 @@ jj log -r <rev> --no-graph -T 'self.diff().stat().files().map(|entry| "{ \"path\
 
 ### Step 2: If --track, Set Up Progress Tracking
 
+Check for existing review state first:
+
+```bash
+jj log -r 'description("review: <change-id>")' --no-graph -T 'self.change_id().short(8)'
+```
+
+If found, resume from existing state — only dispatch for unreviewed files. Skip setup below.
+
+If not found, set up:
+
 ```bash
 # Duplicate the target change
 DUPLICATE=$(jj duplicate <revision> 2>&1 | sed -n 's/.*as \([a-z]*\) .*/\1/p')
@@ -83,14 +93,6 @@ REVIEWED_PARENT=$(jj log -r '@-' --no-graph -T 'self.change_id().short(8)')
 # Tag for detection
 jj describe -r $REVIEWED_PARENT -m "review: <change-id>"
 ```
-
-Check for existing review state first:
-
-```bash
-jj log -r 'description("review: <change-id>")' --no-graph -T 'self.change_id().short(8)'
-```
-
-If found, resume from existing state — only dispatch for unreviewed files.
 
 ### Step 3: Calculate Generalist Count
 

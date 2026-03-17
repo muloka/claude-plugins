@@ -26,7 +26,8 @@ Inspired by [Gesoff's duplicate+squash review technique](https://ben.gesoff.uk/p
 
 ```
 peer-review-jj/
-├── plugin.json
+├── .claude-plugin/
+│   └── plugin.json
 ├── commands/
 │   └── peer-review.md              # /peer-review — single entry point
 ├── skills/
