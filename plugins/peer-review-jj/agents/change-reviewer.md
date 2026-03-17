@@ -67,7 +67,7 @@ Rate each finding from 0-100:
 
 ## Specialist Recommendation Trigger
 
-When you encounter something outside your depth — complex type invariants, subtle concurrency issues, error handling chains across multiple files — add a `specialist_recommendation` entry with:
+When you encounter something outside your depth — complex type invariants, subtle concurrency issues, error handling chains across multiple files — add a `specialist_recommendations` entry with:
 
 - Concern type (from the enum)
 - Specific file and line locations

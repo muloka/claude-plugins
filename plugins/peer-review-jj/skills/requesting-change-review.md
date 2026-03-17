@@ -56,27 +56,19 @@ Each generalist receives a prompt with:
 - **Change context**: revision, description, change metadata from `jj log -r <rev> --no-graph -T 'json(self) ++ "\n"'`
 - **Output schema**: the generalist response JSON schema (from the change-reviewer agent spec)
 
-## Step 5: Dispatch Generalists
+## Step 5: If --track Enabled
 
-- Use the Agent tool to dispatch generalists in parallel
-- Each generalist is a `change-reviewer` agent (subagent_type: `change-reviewer`)
-- Include the jj-only directive in each agent prompt
-- Collect all JSON responses
+### Resumability Detection
 
-Example dispatch (single generalist):
+Check for existing review state first:
 
-```
-Agent(
-  subagent_type: "change-reviewer",
-  prompt: "Review these files in revision <rev>: <file list>. <context>. <guidelines>. Return structured JSON."
-)
+```bash
+jj log -r 'description("review: <change-id>")' --no-graph -T 'self.change_id().short(8)'
 ```
 
-For multiple generalists, dispatch all in a single message with parallel Agent calls.
+If found, check which files are already squashed (reviewed) by comparing `jj diff --stat` on the working copy. Only dispatch generalists for files still in the working copy. Skip setup below.
 
-## Step 6: If --track Enabled
-
-### Setup (first run)
+### Setup (first run, only if no existing review state)
 
 ```bash
 # 1. Duplicate the target change
@@ -95,17 +87,25 @@ REVIEWED_PARENT=$(jj log -r '@-' --no-graph -T 'self.change_id().short(8)')
 jj describe -r $REVIEWED_PARENT -m "review: <change-id>"
 ```
 
-### Resumability Detection
+## Step 6: Dispatch Generalists
 
-Search for existing review state:
+- Use the Agent tool to dispatch generalists in parallel
+- Each generalist is a `change-reviewer` agent (subagent_type: `change-reviewer`)
+- Include the jj-only directive in each agent prompt
+- Collect all JSON responses
 
-```bash
-jj log -r 'description("review: <change-id>")' --no-graph -T 'self.change_id().short(8)'
+Example dispatch (single generalist):
+
+```
+Agent(
+  subagent_type: "change-reviewer",
+  prompt: "Review these files in revision <rev>: <file list>. <context>. <guidelines>. Return structured JSON."
+)
 ```
 
-If found, check which files are already squashed (reviewed) by comparing `jj diff --stat` on the working copy. Only dispatch generalists for files still in the working copy.
+For multiple generalists, dispatch all in a single message with parallel Agent calls.
 
-### After Each Generalist Completes
+### After Each Generalist Completes (if --track)
 
 Squash clean files (no findings) into the reviewed parent:
 
