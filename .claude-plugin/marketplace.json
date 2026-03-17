@@ -1,7 +1,7 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "muloka-claude-plugins",
-  "description": "jj (Jujutsu) plugins for Claude Code — project setup, commit workflows, code review, PR review, feature development, and workspace isolation",
+  "description": "jj (Jujutsu) plugins for Claude Code — project setup, commit workflows, peer review, and workspace isolation",
   "owner": {
     "name": "muloka",
     "email": "muloka@users.noreply.github.com"
@@ -30,37 +30,15 @@
       "homepage": "https://github.com/muloka/claude-plugins/tree/main/plugins/commit-commands-jj"
     },
     {
-      "name": "code-review-jj",
-      "description": "Automated code review for pull requests using multiple specialized agents with confidence-based scoring (jj/Jujutsu edition)",
+      "name": "peer-review-jj",
+      "description": "Unified change review for jj repos — generalist-first with emergent specialists, two-phase pipeline, structured findings",
       "author": {
         "name": "muloka",
         "email": "muloka@users.noreply.github.com"
       },
-      "source": "./plugins/code-review-jj",
+      "source": "./plugins/peer-review-jj",
       "category": "productivity",
-      "homepage": "https://github.com/muloka/claude-plugins/tree/main/plugins/code-review-jj"
-    },
-    {
-      "name": "pr-review-toolkit-jj",
-      "description": "Comprehensive PR review agents for jj (Jujutsu) repos specializing in comments, tests, error handling, type design, code quality, and code simplification",
-      "author": {
-        "name": "muloka",
-        "email": "muloka@users.noreply.github.com"
-      },
-      "source": "./plugins/pr-review-toolkit-jj",
-      "category": "productivity",
-      "homepage": "https://github.com/muloka/claude-plugins/tree/main/plugins/pr-review-toolkit-jj"
-    },
-    {
-      "name": "feature-dev-jj",
-      "description": "Comprehensive feature development workflow with specialized agents for codebase exploration, architecture design, and quality review (jj/Jujutsu edition)",
-      "author": {
-        "name": "muloka",
-        "email": "muloka@users.noreply.github.com"
-      },
-      "source": "./plugins/feature-dev-jj",
-      "category": "productivity",
-      "homepage": "https://github.com/muloka/claude-plugins/tree/main/plugins/feature-dev-jj"
+      "homepage": "https://github.com/muloka/claude-plugins/tree/main/plugins/peer-review-jj"
     },
     {
       "name": "workspace-jj",
