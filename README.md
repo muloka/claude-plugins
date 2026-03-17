@@ -1,6 +1,6 @@
 # Claude Code Plugins for jj (Jujutsu)
 
-Claude Code plugins for **jj (Jujutsu)** workflows — project setup, worktree isolation via jj workspaces, commit management, code review, PR review, and feature development.
+Claude Code plugins for **jj (Jujutsu)** workflows — project setup, worktree isolation via jj workspaces, commit management, and peer review.
 
 All plugins include a `PreToolUse` hook (`block-raw-git.sh`) that intercepts Bash tool calls and blocks raw `git` commands, keeping your workflow pure jj. When Claude reaches for `git add` or `git commit`, the hook catches it and suggests the jj equivalent.
 
@@ -13,9 +13,7 @@ All jj output commands (`jj log`, `jj diff`, `jj bookmark list`, `jj op log`, `j
 | **project-setup-jj** | Bootstrap jj workflow enforcement with `/project-setup` | 1 | — |
 | **workspace-jj** | Worktree isolation for jj repos via `jj workspace` hooks | 2 | — |
 | **commit-commands-jj** | jj commit workflows — commit, push, PR creation, and more | 14 | — |
-| **code-review-jj** | Automated code review with confidence-based scoring | 1 | — |
-| **pr-review-toolkit-jj** | Specialized PR review agents | 1 | 6 |
-| **feature-dev-jj** | Feature development with exploration, architecture, and review | 1 | 3 |
+| **peer-review-jj** | Unified change review — generalist-first with emergent specialists | 1 | 1 |
 
 ## project-setup-jj
 
@@ -24,8 +22,8 @@ Bootstrap jj workflow enforcement for any project with a single command. Sets up
 **Setup:**
 
 ```bash
-# 1. Install
-/install-plugin https://github.com/muloka/claude-plugins/tree/main/plugins/project-setup-jj
+# 1. Install from plugin manager
+/plugin install project-setup-jj@muloka-claude-plugins
 
 # 2. Run setup in your jj project
 /project-setup
@@ -42,8 +40,8 @@ Enables Claude Code's `--worktree` flag and subagent `isolation: "worktree"` in 
 **Setup:**
 
 ```bash
-# 1. Install
-/install-plugin https://github.com/muloka/claude-plugins/tree/main/plugins/workspace-jj
+# 1. Install from plugin manager
+/plugin install workspace-jj@muloka-claude-plugins
 
 # 2. Run setup in your jj project (copies hook scripts, configures settings)
 /workspace-setup
@@ -60,52 +58,42 @@ Claude Code doesn't pick up `WorktreeCreate`/`WorktreeRemove` hooks from plugins
 
 Streamline your jj commit workflow with simple slash commands.
 
-**Commands:** `/commit`, `/commit-push-pr`, `/new`, `/edit`, `/describe`, `/squash`, `/abandon`, `/sync`, `/undo`, `/clean_stale`, `/show`, `/evolog`, `/op-show`, `/tag-list`
+**Commands:** `/commit`, `/commit-push-pr`, `/new`, `/edit`, `/describe`, `/squash`, `/abandon`, `/sync`, `/undo`, `/finish`, `/clean_stale`, `/show`, `/evolog`, `/op-show`, `/tag-list`
 
-## code-review-jj
+## peer-review-jj
 
-Automated code review for pull requests using confidence-based scoring.
+Unified change review for jj repos. Two-phase pipeline (requesting → receiving) with generalist-first architecture and emergent specialists.
 
-**Command:** `/code-review`
+**Command:** `/peer-review`
 
-## pr-review-toolkit-jj
+```
+/peer-review                          # review current change (@)
+/peer-review <revision>               # review specific change
+/peer-review --deep errors types      # generalist + specialist dispatch
+/peer-review --track                  # enable progress tracking (duplicate+squash)
+/peer-review --post                   # post findings to GitHub PR
+/peer-review --json                   # raw structured output
+```
 
-Comprehensive PR review using six specialized agents, each running a focused pass:
+**Agent:** `change-reviewer` — generalist reviewer that scales with change size (1 per ~300 lines). Returns structured JSON findings with severity tiers and confidence scoring (>= 80 threshold). Recommends specialists for deeper analysis when needed.
 
-| Agent | Purpose |
-|-------|---------|
-| **code-reviewer** | Style guide adherence, best practices, project conventions |
-| **silent-failure-hunter** | Silent failures, inadequate error handling, swallowed exceptions |
-| **code-simplifier** | Code clarity, consistency, and maintainability |
-| **comment-analyzer** | Comment accuracy, completeness, and long-term maintainability |
-| **pr-test-analyzer** | Test coverage quality and completeness |
-| **type-design-analyzer** | Type encapsulation, invariant expression, and design quality |
+**Specialist emergence:** After 3+ reviews flag distinct patterns for a concern type, the plugin prompts to create a project-specific specialist at `.claude/peer-review/specialists/`.
 
-**Command:** `/review-pr`
-
-## feature-dev-jj
-
-Guided feature development pipeline — explore, then architect, then review:
-
-| Agent | Phase |
-|-------|-------|
-| **code-explorer** | Deep codebase analysis — traces execution paths, maps architecture |
-| **code-architect** | Designs feature architectures following existing patterns and conventions |
-| **code-reviewer** | Reviews code for bugs, logic errors, security vulnerabilities, and quality |
-
-**Command:** `/feature-dev`
+Replaces the deprecated `code-review-jj`, `pr-review-toolkit-jj`, and `feature-dev-jj` plugins. See [design doc](docs/peer-review-jj/2026-03-16-peer-review-jj-design.md) for full details.
 
 ## Installation
 
-Install any plugin directly from GitHub using Claude Code:
+Add the marketplace and install plugins via the plugin manager:
 
 ```
-/install-plugin https://github.com/muloka/claude-plugins/tree/main/plugins/project-setup-jj
-/install-plugin https://github.com/muloka/claude-plugins/tree/main/plugins/workspace-jj
-/install-plugin https://github.com/muloka/claude-plugins/tree/main/plugins/commit-commands-jj
-/install-plugin https://github.com/muloka/claude-plugins/tree/main/plugins/code-review-jj
-/install-plugin https://github.com/muloka/claude-plugins/tree/main/plugins/pr-review-toolkit-jj
-/install-plugin https://github.com/muloka/claude-plugins/tree/main/plugins/feature-dev-jj
+/plugin marketplace add muloka/claude-plugins
+/plugin install peer-review-jj@muloka-claude-plugins
+```
+
+Or browse available plugins:
+
+```
+/plugin
 ```
 
 **Note:** After installing workspace-jj, run `/workspace-setup` in your jj project and restart Claude Code.
