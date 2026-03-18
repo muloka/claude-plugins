@@ -136,11 +136,11 @@ if [ -z "$SUMMARY_JSON" ]; then
   fi
 fi
 
-STATUS_SYM="?"; STATUS_BG="$MUT_BG"; STATUS_FG="$MUT_FG"
+STATUS_SYM="?"; STATUS_BG="$MUT_BG"; STATUS_FG="$MUT_FG"; STATUS_LBL=""
 MAINT_TXT=""; MAINT_BG=""; MAINT_FG=""
 if [ -n "$SUMMARY_JSON" ]; then
   # 1. Model-specific incident check
-  MODEL_SHORT=$(echo "$MODEL" | sed 's/^Claude //')
+  MODEL_SHORT=$(echo "$MODEL" | sed 's/^Claude //' | sed 's/ ([^)]*)//')
   MODEL_INCIDENT=""
   if [ "$MODEL_SHORT" != "unknown" ]; then
     MODEL_INCIDENT=$(echo "$SUMMARY_JSON" | jq -r --arg m "$MODEL_SHORT" \
@@ -148,16 +148,23 @@ if [ -n "$SUMMARY_JSON" ]; then
   fi
 
   if [ -n "$MODEL_INCIDENT" ]; then
-    STATUS_SYM="✗"; STATUS_BG="$ATT_BG"; STATUS_FG="$ATT_FG"
+    case "$MODEL_INCIDENT" in
+      critical) STATUS_SYM="↯" ;;
+      major)    STATUS_SYM="⚠" ;;
+      *)        STATUS_SYM="▲" ;;
+    esac
+    STATUS_BG="$ATT_BG"; STATUS_FG="$ATT_FG"
+    STATUS_LBL=$(echo "$MODEL_SHORT" | sed 's/ .*//')  # e.g. "Opus", "Sonnet"
   else
     # 2. Claude Code component status
     CC_STATUS=$(echo "$SUMMARY_JSON" | jq -r \
       '.components[] | select(.name == "Claude Code") | .status' 2>/dev/null || echo "unknown")
     case "$CC_STATUS" in
-      operational)                         STATUS_SYM="✓"; STATUS_BG="$HLT_BG"; STATUS_FG="$HLT_FG" ;;
-      degraded_performance|partial_outage) STATUS_SYM="⚠"; STATUS_BG="$ATT_BG"; STATUS_FG="$ATT_FG" ;;
-      major_outage)                        STATUS_SYM="✗"; STATUS_BG="$ATT_BG"; STATUS_FG="$ATT_FG" ;;
-      *)                                   STATUS_SYM="?"; STATUS_BG="$MUT_BG"; STATUS_FG="$MUT_FG" ;;
+      operational)          STATUS_SYM="✓"; STATUS_BG="$HLT_BG"; STATUS_FG="$HLT_FG" ;;
+      degraded_performance) STATUS_SYM="▲"; STATUS_BG="$ATT_BG"; STATUS_FG="$ATT_FG"; STATUS_LBL="CC" ;;
+      partial_outage)       STATUS_SYM="⚠"; STATUS_BG="$ATT_BG"; STATUS_FG="$ATT_FG"; STATUS_LBL="CC" ;;
+      major_outage)         STATUS_SYM="↯"; STATUS_BG="$ATT_BG"; STATUS_FG="$ATT_FG"; STATUS_LBL="CC" ;;
+      *)                    STATUS_SYM="?"; STATUS_BG="$MUT_BG"; STATUS_FG="$MUT_FG" ;;
     esac
   fi
 
@@ -208,7 +215,8 @@ SEG_TXT+=(" ${PCT}% ");                SEG_BG+=("$PCT_BG");      SEG_FG+=("$PCT_
   SEG_TXT+=(" 2x "); SEG_BG+=("$SPC_BG"); SEG_FG+=("$SPC_FG")
 }
 
-SEG_TXT+=(" $STATUS_SYM "); SEG_BG+=("$STATUS_BG"); SEG_FG+=("$STATUS_FG")
+STATUS_TXT=" $STATUS_SYM${STATUS_LBL:+ $STATUS_LBL} "
+SEG_TXT+=("$STATUS_TXT"); SEG_BG+=("$STATUS_BG"); SEG_FG+=("$STATUS_FG")
 
 [ -n "$MAINT_TXT" ] && {
   SEG_TXT+=(" $MAINT_TXT "); SEG_BG+=("$MAINT_BG"); SEG_FG+=("$MAINT_FG")
