@@ -196,7 +196,7 @@ SEG_TXT+=(" $MODEL ");    SEG_BG+=("$MDL_BG"); SEG_FG+=("$MDL_FG")
 }
 
 if [ -n "${DESC:-}" ]; then
-  SEG_TXT+=(" $DESC ");       SEG_BG+=("$MDL_BG"); SEG_FG+=("$MDL_FG")
+  SEG_TXT+=(" $DESC ");       SEG_BG+=("$SPC_BG"); SEG_FG+=("$SPC_FG")
 else
   SEG_TXT+=(" (no intent) "); SEG_BG+=("$MUT_BG"); SEG_FG+=("$MUT_FG")
 fi
