@@ -12,7 +12,8 @@
 #
 # Extras (after context %):
 #   2x      — Claude March 2026 2x usage promotion is active
-#   ✓/⚠/✗  — Claude API status (none/minor/major+critical)
+#   ✓/⚠/✗  — Claude Code status (operational/degraded/outage)
+#   ⚙ Nd/Nh/Nm — upcoming scheduled maintenance with countdown
 
 set -euo pipefail
 
@@ -97,35 +98,76 @@ if [ "$(date +%Y-%m)" = "2026-03" ]; then
   PROMO_BADGE="2x"
 fi
 
-# Claude Code status (cached 5 min at /tmp/statusline-claude-status)
-STATUS_CACHE="/tmp/statusline-claude-status"
-CLAUDE_STATUS=""
-if [ -f "$STATUS_CACHE" ]; then
-  CACHE_MTIME=$(stat -f '%m' "$STATUS_CACHE" 2>/dev/null || echo "0")
+# Claude status via summary API (cached 5 min, single fetch for all signals)
+# Uses /v2/summary.json which includes: components, unresolved incidents, upcoming maintenance
+SUMMARY_CACHE="/tmp/statusline-claude-summary"
+SUMMARY_JSON=""
+if [ -f "$SUMMARY_CACHE" ]; then
+  CACHE_MTIME=$(stat -f '%m' "$SUMMARY_CACHE" 2>/dev/null || echo "0")
   NOW=$(date +%s)
   AGE=$(( NOW - CACHE_MTIME ))
   if [ "$AGE" -lt 300 ]; then
-    CLAUDE_STATUS=$(cat "$STATUS_CACHE" 2>/dev/null || echo "")
+    SUMMARY_JSON=$(cat "$SUMMARY_CACHE" 2>/dev/null || echo "")
   fi
 fi
-if [ -z "$CLAUDE_STATUS" ]; then
-  COMPONENTS_JSON=$(curl -sf --max-time 2 "https://status.claude.com/api/v2/components.json" 2>/dev/null || echo "")
-  if [ -n "$COMPONENTS_JSON" ]; then
-    INDICATOR=$(echo "$COMPONENTS_JSON" | jq -r '.components[] | select(.name == "Claude Code") | .status' 2>/dev/null || echo "unknown")
-    case "$INDICATOR" in
-      operational)                    CLAUDE_STATUS="✓" ;;
-      degraded_performance|partial_outage) CLAUDE_STATUS="⚠" ;;
-      major_outage)                   CLAUDE_STATUS="✗" ;;
-      *)                              CLAUDE_STATUS="?" ;;
-    esac
-  else
-    CLAUDE_STATUS="?"
+if [ -z "$SUMMARY_JSON" ]; then
+  SUMMARY_JSON=$(curl -sf --max-time 2 "https://status.claude.com/api/v2/summary.json" 2>/dev/null || echo "")
+  if [ -n "$SUMMARY_JSON" ]; then
+    printf '%s' "$SUMMARY_JSON" > "$SUMMARY_CACHE"
   fi
-  printf '%s' "$CLAUDE_STATUS" > "$STATUS_CACHE"
 fi
 
-# Build extras: "2x ✓", "✓", "2x ⚠", etc.
+CLAUDE_STATUS="?"
+MAINT_BADGE=""
+if [ -n "$SUMMARY_JSON" ]; then
+  # 1. Model-specific incident check (e.g. "Elevated errors on Claude Opus 4.6")
+  MODEL_SHORT=$(echo "$MODEL" | sed 's/^Claude //')
+  MODEL_INCIDENT=""
+  if [ "$MODEL_SHORT" != "unknown" ]; then
+    MODEL_INCIDENT=$(echo "$SUMMARY_JSON" | jq -r --arg m "$MODEL_SHORT" \
+      '[.incidents[] | select(.name | ascii_downcase | contains($m | ascii_downcase))] | .[0].impact // ""' 2>/dev/null || echo "")
+  fi
+
+  if [ -n "$MODEL_INCIDENT" ]; then
+    case "$MODEL_INCIDENT" in
+      major|critical) CLAUDE_STATUS="✗" ;;
+      *)              CLAUDE_STATUS="⚠" ;;
+    esac
+  else
+    # 2. Claude Code component status
+    CC_STATUS=$(echo "$SUMMARY_JSON" | jq -r \
+      '.components[] | select(.name == "Claude Code") | .status' 2>/dev/null || echo "unknown")
+    case "$CC_STATUS" in
+      operational)                         CLAUDE_STATUS="✓" ;;
+      degraded_performance|partial_outage) CLAUDE_STATUS="⚠" ;;
+      major_outage)                        CLAUDE_STATUS="✗" ;;
+      *)                                   CLAUDE_STATUS="?" ;;
+    esac
+  fi
+
+  # 3. Upcoming maintenance warning with countdown
+  MAINT_TIME=$(echo "$SUMMARY_JSON" | jq -r '.scheduled_maintenances[0].scheduled_for // ""' 2>/dev/null || echo "")
+  if [ -n "$MAINT_TIME" ]; then
+    MAINT_EPOCH=$(TZ=UTC date -jf '%Y-%m-%dT%H:%M:%S' "${MAINT_TIME%%.*}" '+%s' 2>/dev/null || echo "0")
+    NOW=${NOW:-$(date +%s)}
+    DIFF=$(( MAINT_EPOCH - NOW ))
+    if [ "$DIFF" -gt 86400 ]; then
+      MAINT_BADGE="⚙ $((DIFF / 86400))d"
+    elif [ "$DIFF" -gt 3600 ]; then
+      MAINT_BADGE="⚙ $((DIFF / 3600))h"
+    elif [ "$DIFF" -gt 60 ]; then
+      MAINT_BADGE="⚙ $((DIFF / 60))m"
+    elif [ "$DIFF" -gt 0 ]; then
+      MAINT_BADGE="⚙ <1m"
+    else
+      MAINT_BADGE="⚙ now"
+    fi
+  fi
+fi
+
+# Build extras: "2x ✓", "✓ ⚙ 3h", "2x ⚠ ⚙ 3h", etc.
 EXTRAS="$CLAUDE_STATUS"
+[ -n "$MAINT_BADGE" ] && EXTRAS="$EXTRAS $MAINT_BADGE"
 [ -n "$PROMO_BADGE" ] && EXTRAS="$PROMO_BADGE $EXTRAS"
 
 printf '[%s] %s | %s%% %s' "$MODEL" "$JJ_INFO" "$PCT" "$EXTRAS"
