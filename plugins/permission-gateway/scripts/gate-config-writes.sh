@@ -1,25 +1,48 @@
 #!/usr/bin/env bash
-set -euo pipefail
 
-# Gate the gate — prevent silent modification of permission-gateway config files.
-# If Claude is tricked by prompt injection into writing a .local.md rule that
-# loosens deny→approve, this hook catches it before the file is modified.
+# Gate the gate — prevent silent modification of permission-gateway files
+# and hook registration settings.
+#
+# Protected paths:
+#   *permission-gate*     — the evaluation engine itself
+#   *permission-gateway*  — config files (.local.md, plugin.json, etc.)
+#   .claude/settings*     — hook registration (removing hooks disables the gate)
+#   settings.local.json   — project-level hook config
+#
+# Fail-closed: if jq fails or input is malformed, default to "ask" rather
+# than silently passing through. A crashed gate should not be a bypass.
+
+# Trap any error and fail-closed with "ask"
+trap 'cat <<EREOF
+{
+  "hookSpecificOutput": {
+    "hookEventName": "PreToolUse",
+    "permissionDecision": "ask",
+    "permissionDecisionReason": "Permission gateway: gate-config-writes encountered an error and is failing closed. Human approval required."
+  }
+}
+EREOF
+exit 0' ERR
+
+set -euo pipefail
 
 input=$(cat)
 file_path=$(echo "$input" | jq -r '.tool_input.file_path // ""')
 
-# Check if the write target is a permission-gateway config file
-if echo "$file_path" | grep -qiE 'permission-gateway'; then
+# Check if the write target is a protected file
+if echo "$file_path" | grep -qiE '(permission-gate|\.claude/settings|\.claude-plugin/)'; then
   cat <<'EOF'
 {
   "hookSpecificOutput": {
     "hookEventName": "PreToolUse",
     "permissionDecision": "ask",
-    "permissionDecisionReason": "Writing to permission-gateway configuration — requires human confirmation. This file controls which commands are auto-approved or blocked."
+    "permissionDecisionReason": "Writing to permission-gateway or hook configuration — requires human confirmation. This file controls which commands are auto-approved, blocked, or which hooks are active."
   }
 }
 EOF
   exit 0
 fi
 
+# Explicit pass-through — silent exit 0 with no output means "no opinion"
+# (verified: Claude Code treats empty stdout + exit 0 as pass-through)
 exit 0

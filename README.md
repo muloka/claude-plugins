@@ -14,7 +14,7 @@ All jj output commands (`jj log`, `jj diff`, `jj bookmark list`, `jj op log`, `j
 | **workspace-jj** | Worktree isolation for jj repos via `jj workspace` hooks | 2 | — |
 | **commit-commands-jj** | jj commit workflows — commit, push, PR creation, and more | 14 | — |
 | **peer-review-jj** | Unified change review — generalist-first with emergent specialists | 1 | 1 |
-| **permission-gateway** | Tiered permission gating — hook-only, zero-config | — | — |
+| **permission-gateway** | Tiered permission gating — zero-config, self-tuning | 1 | — |
 
 ## project-setup-jj
 
@@ -101,6 +101,8 @@ PROMPT BLOCK    per rule    PROMPT    SILENT     LLM+PROMPT
 **Security:** One-way ratchet — hardcoded deny is an immutable floor that `.local.md` cannot override. Writes to permission-gateway config files require human confirmation (gate-the-gate). Dangerous patterns are scanned in the full command string to prevent bypass via `find -exec`, `xargs`, or redirect clobbers.
 
 **Self-tuning:** All decisions logged to `.claude/permission-gateway.log`. Review the log to promote frequently-confirmed commands to `.local.md` approve rules.
+
+**Commands:** `/tune` — scan decision log and propose `.local.md` rule promotions
 
 **Requires:** [jq](https://jqlang.github.io/jq/). Tier 2 uses Claude Code's built-in prompt hook evaluation — no separate API key or CLI needed.
 

@@ -68,12 +68,25 @@ All decisions logged to `.claude/permission-gateway.log`:
 
 Review the log to promote frequently-confirmed commands to `.local.md` approve rules. The list self-tunes over time.
 
+## Self-Tuning
+
+After accumulating log data, use `/tune` to promote frequently-confirmed commands:
+
+```
+/tune                    # scan project log, suggest promotions (threshold: 10)
+/tune --threshold 5      # lower threshold
+/tune --global           # scan/update user-global rules instead
+```
+
+The command scans the log, normalizes commands into patterns (`pip install requests` → `pip install`), counts confirms vs denies, and suggests promotions for patterns with high confirm counts and zero denies.
+
 ## Components
 
 - `.claude-plugin/plugin.json` — hook registration (Bash, Write, Edit matchers)
 - `scripts/permission-gate.sh` — tiered evaluation engine (Bash commands)
 - `scripts/gate-config-writes.sh` — gate-the-gate hook (Write/Edit to config files)
 - `prompts/permission-evaluate.md` — Tier 2 LLM evaluation prompt template
+- `commands/tune.md` — `/tune` command for log-based rule self-tuning
 - `tests/test-permission-gate.sh` — 124 tests
 
 ## Testing
