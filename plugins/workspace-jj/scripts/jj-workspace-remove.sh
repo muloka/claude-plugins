@@ -5,15 +5,16 @@ set -euo pipefail
 # Input (stdin): JSON with "worktree_path" and "cwd" fields
 
 input=$(cat)
-worktree_path=$(echo "$input" | jq -r '.worktree_path')
+# Claude Code sends .worktree_path in the hook JSON (can't change the key name)
+workspace_path=$(echo "$input" | jq -r '.worktree_path')
 cwd=$(echo "$input" | jq -r '.cwd')
 
 # Extract workspace name from directory name
-name=$(basename "$worktree_path")
+name=$(basename "$workspace_path")
 
 # Forget the workspace in jj (stop tracking it)
 # Use -R to target the repo, ignore errors if workspace already forgotten
-jj -R "$cwd" workspace forget "worktree-$name" 2>/dev/null || true
+jj -R "$cwd" workspace forget "workspace-$name" 2>/dev/null || true
 
-# Remove the worktree directory
-rm -rf "$worktree_path"
+# Remove the workspace directory
+rm -rf "$workspace_path"

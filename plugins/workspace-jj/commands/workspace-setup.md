@@ -12,16 +12,16 @@ Configure the `WorktreeCreate` and `WorktreeRemove` hooks in the current project
 ## Steps
 
 1. **Find the plugin's installed scripts.** Look for the directory containing this command file — it will be something like `~/.claude/plugins/cache/muloka-claude-plugins/workspace-jj/<hash>/scripts/`. The scripts are:
-   - `jj-worktree-create.sh`
-   - `jj-worktree-remove.sh`
+   - `jj-workspace-create.sh`
+   - `jj-workspace-remove.sh`
 
 2. **Copy the scripts to a stable project location.** Copy both scripts to `.claude/scripts/` in the project root. This avoids pointing hooks at the plugin cache (which changes on every plugin update).
 
    ```bash
    mkdir -p .claude/scripts
-   cp <plugin-scripts-dir>/jj-worktree-create.sh .claude/scripts/
-   cp <plugin-scripts-dir>/jj-worktree-remove.sh .claude/scripts/
-   chmod +x .claude/scripts/jj-worktree-create.sh .claude/scripts/jj-worktree-remove.sh
+   cp <plugin-scripts-dir>/jj-workspace-create.sh .claude/scripts/
+   cp <plugin-scripts-dir>/jj-workspace-remove.sh .claude/scripts/
+   chmod +x .claude/scripts/jj-workspace-create.sh .claude/scripts/jj-workspace-remove.sh
    ```
 
 3. **Read the current settings** at `.claude/settings.local.json` (it may not exist yet, or may have existing content to preserve).
@@ -36,7 +36,7 @@ Configure the `WorktreeCreate` and `WorktreeRemove` hooks in the current project
            "hooks": [
              {
                "type": "command",
-               "command": "<project-root>/.claude/scripts/jj-worktree-create.sh"
+               "command": "<project-root>/.claude/scripts/jj-workspace-create.sh"
              }
            ]
          }
@@ -46,7 +46,7 @@ Configure the `WorktreeCreate` and `WorktreeRemove` hooks in the current project
            "hooks": [
              {
                "type": "command",
-               "command": "<project-root>/.claude/scripts/jj-worktree-remove.sh"
+               "command": "<project-root>/.claude/scripts/jj-workspace-remove.sh"
              }
            ]
          }
