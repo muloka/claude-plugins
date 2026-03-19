@@ -69,12 +69,14 @@ Agent tool:
 
     <any project context needed: CLAUDE.md, relevant file contents, etc.>
 
-    IMPORTANT: Before reporting back, capture your change ID:
+    IMPORTANT: Before reporting back, capture your change ID and workspace name:
     jj log -r @ --no-graph -T 'change_id'
+    basename "$PWD"
 
     When done, report:
     - Status: DONE | DONE_WITH_CONCERNS | BLOCKED | NEEDS_CONTEXT
     - Change ID: <the change_id from above>
+    - Workspace directory: <the basename from above>
     - Files changed (list paths)
     - Test results (if applicable)
     - Any concerns
@@ -110,7 +112,7 @@ As subagents return, classify each result:
 | NEEDS_CONTEXT | Provide context, re-dispatch |
 | BLOCKED | Note failure, preserve workspace |
 
-Track which tasks succeeded and which failed. **Capture the change ID from each subagent's report** — these are needed for fan-in.
+Track which tasks succeeded and which failed. **Capture the change ID and workspace directory name from each subagent's report** — change IDs are needed for fan-in squash, workspace names for cleanup.
 
 ### Recovery: Missing Change IDs
 
@@ -164,8 +166,9 @@ If conflicts exist:
 3. **Clean up the workspace (if it still exists):**
 
 ```bash
+# Use the workspace directory name reported by the subagent
 # May already be cleaned up by WorktreeRemove hook — that's fine
-jj workspace forget workspace-<task-name> 2>/dev/null || true
+jj workspace forget workspace-<workspace-dir-name> 2>/dev/null || true
 ```
 
 **For each failed task:**
