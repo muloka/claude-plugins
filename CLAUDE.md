@@ -10,6 +10,7 @@ When superpowers skills reference git-based workflows, use these jj-native repla
 | Superpowers skill | Use instead | Why |
 |---|---|---|
 | `finishing-a-development-branch` | `/finish` | jj-native: bookmarks, `jj git push`, workspace cleanup |
+| `subagent-driven-development` | `workspace-jj:fan-flames` | jj-native workspace isolation with reunification |
 <!-- jj-project-setup:end -->
 
 # CLAUDE.md

@@ -64,6 +64,26 @@ Subagents can also use workspace isolation with `isolation: "worktree"` in their
 
 Workspaces are cleaned up automatically when you exit a session and choose to remove the worktree. For manual cleanup of stale workspaces, use the `/clean_stale` command from the [commit-commands-jj](../commit-commands-jj) plugin.
 
+## Fan-Flames Skill
+
+Parallel workspace orchestration — fan out tasks to isolated jj workspaces, fan in results.
+
+```
+🪭 Fan out → N workspaces → N subagents → 🔥 Fan in → single change → /peer-review
+```
+
+**Usage:** Triggered automatically when `subagent-driven-development` runs in a jj repo, or directly:
+
+- "Fan out these 3 tasks into parallel workspaces"
+- "Run these tasks in parallel with isolation"
+- "Dispatch subagents for these independent tasks"
+
+**Merge order:** Smallest diff first (by files touched). Override with `--merge-order task-3,task-1,task-2`.
+
+**Failure handling:** Partial success is preserved. Failed workspaces stay alive for inspection via `/workspace-list`.
+
+See [design spec](../../docs/specs/2026-03-18-permission-gateway-and-fan-flames-design.md) for full details.
+
 ## Author
 
 [muloka](https://github.com/muloka)
