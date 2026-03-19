@@ -112,6 +112,16 @@ As subagents return, classify each result:
 
 Track which tasks succeeded and which failed. **Capture the change ID from each subagent's report** — these are needed for fan-in.
 
+### Recovery: Missing Change IDs
+
+If a subagent crashes or times out before reporting its change ID, the change still exists in jj's DAG — it's just not referenced. Recover it by searching for the task description:
+
+```bash
+jj log -r 'description("Task N: <short description>")' --no-graph -T 'change_id'
+```
+
+If multiple matches, use the most recent. If no matches, the subagent likely never created any changes — treat as BLOCKED.
+
 ## Phase 4: FAN IN 🔥 — Reunify Changes
 
 **Why change IDs, not workspace revsets:** Each subagent reports its change ID before returning. We use these IDs for squash instead of `workspace-<name>@` revsets because Claude Code may fire the WorktreeRemove hook (which calls `jj workspace forget`) when a subagent finishes, before the orchestrator runs fan-in. Change IDs are stable regardless of workspace lifecycle.
