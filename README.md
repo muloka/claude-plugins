@@ -123,9 +123,26 @@ Or browse available plugins:
 
 **Note:** After installing workspace-jj, run `/workspace-setup` in your jj project and restart Claude Code.
 
-## Acknowledgments
+## Relationship to claude-plugins-official
 
-Originally modelled off of Anthropic's [claude-plugins-official](https://github.com/anthropics/claude-plugins-official).
+This repo started as a fork of Anthropic's [claude-plugins-official](https://github.com/anthropics/claude-plugins-official) and has evolved through two phases:
+
+**Phase 1: jj translations** — Replaced Anthropic's git-based plugins (`commit-commands`, `code-review`, `feature-dev`, `pr-review-toolkit`) with jj-native equivalents. Same capabilities, different VCS.
+
+**Phase 2: jj-native capabilities** — Built features that leverage jj's model in ways git can't easily support. Lightweight workspaces for parallel subagent isolation (fan-flames), first-class conflicts for multi-workspace merging, automatic working-copy snapshots eliminating the commit/stage ceremony, and operation-log-based undo for safe experimentation. These aren't ports of git workflows — they're new patterns that emerge from jj's architecture.
+
+| Category | This repo | Anthropic original |
+|----------|-----------|-------------------|
+| **VCS** | jj (Jujutsu) — all plugins enforce jj-only | git |
+| **Commits** | `commit-commands-jj` — jj-native with revsets, bookmarks, operation log | `commit-commands` — git add/commit/push |
+| **Code review** | `peer-review-jj` — generalist-first, emergent specialists, structured findings | `code-review` — single-pass review |
+| **Workspace isolation** | `workspace-jj` — jj workspaces via WorktreeCreate/Remove hooks | Not provided (git worktrees are built-in) |
+| **Permission gating** | `permission-gateway` — tiered evaluation, one-way ratchet, self-tuning | Not provided |
+| **Project setup** | `project-setup-jj` — jj workflow enforcement, statusline, SessionStart hooks | Not provided |
+
+**Removed from original:** `code-review`, `commit-commands`, `feature-dev`, `pr-review-toolkit` — replaced by jj-native equivalents above.
+
+**Net new (no upstream equivalent):** `permission-gateway`, `workspace-jj`, `project-setup-jj`, fan-flames skill.
 
 ## License
 
