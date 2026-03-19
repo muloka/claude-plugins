@@ -156,11 +156,40 @@ The `permission-gate.sh` script parses YAML frontmatter from `.local.md` files u
 # Parse into shell arrays for regex matching
 ```
 
-### Rule Precedence
+### Rule Precedence (One-Way Ratchet)
 
-When a command matches rules at multiple levels or in conflicting categories:
-1. **Most specific level wins:** project > user global > plugin defaults
-2. **Within same level, deny wins:** if a command matches both approve and deny patterns at the same level, deny takes precedence (fail-safe)
+Evaluation order: **Hardcoded Deny → .local.md → Hardcoded Confirm → Hardcoded Approve → Tier 2 LLM**
+
+The deny tier is an **immutable floor**. Hardcoded deny patterns run *before* `.local.md` rules, so no override can loosen a deny to confirm or approve. This prevents a prompt injection attack where a malicious file instructs Claude to write a `.local.md` rule promoting a denied command.
+
+- `.local.md` CAN: add new deny/confirm/approve rules for commands not already hardcoded-denied
+- `.local.md` CANNOT: override a hardcoded deny to confirm or approve
+- Within `.local.md`: project > user global; deny wins ties at same level
+
+### Gate the Gate
+
+Writes to files matching `permission-gateway` in the path trigger a human confirmation prompt (via Write/Edit PreToolUse hooks). This catches the attack vector where prompt injection instructs Claude to silently modify `.local.md` rules before the ratchet even applies.
+
+### Decision Logging
+
+Every decision (APPROVE, DENY, CONFIRM) is logged with timestamp and command to `.claude/permission-gateway.log`. This enables:
+- Rule self-tuning: frequently-confirmed commands get promoted to `.local.md` approve rules
+- Audit trail: review what was blocked, approved, or confirmed
+- Anomaly detection: spot auto-approved commands that shouldn't be (typos in safe-rm paths, etc.)
+
+### Future: `permission-gateway tune` Command (Phase 3)
+
+Scan the log and propose `.local.md` additions based on confirmation frequency:
+
+```
+Suggested promotions (confirmed >10x, never denied):
+  pip install     (42 confirms, 0 denies) → approve?
+  htop            (12 confirms, 0 denies) → approve?
+  terraform plan   (8 confirms, 0 denies) → approve?
+Write to .local.md? [y/n]
+```
+
+The log format already supports this — timestamp, decision, and command are all that's needed.
 
 ### Graceful Degradation
 

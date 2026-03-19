@@ -1,0 +1,39 @@
+{
+  "name": "permission-gateway",
+  "description": "Tiered permission gateway — auto-approves safe commands, blocks dangerous ones, escalates edge cases to human",
+  "author": {
+    "name": "muloka",
+    "email": "muloka@users.noreply.github.com"
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/permission-gate.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/gate-config-writes.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/gate-config-writes.sh"
+          }
+        ]
+      }
+    ]
+  }
+}

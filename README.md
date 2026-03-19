@@ -1,8 +1,8 @@
 # Claude Code Plugins for jj (Jujutsu)
 
-Claude Code plugins for **jj (Jujutsu)** workflows — project setup, worktree isolation via jj workspaces, commit management, and peer review.
+Claude Code plugins for **jj (Jujutsu)** workflows — project setup, workspace isolation, commit management, peer review, and autonomous permission gating.
 
-All plugins include a `PreToolUse` hook (`block-raw-git.sh`) that intercepts Bash tool calls and blocks raw `git` commands, keeping your workflow pure jj. When Claude reaches for `git add` or `git commit`, the hook catches it and suggests the jj equivalent.
+The jj plugins (project-setup, workspace, commit-commands, peer-review) include a `PreToolUse` hook (`block-raw-git.sh`) that intercepts Bash tool calls and blocks raw `git` commands, keeping your workflow pure jj. When Claude reaches for `git add` or `git commit`, the hook catches it and suggests the jj equivalent. Permission-gateway is a standalone plugin that works in any repo (jj or git).
 
 All jj output commands (`jj log`, `jj diff`, `jj bookmark list`, `jj op log`, `jj workspace list`, `jj show`, `jj evolog`, `jj op show`, `jj config list`, `jj tag list`) use JSON templates (`-T 'json(self)'`) by default, giving Claude Code structured, machine-parseable output instead of human-readable text. Requires jj >= 0.31.0.
 
@@ -14,6 +14,7 @@ All jj output commands (`jj log`, `jj diff`, `jj bookmark list`, `jj op log`, `j
 | **workspace-jj** | Worktree isolation for jj repos via `jj workspace` hooks | 2 | — |
 | **commit-commands-jj** | jj commit workflows — commit, push, PR creation, and more | 14 | — |
 | **peer-review-jj** | Unified change review — generalist-first with emergent specialists | 1 | 1 |
+| **permission-gateway** | Tiered permission gating — hook-only, zero-config | — | — |
 
 ## project-setup-jj
 
@@ -80,6 +81,28 @@ Unified change review for jj repos. Two-phase pipeline (requesting → receiving
 **Specialist emergence:** After 3+ reviews flag distinct patterns for a concern type, the plugin prompts to create a project-specific specialist at `.claude/peer-review/specialists/`.
 
 Replaces the deprecated `code-review-jj`, `pr-review-toolkit-jj`, and `feature-dev-jj` plugins. See [design doc](docs/peer-review-jj/2026-03-16-peer-review-jj-design.md) for full details.
+
+## permission-gateway
+
+Tiered permission gateway for autonomous subagent workflows. When running multiple subagents in parallel, each making dozens of tool calls, you either pre-approve everything (dangerous) or get 60+ confirmation prompts (kills parallelism). Permission gateway is the middle ground.
+
+**Evaluation order:** Gate-the-Gate → Deny (immutable floor) → `.local.md` rules → Confirm → Approve → Tier 2 (LLM eval)
+
+```
+Tool call fires
+     │
+     ▼
+ Gate → Deny → .local.md → Confirm → Approve → Tier 2 LLM
+  │      │         │          │          │          │
+  ▼      ▼         ▼          ▼          ▼          ▼
+PROMPT BLOCK    per rule    PROMPT    SILENT     LLM+PROMPT
+```
+
+**Security:** One-way ratchet — hardcoded deny is an immutable floor that `.local.md` cannot override. Writes to permission-gateway config files require human confirmation (gate-the-gate). Dangerous patterns are scanned in the full command string to prevent bypass via `find -exec`, `xargs`, or redirect clobbers.
+
+**Self-tuning:** All decisions logged to `.claude/permission-gateway.log`. Review the log to promote frequently-confirmed commands to `.local.md` approve rules.
+
+**Requires:** [jq](https://jqlang.github.io/jq/). Tier 2 uses Claude Code's built-in prompt hook evaluation — no separate API key or CLI needed.
 
 ## Installation
 
