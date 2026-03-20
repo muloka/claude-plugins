@@ -211,9 +211,15 @@ fi
 SEG_TXT+=(" ${TRUNK_LABEL:-@trunk} "); SEG_BG+=("${TRUNK_BG}"); SEG_FG+=("${TRUNK_FG}")
 SEG_TXT+=(" ${PCT}% ");                SEG_BG+=("$PCT_BG");      SEG_FG+=("$PCT_FG")
 
-[ "$(date +%Y-%m)" = "2026-03" ] && {
-  SEG_TXT+=(" 2x "); SEG_BG+=("$SPC_BG"); SEG_FG+=("$SPC_FG")
-}
+# 2x promo: March 13–28, 2026 — weekends + weekdays outside 8am–2pm ET
+DAY_NUM=$(date +%d | sed 's/^0//')
+DOW=$(date +%u)  # 1=Mon..7=Sun
+HOUR_ET=$(TZ=America/New_York date +%H | sed 's/^0//')
+if [ "$(date +%Y-%m)" = "2026-03" ] && [ "$DAY_NUM" -ge 13 ] && [ "$DAY_NUM" -le 28 ]; then
+  if [ "$DOW" -ge 6 ] || [ "$HOUR_ET" -lt 8 ] || [ "$HOUR_ET" -ge 14 ]; then
+    SEG_TXT+=(" 2x "); SEG_BG+=("$SPC_BG"); SEG_FG+=("$SPC_FG")
+  fi
+fi
 
 STATUS_TXT=" $STATUS_SYM${STATUS_LBL:+ $STATUS_LBL} "
 SEG_TXT+=("$STATUS_TXT"); SEG_BG+=("$STATUS_BG"); SEG_FG+=("$STATUS_FG")
