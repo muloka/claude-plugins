@@ -126,15 +126,66 @@ If multiple matches, use the most recent. If no matches, the subagent likely nev
 
 ## Phase 4: FAN IN 🔥 — Reunify Changes
 
-**Why change IDs, not workspace revsets:** Each subagent reports its change ID before returning. We use these IDs for squash instead of `workspace-<name>@` revsets because Claude Code may fire the WorktreeRemove hook (which calls `jj workspace forget`) when a subagent finishes, before the orchestrator runs fan-in. Change IDs are stable regardless of workspace lifecycle.
+jj workspaces share a single DAG. Concurrent subagents may produce two different
+topologies depending on timing and jj's working-copy snapshot mechanism:
 
-**Merge order:** Sort completed tasks by files touched (ascending). Smallest diff first — fewer files touched means lower conflict surface area. This establishes a stable base early.
+**Pattern A: Auto-chained** — Subagents see each other's commits and chain linearly.
+The default workspace's `@` already sits on top of all changes. Content is merged.
+
+**Pattern B: Independent branches** — Each subagent created a change off the shared
+parent. Changes need to be squashed into `@`.
+
+Both patterns produce correct content. Detect which occurred, then handle accordingly.
+
+### Step 1: Detect topology
+
+```bash
+jj log -r '<change-id-1> | <change-id-2> | <change-id-3>' --no-graph -T 'change_id ++ " " ++ parents.map(|p| p.change_id()).join(",") ++ "\n"'
+```
+
+Check: do all change IDs share the same parent? If yes → Pattern B (independent branches).
+If changes are ancestors of each other → Pattern A (auto-chained).
+
+Simpler heuristic: check if the default workspace's `@` is already a descendant of all change IDs:
+
+```bash
+# If this returns all change IDs, they're already in @'s ancestry — Pattern A
+jj log -r 'ancestors(@) & (<change-id-1> | <change-id-2> | <change-id-3>)' --no-graph -T 'change_id ++ "\n"'
+```
+
+### Step 2a: Pattern A — Auto-chained (content already merged)
+
+If all changes are already in `@`'s ancestry, fan-in is free. No squash needed.
+
+1. **Verify content:** Spot-check that expected files exist in the working copy
+2. **Clean up workspaces:**
+
+```bash
+# Use workspace directory names reported by subagents
+jj workspace forget workspace-<dir-name> 2>/dev/null || true
+```
+
+3. **Optionally reshape the DAG** with `jj parallelize` if a clean fan-out/fan-in
+   diamond shape is preferred for history readability:
+
+```bash
+jj parallelize <change-id-1>::<change-id-N>
+```
+
+This retroactively converts the chain into siblings off the shared parent.
+Only do this if the user cares about history topology — content is identical either way.
+
+### Step 2b: Pattern B — Independent branches (squash needed)
+
+If changes are independent siblings, squash each into `@`.
+
+**Merge order:** Sort by files touched (ascending). Smallest diff first — fewer files
+touched means lower conflict surface area.
 
 If the user specified `--merge-order`, use their explicit ordering instead.
 
-**To count files touched per task:**
-
 ```bash
+# Count files touched per task
 jj diff -r <change-id> --stat | tail -1
 ```
 
@@ -146,7 +197,7 @@ jj workspace list  # default workspace should be marked
 
 **For each completed task, in order:**
 
-1. **Squash into the default workspace using the change ID:**
+1. **Squash into the default workspace:**
 
 ```bash
 jj squash --from <change-id> --into @
@@ -163,13 +214,18 @@ If conflicts exist:
 - Ask user: resolve now, skip this task, or abandon the merge
 - If user wants to resolve: use `jj resolve` to handle each conflict
 
-3. **Clean up the workspace (if it still exists):**
+3. **Clean up the workspace:**
 
 ```bash
-# Use the workspace directory name reported by the subagent
-# May already be cleaned up by WorktreeRemove hook — that's fine
-jj workspace forget workspace-<workspace-dir-name> 2>/dev/null || true
+jj workspace forget workspace-<dir-name> 2>/dev/null || true
 ```
+
+### Why change IDs, not workspace revsets
+
+Each subagent reports its change ID before returning. We use these IDs instead of
+`workspace-<name>@` revsets because Claude Code may fire the WorktreeRemove hook
+(which calls `jj workspace forget`) when a subagent finishes, before the orchestrator
+runs fan-in. Change IDs are stable regardless of workspace lifecycle.
 
 **For each failed task:**
 - Do NOT squash or forget — preserve workspace for inspection
@@ -228,6 +284,18 @@ jj's conflict model is first-class — conflicts are recorded in the tree, not b
 - Smallest-diff-first ordering minimizes conflict cascading
 - Use `jj resolve --list` to see conflicted files
 - Use `jj resolve <file>` to resolve interactively
+
+## DAG Topology Reference
+
+jj provides tools to reshape history after the fact:
+
+- **`jj parallelize A::D`** — converts a chain A→B→C→D into siblings off A's parent
+- **`jj new A B C`** — creates a merge commit with multiple parents
+- **`jj rebase -r C -A B`** — moves changes between branches
+- **`jj absorb`** — redistributes changes from a merge commit back into parent branches
+
+The chain-first approach is strictly more flexible — you can always reshape later
+but can't un-parallelize without squashing. Content is what matters; topology is presentation.
 
 ## Flags
 
