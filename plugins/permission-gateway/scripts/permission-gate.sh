@@ -458,7 +458,7 @@ fi
 
 # --- Tier 1: Safe patterns ---
 # Safe read-only commands (anchored to start — first command in chain)
-if echo "$command_normalized" | grep -qE '^(ls|cat|head|tail|wc|jq|echo|pwd|which|whoami|date|file|stat|diff|sort|uniq|tr|cut|tee|less|more|env|printenv|type|grep|rg|find|fd|tree|awk|sed|hexdump|hex|xxd|od)\b'; then
+if echo "$command_normalized" | grep -qE '^(ls|cat|head|tail|wc|jq|echo|pwd|which|whoami|date|file|stat|diff|sort|uniq|tr|cut|tee|less|more|env|printenv|type|grep|rg|find|fd|tree|awk|sed|hexdump|hex|xxd|od|basename|dirname|realpath|cd)\b'; then
   approve
 fi
 
