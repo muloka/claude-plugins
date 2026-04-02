@@ -99,6 +99,15 @@ else
     fi
   fi
 
+  # Detect if trunk bookmark needs pushing (local ahead of origin)
+  for _bm in main master; do
+    _ct=$( (jj log -r "${_bm} ~ ${_bm}@origin" --no-graph -T '"x"' 2>/dev/null || true) | wc -c | tr -d ' ')
+    if [ "${_ct:-0}" -gt 0 ] 2>/dev/null; then
+      TRUNK_LABEL="${TRUNK_LABEL}*"; TRUNK_CLR="attention"
+      break
+    fi
+  done
+
   [ -n "$DESC" ] && DESC=$(echo "$DESC" | cut -c1-30)
 
   printf '%s\n%s' "$CACHE_KEY" "${BOOKMARK}|${CHANGE_ID}|${DESC}|${TRUNK_LABEL}|${TRUNK_CLR}" > "$CACHE_FILE"
