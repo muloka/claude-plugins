@@ -108,7 +108,49 @@ Then merge a PreToolUse hook entry into `.claude/settings.local.json` (using the
 
 Replace `<project-root>` with the actual absolute path from `jj root`.
 
-### Step 5: Create or update CLAUDE.md
+### Step 5: Copy workspace hook scripts
+
+Copy workspace scripts from the plugin's `scripts/` directory to the project's `.claude/scripts/`:
+
+```bash
+cp <plugin-scripts-dir>/jj-workspace-create.sh "$(jj root)/.claude/scripts/"
+cp <plugin-scripts-dir>/jj-workspace-remove.sh "$(jj root)/.claude/scripts/"
+chmod +x "$(jj root)/.claude/scripts/jj-workspace-create.sh"
+chmod +x "$(jj root)/.claude/scripts/jj-workspace-remove.sh"
+```
+
+Then merge WorktreeCreate and WorktreeRemove hook entries into `.claude/settings.local.json` (using the same deep-merge strategy as Steps 3 and 4):
+
+```json
+{
+  "hooks": {
+    "WorktreeCreate": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "<project-root>/.claude/scripts/jj-workspace-create.sh"
+          }
+        ]
+      }
+    ],
+    "WorktreeRemove": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "<project-root>/.claude/scripts/jj-workspace-remove.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Replace `<project-root>` with the actual absolute path from `jj root`.
+
+### Step 6: Create or update CLAUDE.md
 
 Read the CLAUDE.md template from the plugin's `templates/CLAUDE.md.template`. The template includes a content hash in its start marker (`<!-- jj-project-setup:start hash:<hex> -->`) for version tracking. It uses an `## VCS` heading (h2) so it fits naturally into any existing CLAUDE.md heading hierarchy.
 
@@ -121,16 +163,17 @@ Then handle four cases:
 
 The CLAUDE.md file is at the project root (from `jj root`).
 
-### Step 6: Confirm to user
+### Step 7: Confirm to user
 
 Show a summary of what was set up:
 
 - SessionStart hook script copied to `.claude/scripts/jj-session-start.sh`
 - PreToolUse guard hook copied to `.claude/scripts/require-jj-new.sh`
-- Settings updated in `.claude/settings.local.json` (SessionStart hook + PreToolUse hook + permissions)
+- WorktreeCreate hook script copied to `.claude/scripts/jj-workspace-create.sh`
+- WorktreeRemove hook script copied to `.claude/scripts/jj-workspace-remove.sh`
+- Settings updated in `.claude/settings.local.json` (SessionStart + PreToolUse + WorktreeCreate + WorktreeRemove hooks + permissions)
 - CLAUDE.md created/updated with jj workflow instructions (or "already up to date" if hash matches)
 
 Remind the user to:
 - **Restart Claude Code** for the hooks to take effect
-- Optionally run `/workspace-setup` if they want worktree isolation via jj workspaces
 - Optionally add `.claude/scripts/` to their ignore patterns if they don't want to track these in version control
