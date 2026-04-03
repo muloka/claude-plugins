@@ -31,6 +31,8 @@ This creates/updates the following in your project:
 |------|---------|
 | `.claude/scripts/jj-session-start.sh` | SessionStart hook showing jj context |
 | `.claude/scripts/require-jj-new.sh` | PreToolUse hook — prompts `jj new` before editing non-empty changes |
+| `.claude/scripts/jj-workspace-create.sh` | WorktreeCreate hook — creates jj workspace for worktree isolation |
+| `.claude/scripts/jj-workspace-remove.sh` | WorktreeRemove hook — cleans up jj workspace |
 | `.claude/settings.local.json` | Hook registration + jj permissions |
 | `CLAUDE.md` | jj VCS policy directive (created or updated) |
 
@@ -65,7 +67,7 @@ Running `/project-setup` multiple times is safe. It will:
 
 ## Related Plugins
 
-- **[workspace-jj](../workspace-jj)** — worktree isolation via jj workspaces (optional, run `/workspace-setup` after)
+- **[workspace-jj](../workspace-jj)** — fan-flames parallel orchestration and workspace listing
 - **[commit-commands-jj](../commit-commands-jj)** — commit, push, and PR workflows for jj
 
 ## Requirements

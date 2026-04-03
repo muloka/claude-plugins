@@ -21,23 +21,12 @@ claude plugins add muloka/claude-plugins:workspace-jj
 
 ## Setup
 
-After installing, run the setup command in your jj project:
-
-```
-/workspace-setup
-```
-
-This copies the hook scripts to `.claude/scripts/` in your project and configures the `WorktreeCreate` and `WorktreeRemove` hooks in `.claude/settings.local.json`. Restart your Claude Code session after setup.
-
-**Why is this needed?** Claude Code currently doesn't pick up `WorktreeCreate`/`WorktreeRemove` hooks from plugins — they must be in project or user settings. The `/workspace-setup` command handles this for you.
-
-**After plugin updates:** Re-run `/workspace-setup` to refresh the scripts in `.claude/scripts/`.
+Workspace hooks are installed automatically by `/project-setup` from the [project-setup-jj](../project-setup-jj) plugin. No separate setup step needed.
 
 ## Commands
 
 | Command | Description |
 |---------|-------------|
-| `/workspace-setup` | Configure worktree hooks for the current project |
 | `/workspace-list` | List all active jj workspaces (JSON output) |
 
 ## Usage
