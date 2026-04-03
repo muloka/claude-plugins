@@ -9,7 +9,10 @@ input=$(cat)
 name=$(echo "$input" | jq -r '.name')
 cwd=$(echo "$input" | jq -r '.cwd')
 
-DIR="$cwd/.claude/workspaces/$name"
+# Create workspace OUTSIDE the repo to prevent jj's auto-snapshotting in the
+# default workspace from attributing workspace file edits to @.
+# Using /tmp ensures the workspace directory is not under the repo root.
+DIR="/tmp/jj-workspaces/$(basename "$cwd")/$name"
 mkdir -p "$(dirname "$DIR")"
 
 # Pin workspace to the current working copy's parents (not the working copy itself).

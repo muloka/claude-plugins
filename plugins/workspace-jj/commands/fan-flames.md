@@ -91,6 +91,22 @@ Wave assignment:
 
 **Overlaps detected:** Present wave plan, wait for user confirmation.
 
+### Parallelism Threshold
+
+After computing waves, calculate the parallelism ratio: tasks in the largest wave / total tasks. If less than 40% of tasks can run in parallel (e.g., 2 of 9 tasks in the largest wave), warn the user:
+
+```
+⚠️ Low parallelism: only N/M tasks can run in parallel (largest wave: W tasks).
+File overlaps make most tasks sequential. The overhead of workspace setup,
+spec review, and squash ceremony may exceed the time saved.
+
+Options:
+  a) Proceed with fan-flames anyway
+  b) Switch to single-agent sequential execution (superpowers:executing-plans)
+```
+
+Wait for user decision.
+
 5. **Recommend** 3-5 concurrent workspaces per wave.
 
 ## Phase 2: FAN OUT 🪭 — Dispatch
@@ -156,6 +172,23 @@ Agent tool:
 
 **Workspaces remain alive** through the REVIEW phase so fix subagents can be dispatched if spec review fails.
 
+### Workspace Integrity Check
+
+After collecting results, verify each subagent's changes actually landed in its workspace, not in the default workspace's `@`:
+
+```bash
+# Check if default workspace @ has unexpected changes
+jj diff -r @ --stat
+```
+
+If the default workspace's `@` shows changes that belong to a subagent task, workspace isolation failed (**Pattern C**). Handle by:
+1. Report the issue: "Workspace isolation failure — Task N's edits landed in the default workspace instead of its workspace."
+2. Skip squash for that task (changes are already in `@`)
+3. Verify the content is correct by diffing against the task spec
+4. Continue with remaining tasks normally
+
+This is a known edge case — the WorktreeCreate hook creates the jj workspace, but the agent may resolve file paths to the main repo instead of the workspace copy.
+
 ### Recovery: Missing Change IDs
 
 ```bash
@@ -166,7 +199,17 @@ jj log -r 'description("Task N: <short description>")' --no-graph -T 'change_id'
 
 **Skip this phase if `--skip-spec-review` is set.** Clean up workspaces and proceed to FAN IN.
 
-For each DONE/DONE_WITH_CONCERNS task, dispatch a spec reviewer subagent (read-only, no isolation needed). All reviewers run in parallel.
+### Tiered Review
+
+Not all tasks need a full reviewer agent. Before dispatching, assess each task's complexity:
+
+**Trivial tasks** (< 10 lines changed, no logic/control flow changes — e.g., visibility modifiers, import reordering, renaming): Verify inline by reading the diff yourself. Report: "Task N: trivial change (N lines), verified inline — PASS." No reviewer agent needed.
+
+**Non-trivial tasks** (logic changes, new functions, structural modifications): Dispatch a spec reviewer subagent as below.
+
+### Spec Reviewer Dispatch
+
+For each non-trivial DONE/DONE_WITH_CONCERNS task, dispatch a spec reviewer subagent (read-only, no isolation needed). All reviewers run in parallel.
 
 Read the spec reviewer template at: `plugins/workspace-jj/skills/fan-flames-spec-reviewer.md`
 
@@ -204,7 +247,7 @@ jj log -r 'ancestors(@) & (<change-id-1> | <change-id-2>)' --no-graph -T 'change
 ### Pattern B: Independent branches — squash each into @, smallest diff first:
 
 ```bash
-jj squash --from <change-id> --into @
+JJ_EDITOR=true jj squash --from <change-id> --into @
 jj resolve --list  # check for conflicts
 ```
 
