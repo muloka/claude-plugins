@@ -126,6 +126,22 @@ Proceed with this wave plan? (or restructure)
 
 Wait for user confirmation before proceeding.
 
+### Parallelism Threshold
+
+After computing waves, calculate the parallelism ratio: tasks in the largest wave / total tasks. If less than 40% of tasks can run in parallel (e.g., 2 of 9 tasks in the largest wave), warn the user:
+
+```
+⚠️ Low parallelism: only N/M tasks can run in parallel (largest wave: W tasks).
+File overlaps make most tasks sequential. The overhead of workspace setup,
+spec review, and squash ceremony may exceed the time saved.
+
+Options:
+  a) Proceed with fan-flames anyway
+  b) Switch to single-agent sequential execution (superpowers:executing-plans)
+```
+
+Wait for user decision.
+
 5. **Recommend** 3-5 concurrent workspaces per wave for most tasks. Note the recommendation but do not block dispatch if more are requested.
 
 ## Phase 2: FAN OUT 🪭 — Create Workspaces and Dispatch
@@ -215,6 +231,23 @@ As subagents return, classify each result:
 
 Track which tasks succeeded and which failed. **Capture the change ID and workspace directory name from each subagent's report** — change IDs are needed for fan-in squash, workspace names for cleanup.
 
+### Workspace Integrity Check
+
+After collecting results, verify each subagent's changes actually landed in its workspace, not in the default workspace's `@`:
+
+```bash
+# Check if default workspace @ has unexpected changes
+jj diff -r @ --stat
+```
+
+If the default workspace's `@` shows changes that belong to a subagent task, workspace isolation failed (**Pattern C**). Handle by:
+1. Report the issue: "Workspace isolation failure — Task N's edits landed in the default workspace instead of its workspace."
+2. Skip squash for that task (changes are already in `@`)
+3. Verify the content is correct by diffing against the task spec
+4. Continue with remaining tasks normally
+
+This is a known edge case — the WorktreeCreate hook creates the jj workspace, but the agent may resolve file paths to the main repo instead of the workspace copy.
+
 ### Recovery: Missing Change IDs
 
 If a subagent crashes or times out before reporting its change ID, the change still exists in jj's DAG — it's just not referenced. Recover it by searching for the task description:
@@ -233,9 +266,17 @@ In v1, workspaces survived COLLECT and were cleaned up during FAN IN (after each
 
 Runs once per wave, after COLLECT and before FAN IN.
 
+### Tiered Review
+
+Not all tasks need a full reviewer agent. Before dispatching, assess each task's complexity:
+
+**Trivial tasks** (< 10 lines changed, no logic/control flow changes — e.g., visibility modifiers, import reordering, renaming): Verify inline by reading the diff yourself. Report: "Task N: trivial change (N lines), verified inline — PASS." No reviewer agent needed.
+
+**Non-trivial tasks** (logic changes, new functions, structural modifications): Dispatch a spec reviewer subagent as below.
+
 ### Spec Reviewer Dispatch
 
-For each DONE or DONE_WITH_CONCERNS task, dispatch a spec reviewer subagent. Spec reviewers run in the orchestrator's context (no `isolation: "worktree"`) — they are read-only, using `jj diff -r` and `jj file show -r` to inspect changes by change ID. All reviewers for the wave run in parallel and cannot conflict.
+For each non-trivial DONE or DONE_WITH_CONCERNS task, dispatch a spec reviewer subagent. Spec reviewers run in the orchestrator's context (no `isolation: "worktree"`) — they are read-only, using `jj diff -r` and `jj file show -r` to inspect changes by change ID. All reviewers for the wave run in parallel and cannot conflict.
 
 Use the template at `./fan-flames-spec-reviewer.md` to construct each reviewer prompt. Fill in:
 - `[FULL TEXT of task requirements from plan]` — the complete task text
@@ -253,7 +294,7 @@ Use the template at `./fan-flames-spec-reviewer.md` to construct each reviewer p
 
 When a spec reviewer returns FAIL:
 
-1. Dispatch fix subagent **without** `isolation: "worktree"` (the workspace already exists — `isolation` would create a new one). Tell the subagent to work in the existing workspace directory path (e.g., `.claude/workspaces/<task-name>/`) and provide the reviewer's specific findings
+1. Dispatch fix subagent **without** `isolation: "worktree"` (the workspace already exists — `isolation` would create a new one). Tell the subagent to work in the existing workspace directory path (e.g., `/tmp/jj-workspaces/<project>/<task-name>/`) and provide the reviewer's specific findings
 2. Fix subagent uses the same implementer protocol (DONE / BLOCKED / NEEDS_CONTEXT)
 3. Re-dispatch spec reviewer for that task only (same template, updated implementer report)
 4. Repeat until PASS
@@ -341,7 +382,7 @@ jj workspace list  # default workspace should be marked
 1. **Squash into the default workspace:**
 
 ```bash
-jj squash --from <change-id> --into @
+JJ_EDITOR=true jj squash --from <change-id> --into @
 ```
 
 2. **Check for conflicts:**

@@ -8,7 +8,7 @@ Provides the **fan-flames** skill — a parallel task orchestrator that dispatch
 
 ## How It Works
 
-- **WorktreeCreate**: Runs `jj workspace add --revision @-` to create an isolated workspace at `.claude/workspaces/<name>/`, pinned to the parent revision for independent branching
+- **WorktreeCreate**: Runs `jj workspace add --revision @-` to create an isolated workspace at `/tmp/jj-workspaces/<project>/<name>/`, pinned to the parent revision for independent branching. Workspaces are created outside the repo to prevent jj's auto-snapshotting from attributing workspace edits to the default workspace's `@`.
 - **WorktreeRemove**: Runs `jj workspace forget` and removes the directory on cleanup
 
 Workspaces share the same repository store (lightweight, fast to create) but each gets an independent working copy pinned to the same parent revision.
