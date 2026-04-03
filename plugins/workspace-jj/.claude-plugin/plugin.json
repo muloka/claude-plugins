@@ -1,6 +1,6 @@
 {
   "name": "workspace-jj",
-  "description": "Enables Claude Code worktree isolation for jj (Jujutsu) repositories using jj workspaces",
+  "description": "Wave-based parallel orchestration with spec review gates for jj (Jujutsu) repositories",
   "author": {
     "name": "muloka",
     "email": "muloka@users.noreply.github.com"

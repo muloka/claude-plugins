@@ -1,10 +1,10 @@
 # Workspace Plugin (jj)
 
-Enables Claude Code's worktree isolation (`--worktree` flag and `isolation: "worktree"` for subagents) in jj (Jujutsu) repositories using jj workspaces.
+Wave-based parallel orchestration with spec review gates for jj (Jujutsu) repositories.
 
 ## Overview
 
-Claude Code uses git worktrees by default for isolated parallel sessions. This plugin replaces that with jj workspaces via `WorktreeCreate` and `WorktreeRemove` hooks, so `--worktree` works natively in jj repos.
+Provides the **fan-flames** skill — a parallel task orchestrator that dispatches subagents to isolated jj workspaces, reviews their work per-task, then reunifies results into a single change. The jj-native replacement for superpowers' `subagent-driven-development`. Workspace hooks are installed by `/project-setup` from the [project-setup-jj](../project-setup-jj) plugin.
 
 ## How It Works
 
@@ -27,6 +27,7 @@ Workspace hooks are installed automatically by `/project-setup` from the [projec
 
 | Command | Description |
 |---------|-------------|
+| `/fan-flames [plan-file]` | Execute a plan using wave-based parallel orchestration with spec review gates |
 | `/workspace-list` | List all active jj workspaces (JSON output) |
 
 ## Usage
