@@ -375,6 +375,32 @@ jj parallelize <change-id-1>::<change-id-N>
 This retroactively converts the chain into siblings off the shared parent.
 Only do this if the user cares about history topology — content is identical either way.
 
+### Step 2a-reject: Pattern A — Selective rejection
+
+If some tasks in the auto-chain failed review, remove them from the chain:
+
+```bash
+jj abandon <rejected-change-id>   # descendants rebase onto its parent automatically
+jj log -r 'conflicts()'           # verify no conflicts in rebased descendants
+```
+
+`jj abandon` removes the change and rebases all descendants onto its parent — as if the rejected task never existed. If the rebased descendants conflict (because they touched lines the rejected task introduced), resolve before proceeding.
+
+For partial acceptance (keep some changes from a rejected task):
+
+```bash
+jj diffedit -r <change-id>        # remove unwanted parts from the diff
+```
+
+Or split by file path, then abandon the unwanted half:
+
+```bash
+jj split -r <change-id> paths/to/keep
+jj abandon <reject-half-change-id>
+```
+
+Note: `jj revert -r <change-id>` (formerly `jj backout`) is the alternative when history is immutable (already pushed). For local workspace chains, `abandon` is idiomatic.
+
 ### Step 2b: Pattern B — Independent branches (squash needed)
 
 If changes are independent siblings, squash each into `@`.
