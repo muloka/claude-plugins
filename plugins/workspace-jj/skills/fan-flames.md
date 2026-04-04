@@ -160,6 +160,8 @@ Agent tool:
 
     <any project context needed: CLAUDE.md, relevant file contents, etc.>
 
+    <if wave > 1, include prior wave context — see "Prior Wave Context" below>
+
     CRITICAL: You MUST NOT use ANY raw git commands — not even for context
     discovery. Always use jj equivalents (jj log, jj diff, jj status, etc.).
     The only exceptions are `jj git` subcommands and `gh` CLI.
@@ -172,6 +174,7 @@ Agent tool:
     - Quality: are names clear, code maintainable?
     - Discipline: did I avoid overbuilding (YAGNI)?
     - Testing: do tests verify behavior, not just mock it?
+    - Formatting: run the project's formatter/linter (e.g., cargo fmt, prettier, ruff) and fix any issues
 
     If you find issues, fix them now before reporting.
 
@@ -208,6 +211,23 @@ Agent tool:
 - Provide each subagent with the full task text, not a summary
 - Include relevant project context (CLAUDE.md rules, key file contents)
 - If the plan uses superpowers skills (TDD, code review), include those references in the subagent prompt
+
+**Prior wave context (Wave 2+ only):**
+
+For waves after the first, include a summary of what prior waves built. The orchestrator has this data from prior COLLECT phases — paste it into each agent's prompt:
+
+```
+## Changes from prior waves (already in your working copy)
+
+Wave 1 completed:
+- <file>: added <functions/types/modules>
+- <file>: updated <what changed>
+
+These changes are already in your working copy. Build on top of them,
+don't duplicate or conflict with them.
+```
+
+This prevents Wave 2+ agents from reimplementing or conflicting with prior wave work. Keep the summary concise — list files, functions added/changed, and key APIs. Don't paste full diffs.
 
 **Progress tracking:**
 - After dispatch, report how many subagents are running:
