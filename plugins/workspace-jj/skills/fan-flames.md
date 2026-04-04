@@ -2,7 +2,7 @@
 name: fan-flames
 description: |
   Orchestrate parallel subagent execution across isolated jj workspaces with
-  wave-based scheduling and per-task spec review gates, then reunify results
+  wave-based scheduling and spec-informed peer review, then reunify results
   into a single change. Use when the user asks to "fan out tasks", "run tasks
   in parallel with isolation", "dispatch subagents for independent tasks",
   or when subagent-driven-development routes here via CLAUDE.md override in a jj repo.
@@ -11,7 +11,7 @@ description: |
 # Fan-Flames: Parallel Workspace Orchestration
 
 Orchestrate parallel subagent execution across isolated jj workspaces with
-wave-based scheduling and per-task spec review gates, then reunify results
+wave-based scheduling and spec-informed peer review, then reunify results
 into a single change. The jj-native replacement for superpowers' subagent-driven-development.
 
 **Announce at start:** "I'm using the fan-flames skill to orchestrate parallel workspace execution."
@@ -31,19 +31,22 @@ PLAN ─── validate independence, compute waves, confirm with user
   ║     │       classify status                  ║
   ║     │       workspaces kept alive            ║
   ║     ▼                                        ║
-  ║  REVIEW ── spec reviewers (parallel,         ║
-  ║     │      read-only, all tasks at once)     ║
-  ║     │      fix loop in original workspace    ║
+  ║  REVIEW ── cargo test (spec gate)            ║
+  ║     │      spec-informed peer review         ║
+  ║     │      (batched, ~1 agent per 300 lines) ║
+  ║     │      fix loop on critical findings     ║
   ║     │      cleanup workspaces on pass        ║
   ║     ▼                                        ║
   ║  FAN IN ── squash into @, smallest first     ║
-  ║            (only spec-approved tasks)         ║
+  ║            (only review-approved tasks)       ║
   ╚══════════════════════════════════════════════╝
   │
-VERIFY ── /peer-review on combined result
-           (covers code quality across all waves)
-           report plan coverage
+  Report plan coverage
 ```
+
+No separate VERIFY phase — the last wave's peer review inherently covers the
+combined result, since all prior waves are already squashed into @ before the
+last wave dispatches.
 
 ## Per-Wave Execution
 
@@ -51,12 +54,12 @@ For each wave (computed in PLAN):
 
 1. Execute **FAN OUT** — dispatch all wave tasks in parallel
 2. Execute **COLLECT** — gather results, classify, keep workspaces alive
-3. Execute **REVIEW** — spec reviewers in parallel, fix loop if needed, cleanup on pass
-4. Execute **FAN IN** — squash spec-approved tasks into @
+3. Execute **REVIEW** — test gate + spec-informed peer review, fix loop if needed, cleanup on pass
+4. Execute **FAN IN** — squash review-approved tasks into @
 
-After all waves complete, execute **VERIFY**.
+After all waves complete, report plan coverage.
 
-If only one wave (no overlaps), this is equivalent to v1 behavior plus spec review.
+If only one wave (no overlaps), this is equivalent to v1 behavior plus review.
 
 ## Prerequisites
 
@@ -260,45 +263,60 @@ If multiple matches, use the most recent. If no matches, the subagent likely nev
 
 ### Workspace Lifecycle
 
-In v1, workspaces survived COLLECT and were cleaned up during FAN IN (after each squash). In v2, **workspaces remain alive through the REVIEW phase** so that fix subagents can be dispatched into the original workspace if spec review fails. Cleanup happens after all tasks in the wave pass spec review, before FAN IN.
+In v1, workspaces survived COLLECT and were cleaned up during FAN IN (after each squash). In v2, **workspaces remain alive through the REVIEW phase** so that fix subagents can be dispatched into the original workspace if review fails. Cleanup happens after all tasks in the wave pass review, before FAN IN.
 
-## Phase 4: REVIEW — Spec Compliance Gates
+## Phase 4: REVIEW — Test and Peer Review
 
-Runs once per wave, after COLLECT and before FAN IN.
+Runs once per wave, after COLLECT and before FAN IN. Combines spec compliance and code quality review in a single pass, eliminating the need for a separate end-of-run VERIFY phase.
 
-### Tiered Review
+### Step 1: Run Tests (Spec Gate)
 
-Not all tasks need a full reviewer agent. Before dispatching, assess each task's complexity:
+Run the project's test suite against the wave's changes. This is the primary spec compliance gate — if tests pass, the implementation satisfies testable requirements.
 
-**Trivial tasks** (< 10 lines changed, no logic/control flow changes — e.g., visibility modifiers, import reordering, renaming): Verify inline by reading the diff yourself. Report: "Task N: trivial change (N lines), verified inline — PASS." No reviewer agent needed.
+```bash
+# Run from the default workspace — all wave changes are visible via jj revsets
+cargo test  # or the project's equivalent test command
+```
 
-**Non-trivial tasks** (logic changes, new functions, structural modifications): Dispatch a spec reviewer subagent as below.
+If tests fail, dispatch fix subagents to the relevant workspace(s) and re-run. Escalate to user after 2 failed attempts.
 
-### Spec Reviewer Dispatch
+### Step 2: Spec-Informed Peer Review
 
-For each non-trivial DONE or DONE_WITH_CONCERNS task, dispatch a spec reviewer subagent. Spec reviewers run in the orchestrator's context (no `isolation: "worktree"`) — they are read-only, using `jj diff -r` and `jj file show -r` to inspect changes by change ID. All reviewers for the wave run in parallel and cannot conflict.
+After tests pass, dispatch batched peer review agents using the `change-reviewer` agent type. Reviewers catch what tests can't: naming, patterns, edge cases, missing requirements that aren't tested, cross-module integration issues.
 
-Use the template at `./fan-flames-spec-reviewer.md` to construct each reviewer prompt. Fill in:
-- `[FULL TEXT of task requirements from plan]` — the complete task text
-- `[From implementer's status report]` — the implementer's report
-- `[CHANGE_ID]` — the jj change ID from the implementer
+**Batching:** ~1 reviewer agent per 300 lines changed in the wave. For a wave with 600 lines across 3 tasks, dispatch 2 reviewers splitting the files between them. For a wave with < 300 lines total, 1 reviewer.
+
+**Prompt:** Each reviewer gets the full task specs for all tasks in the wave as ground truth — this eliminates hallucinations about intent (reviewers verify against the spec rather than guessing about history). Reviewers check both spec compliance and code quality in one pass.
+
+Use the template at `./fan-flames-wave-reviewer.md` to construct each reviewer prompt. Fill in:
+- `[WAVE_NUMBER]` — the current wave number
+- `[FULL TEXT of all task specs in this wave]` — paste complete task text for every task
+- `[FILES_TO_REVIEW]` — the files assigned to this reviewer
+- `[CHANGE_IDS]` — the jj change IDs from the implementers
+
+Dispatch all reviewers for the wave in parallel.
 
 ### Handling Review Results
 
-| Reviewer result | Action |
-|----------------|--------|
-| PASS | Task approved for fan-in |
-| FAIL | Enter fix loop |
+Reviewers report findings as JSON with severity levels:
+
+| Severity | Action |
+|----------|--------|
+| critical | Must fix before fan-in |
+| important | Must fix before fan-in |
+| suggestion | Note for user, don't block |
+
+If no critical/important findings: all tasks approved for fan-in.
 
 ### Fix Loop
 
-When a spec reviewer returns FAIL:
+When reviewers find critical or important issues:
 
-1. Dispatch fix subagent **without** `isolation: "worktree"` (the workspace already exists — `isolation` would create a new one). Tell the subagent to work in the existing workspace directory path (e.g., `/tmp/jj-workspaces/<project>/<task-name>/`) and provide the reviewer's specific findings
+1. Dispatch fix subagent **without** `isolation: "worktree"` (the workspace already exists — `isolation` would create a new one). Tell the subagent to work in the existing workspace directory path and provide the reviewer's specific findings
 2. Fix subagent uses the same implementer protocol (DONE / BLOCKED / NEEDS_CONTEXT)
-3. Re-dispatch spec reviewer for that task only (same template, updated implementer report)
-4. Repeat until PASS
-5. Escalate to user after 2 failed fix attempts — present the reviewer's findings and ask how to proceed
+3. Re-run tests, then re-dispatch reviewer for affected files only
+4. Repeat until no critical/important findings remain
+5. Escalate to user after 2 failed fix attempts — present the findings and ask how to proceed
 
 Fix-induced file overlap changes for later waves are ignored. jj handles any resulting conflicts during fan-in.
 
@@ -309,11 +327,11 @@ Fix-induced file overlap changes for later waves are ignored. jj handles any res
 
 ### Skipping Review
 
-When `--skip-spec-review` is set, this entire phase is skipped. Workspaces are cleaned up immediately after COLLECT, and all DONE/DONE_WITH_CONCERNS tasks proceed directly to FAN IN. This restores v1 behavior.
+When `--skip-review` is set, this entire phase is skipped. Workspaces are cleaned up immediately after COLLECT, and all DONE/DONE_WITH_CONCERNS tasks proceed directly to FAN IN.
 
 ## Phase 5: FAN IN 🔥 — Reunify Changes
 
-**Only spec-approved tasks are squashed.** Tasks that failed spec review and couldn't be fixed are preserved in their workspaces — same handling as BLOCKED tasks.
+**Only review-approved tasks are squashed.** Tasks that failed review and couldn't be fixed are preserved in their workspaces — same handling as BLOCKED tasks.
 
 jj workspaces share a single DAG. Concurrent subagents may produce two different
 topologies depending on timing and jj's working-copy snapshot mechanism:
@@ -407,19 +425,9 @@ runs fan-in. Change IDs are stable regardless of workspace lifecycle.
 - Do NOT squash or forget — preserve workspace for inspection
 - Report the failure and workspace name
 
-## Phase 6: VERIFY — Review and Report
+## Phase 6: Report — Plan Coverage
 
-After all waves complete:
-
-1. **Run peer review** on the combined result:
-
-```
-/peer-review
-```
-
-`/peer-review` sees the full merged diff across all waves — cross-task patterns (naming consistency, file growth, integration issues) are visible here that per-task review would miss. If it finds quality issues, fix them in the default workspace on the combined result.
-
-2. **Report plan coverage:**
+After all waves complete, report plan coverage. No separate peer review is needed — the last wave's review inherently covers the combined result, since all prior waves are already squashed into @ before the last wave dispatches.
 
 **If plan-based:**
 
@@ -453,8 +461,6 @@ After all waves complete:
   Workspace preserved for inspection
 ```
 
-When `--skip-review` is set, skip `/peer-review` and proceed directly to the plan coverage report.
-
 ## Conflict Handling Reference
 
 jj's conflict model is first-class — conflicts are recorded in the tree, not blocking.
@@ -482,8 +488,7 @@ but can't un-parallelize without squashing. Content is what matters; topology is
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--merge-order auto` | auto | Merge order within each wave: `auto` (smallest diff first) or explicit task list |
-| `--skip-spec-review` | false | Skip per-task REVIEW phase (cleanup after COLLECT, straight to FAN IN) |
-| `--skip-review` | false | Skip `/peer-review` in VERIFY |
+| `--skip-review` | false | Skip test + peer review in REVIEW phase (cleanup after COLLECT, straight to FAN IN) |
 
 ## Key Principles
 
