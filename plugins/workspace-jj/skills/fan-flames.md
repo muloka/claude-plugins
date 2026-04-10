@@ -149,13 +149,38 @@ Wait for user decision.
 
 ## Phase 2: FAN OUT 🪭 — Create Workspaces and Dispatch
 
-For each task in the current wave, dispatch a subagent with workspace isolation:
+For each task in the current wave, the orchestrator creates a jj workspace and dispatches a subagent to work in it.
+
+### Step 1: Create workspaces
+
+Before dispatching any agents, create all workspaces for the wave:
+
+```bash
+# For each task in the wave:
+DIR="/tmp/jj-workspaces/$(basename $(jj root))/<task-name>"
+mkdir -p "$(dirname "$DIR")"
+parent_rev=$(jj log -r '@-' --no-graph -T 'commit_id')
+jj workspace add "$DIR" --name "workspace-<task-name>" --revision "$parent_rev"
+```
+
+All workspaces are pinned to `@-` (the parent revision), ensuring each creates an independent branch (Pattern B).
+
+### Step 2: Dispatch agents
+
+For each task, dispatch a subagent **without** `isolation: "worktree"`:
 
 ```
 Agent tool:
   description: "Task N: <short description>"
-  isolation: "worktree"
   prompt: |
+    ## Working Directory
+    CRITICAL: Your first action MUST be:
+      cd <workspace-path>
+    ALL work happens in that directory. Do not operate in any other directory.
+    Verify you are in the right workspace:
+      jj workspace list
+    Confirm you see workspace-<task-name> marked as the active workspace.
+
     <full task text from plan>
 
     <any project context needed: CLAUDE.md, relevant file contents, etc.>
@@ -206,8 +231,9 @@ Agent tool:
 ```
 
 **Dispatch rules:**
-- Dispatch all tasks in the current wave simultaneously (parallel, not sequential)
-- Each subagent gets `isolation: "worktree"` — Claude Code creates a jj workspace via the WorktreeCreate hook
+- Create all workspaces first, then dispatch all agents simultaneously (parallel, not sequential)
+- Agents are dispatched **without** `isolation: "worktree"` — the orchestrator manages jj workspaces directly
+- Each agent's prompt begins with the `cd` + verify instructions for its workspace path
 - Provide each subagent with the full task text, not a summary
 - Include relevant project context (CLAUDE.md rules, key file contents)
 - If the plan uses superpowers skills (TDD, code review), include those references in the subagent prompt
@@ -247,29 +273,40 @@ As subagents return, classify each result:
 
 | Status | Action |
 |--------|--------|
-| DONE | Ready for fan-in |
-| DONE_WITH_CONCERNS | Read concerns, decide if fan-in safe |
+| DONE | Verify workspace integrity, then ready for fan-in |
+| DONE_WITH_CONCERNS | Verify workspace integrity, read concerns, decide if fan-in safe |
 | NEEDS_CONTEXT | Provide context, re-dispatch |
-| BLOCKED | Note failure, preserve workspace |
+| BLOCKED | Note failure, track workspace for sweep |
 
 Track which tasks succeeded and which failed. **Capture the change ID and workspace directory name from each subagent's report** — change IDs are needed for fan-in squash, workspace names for cleanup.
 
-### Workspace Integrity Check
+### Workspace Integrity Check (Primary Gate)
 
-After collecting results, verify each subagent's changes actually landed in its workspace, not in the default workspace's `@`:
+**This is the first validation step after agents return.** Without `isolation: "worktree"`, agents rely on `cd` to reach their workspace. If an agent fails to `cd`, edits land in the default workspace's `@`. The integrity check catches this before review wastes cycles.
+
+**Step 1:** Check default workspace `@` for leaked changes:
 
 ```bash
-# Check if default workspace @ has unexpected changes
 jj diff -r @ --stat
 ```
 
-If the default workspace's `@` shows changes that belong to a subagent task, workspace isolation failed (**Pattern C**). Handle by:
-1. Report the issue: "Workspace isolation failure — Task N's edits landed in the default workspace instead of its workspace."
-2. Skip squash for that task (changes are already in `@`)
-3. Verify the content is correct by diffing against the task spec
-4. Continue with remaining tasks normally
+If `@` shows unexpected changes, at least one agent failed to `cd` to its workspace.
 
-This is a known edge case — the WorktreeCreate hook creates the jj workspace, but the agent may resolve file paths to the main repo instead of the workspace copy.
+**Step 2:** For each agent that reported DONE or DONE_WITH_CONCERNS, verify its change landed in the correct workspace:
+
+```bash
+# Check the workspace's working copy matches the reported change ID
+jj log -r 'workspace-<task-name>@' --no-graph -T 'change_id'
+```
+
+Compare against the change ID the agent reported.
+
+**Step 3:** If mismatch detected, flag as `WORKSPACE_LEAK`:
+1. Report: "Workspace integrity failure — Task N's edits landed in the default workspace instead of workspace-<task-name>."
+2. Determine if changes are in `@` (recoverable — skip squash for this task) or lost (treat as BLOCKED)
+3. Report to user before proceeding to review
+
+> **Safety net context:** This check replaces the former Pattern C edge case handler. Pattern C was caused by dual isolation mechanisms (`isolation: "worktree"` + jj workspace hook). With orchestrator-managed workspaces (v3), the root cause is eliminated. This check catches `cd` failures, which are the remaining risk vector.
 
 ### Recovery: Missing Change IDs
 
@@ -283,7 +320,15 @@ If multiple matches, use the most recent. If no matches, the subagent likely nev
 
 ### Workspace Lifecycle
 
-In v1, workspaces survived COLLECT and were cleaned up during FAN IN (after each squash). In v2, **workspaces remain alive through the REVIEW phase** so that fix subagents can be dispatched into the original workspace if review fails. Cleanup happens after all tasks in the wave pass review, before FAN IN.
+The orchestrator owns the full workspace lifecycle — no hooks are involved:
+
+- **FAN OUT:** Orchestrator creates workspaces via `jj workspace add`
+- **COLLECT:** Workspaces kept alive for integrity verification
+- **REVIEW:** Workspaces kept alive so fix subagents can be dispatched to existing workspace paths
+- **POST-REVIEW:** Orchestrator cleans up workspaces for tasks that passed review
+- **FAN IN:** Uses change IDs only (workspaces already cleaned up)
+
+Workspaces for failed/blocked tasks are handled by the wave-end sweep (see Phase 4).
 
 ## Phase 4: REVIEW — Test and Peer Review
 
@@ -342,25 +387,46 @@ Fix-induced file overlap changes for later waves are ignored. jj handles any res
 
 ### After All Tasks in the Wave Pass
 
-1. Clean up workspaces: `jj workspace forget workspace-<dir-name>` for each task
+1. Clean up workspaces for passed tasks:
+   ```bash
+   jj workspace forget workspace-<task-name>
+   rm -rf /tmp/jj-workspaces/<repo>/<task-name>
+   ```
 2. Proceed to FAN IN
+
+### Wave-End Workspace Sweep
+
+After FAN IN completes (or after COLLECT if the wave is fully blocked), sweep all workspaces created this wave to prevent leaking directories in `/tmp`:
+
+| Task status | Action |
+|---|---|
+| DONE and squashed | Already cleaned in POST-REVIEW (no-op) |
+| BLOCKED or CRASHED | Default: preserve workspace for inspection. Report: "Workspace preserved: `/tmp/jj-workspaces/<repo>/<task-name>`" |
+| WORKSPACE_LEAK | Clean up (content is already in `@`): `jj workspace forget workspace-<task-name>` + `rm -rf` |
+
+Partial success is progress — don't silently discard failed workspaces. The user can inspect and manually clean up later.
 
 ### Skipping Review
 
-When `--skip-review` is set, this entire phase is skipped. Workspaces are cleaned up immediately after COLLECT, and all DONE/DONE_WITH_CONCERNS tasks proceed directly to FAN IN.
+When `--skip-review` is set, the review phase is skipped. Workspaces are cleaned up immediately after COLLECT, and all DONE/DONE_WITH_CONCERNS tasks proceed directly to FAN IN. The wave-end sweep still runs after FAN IN.
 
 ## Phase 5: FAN IN 🔥 — Reunify Changes
 
 **Only review-approved tasks are squashed.** Tasks that failed review and couldn't be fixed are preserved in their workspaces — same handling as BLOCKED tasks.
 
-jj workspaces share a single DAG. Concurrent subagents may produce two different
-topologies depending on timing and jj's working-copy snapshot mechanism:
+jj workspaces share a single DAG. With orchestrator-managed workspaces pinned to `@-`,
+subagents should consistently produce **Pattern B** (independent branches). The
+dual-topology detection below is retained as a safety net.
 
 **Pattern A: Auto-chained** — Subagents see each other's commits and chain linearly.
 The default workspace's `@` already sits on top of all changes. Content is merged.
 
-**Pattern B: Independent branches** — Each subagent created a change off the shared
-parent. Changes need to be squashed into `@`.
+> **Safety net (v3):** With orchestrator-managed workspaces pinned to `@-`, Pattern A
+> is not expected to occur. It is retained for defense-in-depth. If Pattern A is
+> detected, it is handled correctly — no squash needed.
+
+**Pattern B: Independent branches (expected)** — Each subagent created a change off the
+shared parent. Changes need to be squashed into `@`.
 
 Both patterns produce correct content. Detect which occurred, then handle accordingly.
 
@@ -463,9 +529,8 @@ If conflicts exist:
 ### Why change IDs, not workspace revsets
 
 Each subagent reports its change ID before returning. We use these IDs instead of
-`workspace-<name>@` revsets because Claude Code may fire the WorktreeRemove hook
-(which calls `jj workspace forget`) when a subagent finishes, before the orchestrator
-runs fan-in. Change IDs are stable regardless of workspace lifecycle.
+`workspace-<name>@` revsets because workspaces are cleaned up after review but
+before fan-in. Change IDs are stable regardless of workspace lifecycle.
 
 **For each failed task:**
 - Do NOT squash or forget — preserve workspace for inspection
