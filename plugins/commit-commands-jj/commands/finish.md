@@ -57,7 +57,19 @@ What would you like to do?
 
 ### Option 1: Push and create PR (most common)
 
-1. Ensure a bookmark exists on the target change:
+1. **Ancestor check before push.** Before creating the bookmark, check for non-empty changes between trunk and the target that are NOT the target itself:
+   ```bash
+   jj log -r 'ancestors(TARGET) & ~ancestors(trunk()) & ~TARGET' --no-graph
+   ```
+   If any exist, warn the user:
+   ```
+   This PR will include N ancestor change(s) not part of this work:
+   - <change-id>: <description>
+   They'll be merged into trunk with the PR.
+   ```
+   Let the user decide whether to squash them into the target first or push them separately.
+
+2. Ensure a bookmark exists on the target change:
    ```bash
    # Check for existing bookmark
    jj log -r <target> --no-graph -T 'bookmarks'
@@ -67,12 +79,12 @@ What would you like to do?
    jj bookmark create <kebab-case-name> -r <target>
    ```
 
-2. Push the bookmark:
+3. Push the bookmark:
    ```bash
    jj git push --bookmark <name> --allow-new
    ```
 
-3. Create the PR:
+4. Create the PR:
    ```bash
    gh pr create --title "<title>" --body "$(cat <<'EOF'
    ## Summary
@@ -86,9 +98,14 @@ What would you like to do?
    )"
    ```
 
-4. Output the PR URL.
+5. Output the PR URL.
 
-5. Then: Workspace cleanup (Step 4).
+6. **Post-merge cleanup.** After a successful `gh pr merge`, before syncing, abandon all local changes that were ancestors of the PR branch (between trunk and the bookmark), since they're now in trunk via the squash-merge:
+   ```bash
+   jj abandon 'ancestors(TARGET) & ~ancestors(trunk())'
+   ```
+
+7. Then: Workspace cleanup (Step 4).
 
 ### Option 2: Squash into trunk (local merge)
 
