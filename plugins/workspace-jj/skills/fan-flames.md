@@ -66,7 +66,7 @@ If only one wave (no overlaps), this is equivalent to v1 behavior plus review.
 Before starting, verify:
 
 1. **jj repo** — confirm this is a jj repository (`jj root` succeeds)
-2. **workspace-jj installed** — confirm WorktreeCreate hooks are configured (`/workspace-list` works or `.claude/settings.local.json` has WorktreeCreate hooks)
+2. **jj workspaces available** — confirm `jj workspace list` succeeds (orchestrator creates workspaces directly, hooks are not involved)
 3. **Clean working copy** — current change should have a description and be a sensible parent for the parallel work
 
 If any prerequisite fails, explain what's missing and how to fix it.
