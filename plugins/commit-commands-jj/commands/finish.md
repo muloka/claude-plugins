@@ -86,7 +86,7 @@ What would you like to do?
 
 4. Create the PR:
    ```bash
-   gh pr create --title "<title>" --body "$(cat <<'EOF'
+   gh pr create --head <bookmark-name> --title "<title>" --body "$(cat <<'EOF'
    ## Summary
    <2-3 bullets from the diff>
 

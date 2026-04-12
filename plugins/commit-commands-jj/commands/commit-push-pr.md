@@ -21,7 +21,7 @@ Based on the above changes:
 3. Check if `@-` already has a bookmark: `jj log -r @- --no-graph -T 'bookmarks'`
 4. If no bookmark exists on `@-`: `jj bookmark create <descriptive-name> -r @-` (use a short kebab-case name derived from the change description)
 5. Push: `jj git push --bookmark <name> --allow-new`
-6. Create a pull request: `gh pr create` with an appropriate title and body
+6. Create a pull request: `gh pr create --head <bookmark-name>` with an appropriate title and body (the `--head` flag is required because jj uses detached HEAD, so `gh` can't auto-detect the branch)
 
 For colocated repos (`.jj/` + `.git/`), `gh` works directly. For non-colocated repos, if `gh` fails, advise the user to set `GIT_DIR=.jj/repo/store/git` or run `jj git export` first.
 
