@@ -25,7 +25,17 @@ description: Fetch from remote and rebase the current change onto trunk
 Sync fetches the latest remote state and rebases your current work onto trunk. This is the jj equivalent of `git pull --rebase`.
 
 1. Fetch from the remote: `jj git fetch`
-2. Rebase onto trunk: `jj rebase -d main@origin`
+2. **Detect absorbed changes.** Before rebasing, check for non-empty local changes above the old trunk that may already be included in a squash-merged PR:
+   ```bash
+   jj log -r 'ancestors(@) & ~ancestors(trunk()) & ~@' --no-graph
+   ```
+   If any exist and would conflict when rebased onto the new trunk, list them and offer to abandon rather than forcing a rebase that produces conflicts:
+   ```
+   These N change(s) appear to be absorbed by a squash-merge now in trunk:
+   - <change-id>: <description>
+   Abandon them? (They're already in trunk via the PR merge.)
+   ```
+3. Rebase onto trunk: `jj rebase -d main@origin`
    - If that fails (e.g., remote is not named `origin` or branch is not `main`), fall back to `jj rebase -d trunk()`
 3. Check for conflicts: `jj log -r 'conflicts()' --no-graph -T 'json(self) ++ "\n"'`
    - If conflicts exist, report them clearly so the user can resolve them
