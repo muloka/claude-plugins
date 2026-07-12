@@ -61,7 +61,7 @@ MODEL=$(echo "$input" | jq -r '.model.display_name // "unknown"')
 PCT=$(echo "$input" | jq -r '.context_window.used_percentage // 0' | cut -d. -f1)
 
 # Quick bail if not a jj repo
-if ! jj root >/dev/null 2>&1; then
+if ! jj root --ignore-working-copy >/dev/null 2>&1; then
   SEG_TXT=(" $MODEL "); SEG_BG=("$MDL_BG"); SEG_FG=("$MDL_FG")
   SEG_TXT+=(" ${PCT}% "); SEG_BG+=("$HLT_BG"); SEG_FG+=("$HLT_FG")
   render
@@ -71,26 +71,26 @@ fi
 # Cache: only re-query jj if repo state changed
 # Stores raw pipe-delimited values for segment building
 CACHE_FILE="/tmp/statusline-jj-$$-cache"
-JJ_DIR="$(jj root 2>/dev/null)/.jj"
+JJ_DIR="$(jj root --ignore-working-copy 2>/dev/null)/.jj"
 CACHE_KEY="$(stat -f '%m' "$JJ_DIR/repo" 2>/dev/null || echo "0")"
 
 if [ -f "$CACHE_FILE" ] && [ "$(head -1 "$CACHE_FILE")" = "$CACHE_KEY" ]; then
   IFS='|' read -r BOOKMARK CHANGE_ID DESC TRUNK_LABEL TRUNK_CLR < <(tail -1 "$CACHE_FILE") || true
 else
-  CHANGE_ID=$(jj log -r @ --no-graph -T 'self.change_id().short(8)' 2>/dev/null || echo "")
-  DESC=$(jj log -r @ --no-graph -T 'description.first_line()' 2>/dev/null || echo "")
-  BOOKMARK=$(jj log -r @ --no-graph -T 'bookmarks' 2>/dev/null || echo "")
+  CHANGE_ID=$(jj log --ignore-working-copy -r @ --no-graph -T 'self.change_id().short(8)' 2>/dev/null || echo "")
+  DESC=$(jj log --ignore-working-copy -r @ --no-graph -T 'description.first_line()' 2>/dev/null || echo "")
+  BOOKMARK=$(jj log --ignore-working-copy -r @ --no-graph -T 'bookmarks' 2>/dev/null || echo "")
 
   # Trunk state
-  ON_TRUNK=$(jj log -r '@ & trunk()' --no-graph -T '"yes"' 2>/dev/null || echo "")
+  ON_TRUNK=$(jj log --ignore-working-copy -r '@ & trunk()' --no-graph -T '"yes"' 2>/dev/null || echo "")
   if [ "$ON_TRUNK" = "yes" ]; then
     TRUNK_LABEL="@trunk"; TRUNK_CLR="healthy"
   else
-    AHEAD=$(jj log -r '(trunk()..@) ~ empty()' --no-graph -T '"x"' 2>/dev/null | wc -c | tr -d ' ')
+    AHEAD=$(jj log --ignore-working-copy -r '(trunk()..@) ~ empty()' --no-graph -T '"x"' 2>/dev/null | wc -c | tr -d ' ')
     if [ "$AHEAD" -gt 0 ] 2>/dev/null; then
       TRUNK_LABEL="+${AHEAD}"; TRUNK_CLR="attention"
     else
-      ALL=$(jj log -r 'trunk()..@' --no-graph -T '"x"' 2>/dev/null | wc -c | tr -d ' ')
+      ALL=$(jj log --ignore-working-copy -r 'trunk()..@' --no-graph -T '"x"' 2>/dev/null | wc -c | tr -d ' ')
       if [ "$ALL" -gt 0 ] 2>/dev/null; then
         TRUNK_LABEL="@trunk"; TRUNK_CLR="healthy"
       else
@@ -101,7 +101,7 @@ else
 
   # Detect if trunk bookmark needs pushing (local ahead of origin)
   for _bm in main master; do
-    _ct=$( (jj log -r "${_bm} ~ ${_bm}@origin" --no-graph -T '"x"' 2>/dev/null || true) | wc -c | tr -d ' ')
+    _ct=$( (jj log --ignore-working-copy -r "${_bm} ~ ${_bm}@origin" --no-graph -T '"x"' 2>/dev/null || true) | wc -c | tr -d ' ')
     if [ "${_ct:-0}" -gt 0 ] 2>/dev/null; then
       TRUNK_LABEL="${TRUNK_LABEL}*"; TRUNK_CLR="attention"
       break
