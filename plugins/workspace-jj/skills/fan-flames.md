@@ -160,6 +160,28 @@ fresh. On resume:
 
 On start fresh: overwrite the ledger with a new header when PLAN initializes it.
 
+## Model Selection
+
+Parallel dispatch multiplies model cost: each wave fans the chosen model out
+across N workspaces, then reviewers, then fix loops. Use the least capable
+model that can handle each role, and specify it explicitly on every Agent
+call — an omitted `model` silently inherits the session's model, often the
+most capable and most expensive.
+
+| Role | Model |
+|------|-------|
+| Implementer — brief contains the complete code to write (transcription + tests) | `haiku` |
+| Implementer — prose spec, 1-2 files | `sonnet` |
+| Implementer — multi-file integration or design judgment | session model (omit) |
+| Reviewer — small mechanical wave | `sonnet` |
+| Reviewer — subtle/risky changes, or the final wave (covers the combined result) | `opus` or session model |
+| Fix subagent | same model as the task's implementer |
+
+**Turn count beats token price.** Cost scales with how many turns a subagent
+takes, and the cheapest models routinely take 2-3× the turns on multi-step
+work — costing more overall. `sonnet` is the floor for reviewers and for
+implementers working from prose descriptions.
+
 ## Phase 1: PLAN — Validate Independence and Compute Waves
 
 Before fanning out, validate that tasks can run in parallel and compute execution waves:
@@ -282,6 +304,7 @@ For each task, dispatch a subagent **without** `isolation: "worktree"`:
 ```
 Agent tool:
   description: "Task N: <short description>"
+  model: <per Model Selection — always specify explicitly>
   prompt: |
     ## Working Directory
     CRITICAL: Your first action MUST be:
@@ -405,7 +428,7 @@ As subagents return, classify each result:
 | DONE | Verify workspace integrity, then ready for fan-in |
 | DONE_WITH_CONCERNS | Verify workspace integrity, read concerns, decide if fan-in safe |
 | NEEDS_CONTEXT | Provide context, re-dispatch |
-| BLOCKED | Note failure, track workspace for sweep |
+| BLOCKED | Assess the blocker: missing context → provide it and re-dispatch same model; needs more reasoning → re-dispatch with a more capable model; task too large or plan wrong → escalate to user. Otherwise note failure, track workspace for sweep |
 
 Track which tasks succeeded and which failed. **Capture the change ID and workspace directory name from each subagent's report** — change IDs are needed for fan-in squash, workspace names for cleanup.
 
