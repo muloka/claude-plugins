@@ -68,6 +68,9 @@ Before starting, verify:
 1. **jj repo** — confirm this is a jj repository (`jj root` succeeds)
 2. **jj workspaces available** — confirm `jj workspace list` succeeds (orchestrator creates workspaces directly, hooks are not involved)
 3. **Clean working copy** — current change should have a description and be a sensible parent for the parallel work
+4. **Resume check** — look for a ledger from an interrupted run (see Durable
+   Progress and Resume). If one exists, resolve resume-vs-fresh with the user
+   before planning.
 
 If any prerequisite fails, explain what's missing and how to fix it.
 
@@ -105,6 +108,57 @@ back — stays resident in the orchestrator's context for the rest of the run
 and is re-read on every later turn. A real superpowers session hit a 42k-char
 dispatch prompt that was 99% pasted history; file handoffs are how fan-flames
 avoids that failure mode.
+
+## Durable Progress and Resume
+
+Conversation memory does not survive compaction. An orchestrator that loses
+its place re-dispatches entire completed waves — the most expensive failure
+mode superpowers observed in real sessions. The ledger at
+`<artifacts>/progress.md` is the recovery map: the change IDs it names exist
+in jj's DAG even when your context no longer remembers creating them.
+
+Append-only line format (latest line for a task wins):
+
+```
+# fan-flames ledger — plan: docs/plans/foo-plan.md — parent: xyzabc12
+wave-plan: wave 1: tasks 1,2,4 | wave 2: tasks 3,5
+task 1: dispatched workspace=workspace-task-1
+task 1: done change=abc12345 files=src/a.ts,src/b.ts
+task 1: review-passed
+task 1: squashed
+wave 1: fanned-in
+run: complete
+```
+
+Event lines: `dispatched workspace=…`, `done change=… files=…`,
+`done-with-concerns change=… files=…`, `blocked reason=…`, `needs-context`,
+`workspace-leak`, `review-passed`, `review-failed findings=<n>c,<n>i`,
+`squashed`, `wave <W>: fanned-in`, `run: complete`.
+
+Write ledger lines in the same message as the phase's other bookkeeping —
+never as a separate turn.
+
+### Resume Check (at skill start, before PLAN)
+
+Check for a ledger from an interrupted run:
+
+```bash
+cat "$(../scripts/fan-flames-artifacts)/progress.md" 2>/dev/null
+```
+
+If it exists and does not end with `run: complete`, a previous run was
+interrupted. Report what the ledger shows and ask the user: resume or start
+fresh. On resume:
+
+- Tasks marked `squashed` are DONE — never re-dispatch them
+- Tasks marked `done`/`review-passed` but not `squashed` — their change IDs
+  are in the ledger; resume at REVIEW or FAN IN using those IDs
+- Tasks marked `dispatched` with no later line — the agent died mid-flight;
+  check `jj log -r 'description("Task N:")'` and the workspace before
+  re-dispatching
+- Trust the ledger and `jj log` over your own recollection
+
+On start fresh: overwrite the ledger with a new header when PLAN initializes it.
 
 ## Phase 1: PLAN — Validate Independence and Compute Waves
 
@@ -184,7 +238,13 @@ Once waves are confirmed:
      passing through your context again
    - **Ad-hoc input:** Write `<artifacts>/task-N-brief.md` yourself containing
      the full task description
-3. Initialize the progress ledger (see Durable Progress and Resume)
+3. Initialize the ledger — write the header and wave plan to
+   `<artifacts>/progress.md`:
+
+   ```
+   # fan-flames ledger — plan: <plan path or "ad-hoc"> — parent: <change-id of @->
+   wave-plan: wave 1: tasks … | wave 2: tasks …
+   ```
 
 ## Phase 2: FAN OUT 🪭 — Create Workspaces and Dispatch
 
@@ -312,6 +372,8 @@ Keep entries concise — files, functions/types added or changed, and key APIs.
 Never full diffs.
 
 **Progress tracking:**
+- Append one ledger line per dispatched task:
+  `task N: dispatched workspace=workspace-<task-name>`
 - After dispatch, report how many subagents are running:
 
 ```
@@ -335,6 +397,11 @@ As subagents return, classify each result:
 | BLOCKED | Note failure, track workspace for sweep |
 
 Track which tasks succeeded and which failed. **Capture the change ID and workspace directory name from each subagent's report** — change IDs are needed for fan-in squash, workspace names for cleanup.
+
+As each result is classified, append its ledger line: `task N: done
+change=<id> files=<paths>` (or `done-with-concerns …`, `blocked reason=…`,
+`needs-context`). If the integrity check flags a leak, append
+`task N: workspace-leak`.
 
 ### Workspace Integrity Check (Primary Gate)
 
@@ -431,6 +498,10 @@ Reviewers report findings as JSON with severity levels:
 | suggestion | Note for user, don't block |
 
 If no critical/important findings: all tasks approved for fan-in.
+
+Append a ledger line per task as verdicts land: `task N: review-passed` or
+`task N: review-failed findings=<n>c,<n>i` (append `review-passed` after a
+successful fix loop).
 
 ### Fix Loop
 
@@ -587,6 +658,8 @@ If conflicts exist:
 - Ask user: resolve now, skip this task, or abandon the merge
 - If user wants to resolve: use `jj resolve` to handle each conflict
 
+3. **Append the ledger line:** `task N: squashed`
+
 ### Why change IDs, not workspace revsets
 
 Each subagent reports its change ID before returning. We use these IDs instead of
@@ -597,9 +670,29 @@ before fan-in. Change IDs are stable regardless of workspace lifecycle.
 - Do NOT squash or forget — preserve workspace for inspection
 - Report the failure and workspace name
 
+### After the Wave's FAN IN
+
+1. Append `wave W: fanned-in` to the ledger
+2. Append the wave's summary to `<artifacts>/prior-waves.md` (for Wave 2+
+   dispatch prompts):
+
+   ```markdown
+   ## Wave W (merged into @)
+   - Task N: <file>: added <functions/types>; <file>: updated <what changed>
+   ```
+
+   Build it from the implementers' short returns; run
+   `jj diff -r <change-id> --stat` if you need to refresh which files a task
+   touched. Never paste diffs.
+
+(For Pattern A waves, where no squash is needed, the same two appends apply
+once content is verified.)
+
 ## Phase 6: Report — Plan Coverage
 
 After all waves complete, report plan coverage. No separate peer review is needed — the last wave's review inherently covers the combined result, since all prior waves are already squashed into @ before the last wave dispatches.
+
+Append `run: complete` to the ledger — this is what the resume check keys on.
 
 **If plan-based:**
 
