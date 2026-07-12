@@ -206,6 +206,19 @@ Wave assignment:
   Wave 2: Task 3, Task 5          ← no edges between them
 ```
 
+### Pre-Flight Plan Scan
+
+While extracting tasks, scan the plan once for conflicts:
+
+- tasks that contradict each other or the plan's Global Constraints
+- anything the plan explicitly mandates that review would flag as a defect
+  (a test that asserts nothing, verbatim duplication of a logic block)
+
+Batch anything found into the same interaction as the wave-plan
+confirmation — each finding beside the plan text that mandates it, asking
+which governs. If the scan is clean, proceed without comment. The review
+loop remains the net for conflicts that only emerge from implementation.
+
 ### User Interaction
 
 **No overlaps (most common case):**
