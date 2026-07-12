@@ -550,11 +550,19 @@ successful fix loop).
 
 When reviewers find critical or important issues:
 
-1. Dispatch fix subagent **without** `isolation: "worktree"` (the workspace already exists — `isolation` would create a new one). Tell the subagent to work in the existing workspace directory path and provide the reviewer's specific findings
+1. Dispatch ONE fix subagent per task carrying that task's complete findings
+   list — never one subagent per finding (per-finding fixers each rebuild
+   context and re-run suites). Dispatch **without** `isolation: "worktree"`
+   (the workspace already exists — `isolation` would create a new one), on
+   the same model as the task's implementer (see Model Selection). Tell it
+   to work in the existing workspace directory path, and name the test files
+   covering the change — a small fix doesn't need the whole suite
 2. Fix subagent uses the same implementer protocol (DONE / BLOCKED /
-   NEEDS_CONTEXT) and appends its fix report — what it changed and the
-   test results — to the task's existing `<artifacts>/task-N-report.md`
-3. Re-run tests, then re-dispatch reviewer for affected files only
+   NEEDS_CONTEXT) and appends its fix report to the task's existing
+   `<artifacts>/task-N-report.md`. The report must contain the covering
+   tests, the command run, and the output — confirm all three are present
+   before re-dispatching the reviewer
+3. Re-dispatch reviewer for affected files only
 4. Repeat until no critical/important findings remain
 5. Escalate to user after 2 failed fix attempts — present the findings and ask how to proceed
 
