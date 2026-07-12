@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Resolve and ensure the shared artifacts directory for a fan-flames run:
+# task briefs, implementer reports, the prior-waves summary, and the
+# progress ledger. Prints the directory's absolute path.
+#
+# The directory lives in /tmp next to the run's jj workspaces — outside
+# every working copy, so no workspace snapshot ever picks the artifacts up
+# and nothing here can leak into a squashed change.
+#
+# Single source of truth for the location, so fan-flames-task-brief and the
+# skill text cannot drift to different directories.
+#
+# Usage: fan-flames-artifacts
+set -euo pipefail
+
+root=$(jj root)
+dir="/tmp/jj-workspaces/$(basename "$root")/artifacts"
+mkdir -p "$dir"
+printf '%s\n' "$dir"
