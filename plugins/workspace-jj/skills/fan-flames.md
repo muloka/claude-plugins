@@ -80,6 +80,32 @@ The user provides one of:
 
 If given a plan document, read it and extract all tasks with their full text.
 
+## Artifacts Directory
+
+All run artifacts live in one shared directory outside every working copy, so
+no workspace snapshot ever picks them up and nothing bulky is pasted through
+the orchestrator's context:
+
+```bash
+../scripts/fan-flames-artifacts   # prints /tmp/jj-workspaces/<repo>/artifacts, creating it
+```
+
+(Script paths are relative to this skill file's directory.)
+
+| File | Written by | Read by |
+|------|-----------|---------|
+| `task-N-brief.md` | PLAN (task-brief script, or Write for ad-hoc tasks) | implementers, fix subagents, reviewers |
+| `task-N-report.md` | implementer; fix subagents append | reviewers; orchestrator only on demand |
+| `prior-waves.md` | orchestrator, appended after each wave's FAN IN | Wave 2+ implementers |
+| `progress.md` | orchestrator, at every phase transition | orchestrator (resume after compaction) |
+
+**Rule: hand artifacts to subagents as file paths, never as pasted text.**
+Everything pasted into a dispatch prompt — and everything a subagent prints
+back — stays resident in the orchestrator's context for the rest of the run
+and is re-read on every later turn. A real superpowers session hit a 42k-char
+dispatch prompt that was 99% pasted history; file handoffs are how fan-flames
+avoids that failure mode.
+
 ## Phase 1: PLAN — Validate Independence and Compute Waves
 
 Before fanning out, validate that tasks can run in parallel and compute execution waves:
@@ -147,6 +173,19 @@ Wait for user decision.
 
 5. **Recommend** 3-5 concurrent workspaces per wave for most tasks. Note the recommendation but do not block dispatch if more are requested.
 
+### Prepare Artifacts
+
+Once waves are confirmed:
+
+1. Resolve the artifacts directory: `../scripts/fan-flames-artifacts`
+2. Write one brief per task:
+   - **Plan document input:** `../scripts/fan-flames-task-brief <plan-file> <N>`
+     for each task — the script extracts the task's full text without it
+     passing through your context again
+   - **Ad-hoc input:** Write `<artifacts>/task-N-brief.md` yourself containing
+     the full task description
+3. Initialize the progress ledger (see Durable Progress and Resume)
+
 ## Phase 2: FAN OUT 🪭 — Create Workspaces and Dispatch
 
 For each task in the current wave, the orchestrator creates a jj workspace and dispatches a subagent to work in it.
@@ -181,11 +220,20 @@ Agent tool:
       jj workspace list
     Confirm you see workspace-<task-name> marked as the active workspace.
 
-    <full task text from plan>
+    ## Your Task
 
-    <any project context needed: CLAUDE.md, relevant file contents, etc.>
+    Read your task brief first — it is your requirements, with the exact
+    values to use verbatim:
+      <artifacts>/task-N-brief.md
 
-    <if wave > 1, include prior wave context — see "Prior Wave Context" below>
+    <one line: where this task fits in the overall plan>
+
+    <if wave > 1: "Changes from prior waves are already in your working copy.
+    Read <artifacts>/prior-waves.md before starting — build on that work,
+    don't duplicate or conflict with it.">
+
+    <only if needed: interfaces or decisions the brief cannot know, e.g.
+    exact signatures produced by an earlier wave>
 
     CRITICAL: You MUST NOT use ANY raw git commands — not even for context
     discovery. Always use jj equivalents (jj log, jj diff, jj status, etc.).
@@ -216,44 +264,52 @@ Agent tool:
 
     ## Reporting
 
-    IMPORTANT: Before reporting back, capture your change ID and workspace name:
+    Write your full report to <artifacts>/task-N-report.md:
+    - What you implemented (or attempted, if blocked)
+    - What you tested and the test results
+    - Files changed, with one line on what changed in each
+    - Self-review findings (if any)
+    - Any issues or concerns
+
+    Before reporting back, capture your change ID and workspace name:
     jj log -r @ --no-graph -T 'change_id'
     basename "$PWD"
 
-    When done, report:
+    Then report back ONLY the following, under 15 lines — the detail lives
+    in the report file:
     - Status: DONE | DONE_WITH_CONCERNS | BLOCKED | NEEDS_CONTEXT
     - Change ID: <the change_id from above>
     - Workspace directory: <the basename from above>
-    - Files changed (list paths)
-    - Test results (if applicable)
-    - Self-review findings (if any)
-    - Any concerns
+    - Files changed: paths only
+    - One-line test summary (e.g. "14/14 passing")
+    - Concerns, if any
+    - Report file: <artifacts>/task-N-report.md
+
+    If BLOCKED or NEEDS_CONTEXT, put the specifics in your final message
+    itself — the orchestrator acts on it directly.
 ```
+
+(`<artifacts>` is the absolute path printed by `../scripts/fan-flames-artifacts` —
+substitute the real path when composing each prompt.)
 
 **Dispatch rules:**
 - Create all workspaces first, then dispatch all agents simultaneously (parallel, not sequential)
 - Agents are dispatched **without** `isolation: "worktree"` — the orchestrator manages jj workspaces directly
 - Each agent's prompt begins with the `cd` + verify instructions for its workspace path
-- Provide each subagent with the full task text, not a summary
+- Point each subagent at its brief file — never paste task text, plan
+  excerpts, or prior-wave summaries into the prompt
 - Include relevant project context (CLAUDE.md rules, key file contents)
 - If the plan uses superpowers skills (TDD, code review), include those references in the subagent prompt
 
 **Prior wave context (Wave 2+ only):**
 
-For waves after the first, include a summary of what prior waves built. The orchestrator has this data from prior COLLECT phases — paste it into each agent's prompt:
+After each wave's FAN IN, append a concise summary of what that wave merged
+to `<artifacts>/prior-waves.md` (see Phase 5). Wave 2+ dispatch prompts
+reference that file by path — the summary is written once per wave and read
+by every later agent, instead of being pasted into each prompt.
 
-```
-## Changes from prior waves (already in your working copy)
-
-Wave 1 completed:
-- <file>: added <functions/types/modules>
-- <file>: updated <what changed>
-
-These changes are already in your working copy. Build on top of them,
-don't duplicate or conflict with them.
-```
-
-This prevents Wave 2+ agents from reimplementing or conflicting with prior wave work. Keep the summary concise — list files, functions added/changed, and key APIs. Don't paste full diffs.
+Keep entries concise — files, functions/types added or changed, and key APIs.
+Never full diffs.
 
 **Progress tracking:**
 - After dispatch, report how many subagents are running:
@@ -351,11 +407,14 @@ After tests pass, dispatch batched peer review agents using the `change-reviewer
 
 **Batching:** ~1 reviewer agent per 300 lines changed in the wave. For a wave with 600 lines across 3 tasks, dispatch 2 reviewers splitting the files between them. For a wave with < 300 lines total, 1 reviewer.
 
-**Prompt:** Each reviewer gets the full task specs for all tasks in the wave as ground truth — this eliminates hallucinations about intent (reviewers verify against the spec rather than guessing about history). Reviewers check both spec compliance and code quality in one pass.
+**Prompt:** Each reviewer gets the brief files of all tasks in the wave as ground truth — this eliminates hallucinations about intent (reviewers verify against the spec rather than guessing about history). Reviewers check both spec compliance and code quality in one pass.
 
 Use the template at `./fan-flames-wave-reviewer.md` to construct each reviewer prompt. Fill in:
 - `[WAVE_NUMBER]` — the current wave number
-- `[FULL TEXT of all task specs in this wave]` — paste complete task text for every task
+- `[BRIEF_FILES]` — paths to the brief files of every task in the wave
+  (`<artifacts>/task-N-brief.md` — paths, not pasted text)
+- `[REPORT_FILES]` — paths to the implementer report files
+  (`<artifacts>/task-N-report.md`)
 - `[FILES_TO_REVIEW]` — the files assigned to this reviewer
 - `[CHANGE_IDS]` — the jj change IDs from the implementers
 
@@ -378,7 +437,9 @@ If no critical/important findings: all tasks approved for fan-in.
 When reviewers find critical or important issues:
 
 1. Dispatch fix subagent **without** `isolation: "worktree"` (the workspace already exists — `isolation` would create a new one). Tell the subagent to work in the existing workspace directory path and provide the reviewer's specific findings
-2. Fix subagent uses the same implementer protocol (DONE / BLOCKED / NEEDS_CONTEXT)
+2. Fix subagent uses the same implementer protocol (DONE / BLOCKED /
+   NEEDS_CONTEXT) and appends its fix report — what it changed and the
+   test results — to the task's existing `<artifacts>/task-N-report.md`
 3. Re-run tests, then re-dispatch reviewer for affected files only
 4. Repeat until no critical/important findings remain
 5. Escalate to user after 2 failed fix attempts — present the findings and ask how to proceed
