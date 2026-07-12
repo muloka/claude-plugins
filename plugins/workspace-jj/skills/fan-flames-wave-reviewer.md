@@ -2,7 +2,7 @@
 
 Use this template when dispatching peer review agents during the REVIEW phase.
 
-**Purpose:** Verify spec compliance AND code quality in a single pass. The reviewer has the full task specs as ground truth, eliminating hallucinations about intent.
+**Purpose:** Verify spec compliance AND code quality in a single pass. The reviewer reads the task brief files as ground truth, eliminating hallucinations about intent — and the briefs travel as file paths, never as pasted text in the orchestrator's context.
 
 **Dispatch context:** Wave reviewers run in the orchestrator's context (no `isolation: "worktree"`). They are read-only, using jj revset commands to inspect changes by change ID. All reviewers for the wave run in parallel and cannot conflict.
 
@@ -20,7 +20,19 @@ Agent tool:
 
     ## What Was Requested (Wave [WAVE_NUMBER])
 
-    [FULL TEXT of all task specs in this wave]
+    Read the task briefs first — they are the requirements and your ground
+    truth for what was asked:
+
+    [BRIEF_FILES]
+
+    ## What the Implementers Claim They Built
+
+    Read the implementer reports:
+
+    [REPORT_FILES]
+
+    Treat the reports as unverified claims — verify them against the code,
+    not the other way around.
 
     ## What Was Built
 
@@ -77,6 +89,9 @@ Agent tool:
 ## Placeholders
 
 - `[WAVE_NUMBER]` — the current wave number
-- `[FULL TEXT of all task specs in this wave]` — paste the complete task text for every task in the wave, not a summary
+- `[BRIEF_FILES]` — paths to the wave's task brief files
+  (`<artifacts>/task-N-brief.md`), one per line — paths, never pasted text
+- `[REPORT_FILES]` — paths to the implementer report files
+  (`<artifacts>/task-N-report.md`), one per line
 - `[FILES_TO_REVIEW]` — list of file paths assigned to this reviewer
 - `[CHANGE_IDS]` — the jj change IDs from the implementers (may be multiple if reviewer covers multiple tasks)
