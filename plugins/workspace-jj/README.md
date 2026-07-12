@@ -43,7 +43,32 @@ claude --worktree
 /workspace-list
 ```
 
-Subagents can also use workspace isolation with `isolation: "worktree"` in their frontmatter.
+## Side Threads: Which Door to Use
+
+| Situation | Use | Ceremony |
+|-----------|-----|----------|
+| New terminal tab, ephemeral thread | `claude --worktree <name>` from the main checkout | one command — the WorktreeCreate hook makes the jj workspace (in `/tmp`, pinned to `@-`) and the session starts inside it |
+| New terminal tab, durable thread | `jjtab <name> [revset]` shell function (below) | one command — sibling directory next to the repo, survives reboots, custom base revset |
+| Already inside a session | ask Claude to enter a worktree (native `EnterWorktree` → same hook) | zero |
+| Parallel agent execution of a plan | `/fan-flames` | the skill orchestrates workspaces itself |
+
+Each workspace has its own working copy (`@`), so tabs never affect each other; all changes remain visible in the shared `jj log` from anywhere.
+
+The `jjtab` function for your shell config:
+
+```bash
+# jjtab NAME [REVSET] — jj workspace as a sibling dir + launch claude in it.
+# Default base: parents of the current @. e.g.: jjtab hotfix 'trunk()'
+jjtab() {
+  local name=${1:?usage: jjtab NAME [REVSET]}
+  local rev=${2:-'@-'}
+  local dir="../$(basename "$PWD")-$name"
+  jj workspace add "$dir" --name "$name" --revision "$rev" || return
+  cd "$dir" && claude
+}
+```
+
+Finish a side thread with `/finish` in-session, or manually: `jj workspace forget <name>` from the main checkout, then remove the directory.
 
 ## Requirements
 
@@ -77,7 +102,7 @@ Override merge order with `--merge-order task-3,task-1,task-2`.
 
 **Failure handling:** Partial success is preserved. Failed workspaces stay alive for inspection via `/workspace-list`.
 
-**Change-ID based fan-in:** Subagents report their change ID and workspace directory name (`basename $PWD`) before returning. Fan-in uses change IDs (not workspace revsets) because the WorktreeRemove hook may clean up workspaces before the orchestrator runs squash.
+**Change-ID based fan-in:** Subagents report their change ID and workspace directory name (`basename $PWD`) before returning. Fan-in uses change IDs (not workspace revsets) because the orchestrator cleans up workspaces after review, before it runs squash.
 
 See [design spec](../../docs/specs/2026-03-18-permission-gateway-and-fan-flames-design.md) for full details.
 
