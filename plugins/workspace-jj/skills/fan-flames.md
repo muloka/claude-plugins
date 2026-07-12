@@ -491,7 +491,10 @@ Compare against the change ID the agent reported.
 **Step 3:** If mismatch detected, flag as `WORKSPACE_LEAK`:
 1. Report: "Workspace integrity failure — Task N's edits landed in the orchestrator's workspace instead of workspace-<task-name>."
 2. Determine if changes are in `@` (recoverable — skip squash for this task) or lost (treat as BLOCKED)
-3. Report to user before proceeding to review
+3. Diagnose with `jj op log` — each operation is attributed to the workspace
+   it was created from (jj ≥ 0.40), which identifies exactly which agent
+   produced the leaked operation
+4. Report to user before proceeding to review
 
 > **Safety net context:** This check replaces the former Pattern C edge case handler. Pattern C was caused by dual isolation mechanisms (`isolation: "worktree"` + jj workspace hook). With orchestrator-managed workspaces (v3), the root cause is eliminated. This check catches `cd` failures, which are the remaining risk vector.
 
