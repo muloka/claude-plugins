@@ -95,6 +95,12 @@ the orchestrator's context:
 
 (Script paths are relative to this skill file's directory.)
 
+Fan-flames can be orchestrated from any jj workspace, not just the default —
+`@` and `jj root` resolve to the workspace you run it from, so the whole run
+targets that workspace's working copy. This also isolates artifacts for free:
+`jj root` returns the current workspace's directory, so runs orchestrated
+from different workspaces get separate artifacts dirs (and separate ledgers).
+
 | File | Written by | Read by |
 |------|-----------|---------|
 | `task-N-brief.md` | PLAN (task-brief script, or Write for ad-hoc tasks) | implementers, fix subagents, reviewers |
@@ -310,6 +316,13 @@ that prior-wave changes "are already in your working copy" would be false.
 Wave 2+ agent changes are therefore children of `@`; the FAN IN squash
 (`jj squash --from <change-id> --into @`) is identical either way.
 
+**Name collisions:** workspace names live in one shared per-repo registry
+across all workspaces. If orchestrating from a non-default workspace, or if
+`jj workspace add` reports the name is taken (e.g. a concurrent run), prefix
+the names with the orchestrating workspace's name —
+`workspace-<orchestrator-ws>-<task-name>` — and use that name consistently
+wherever `workspace-<task-name>` appears in this skill.
+
 ### Step 2: Dispatch agents
 
 For each task, dispatch a subagent **without** `isolation: "worktree"`:
@@ -452,9 +465,9 @@ change=<id> files=<paths>` (or `done-with-concerns …`, `blocked reason=…`,
 
 ### Workspace Integrity Check (Primary Gate)
 
-**This is the first validation step after agents return.** Without `isolation: "worktree"`, agents rely on `cd` to reach their workspace. If an agent fails to `cd`, edits land in the default workspace's `@`. The integrity check catches this before review wastes cycles.
+**This is the first validation step after agents return.** Without `isolation: "worktree"`, agents rely on `cd` to reach their workspace. If an agent fails to `cd`, edits land in the orchestrator's workspace `@`. The integrity check catches this before review wastes cycles.
 
-**Step 1:** Check default workspace `@` for leaked changes:
+**Step 1:** Check the orchestrator's workspace `@` for leaked changes:
 
 ```bash
 jj diff -r @ --stat
@@ -476,7 +489,7 @@ jj log -r 'workspace-<task-name>@' --no-graph -T 'change_id'
 Compare against the change ID the agent reported.
 
 **Step 3:** If mismatch detected, flag as `WORKSPACE_LEAK`:
-1. Report: "Workspace integrity failure — Task N's edits landed in the default workspace instead of workspace-<task-name>."
+1. Report: "Workspace integrity failure — Task N's edits landed in the orchestrator's workspace instead of workspace-<task-name>."
 2. Determine if changes are in `@` (recoverable — skip squash for this task) or lost (treat as BLOCKED)
 3. Report to user before proceeding to review
 
@@ -513,7 +526,7 @@ Runs once per wave, after COLLECT and before FAN IN. Combines spec compliance an
 Run the project's test suite against the wave's changes. This is the primary spec compliance gate — if tests pass, the implementation satisfies testable requirements.
 
 Run it **inside each task workspace** — that is where the wave's changes are
-materialized as files. The default workspace's working copy does not contain
+materialized as files. The orchestrator's working copy does not contain
 them until FAN IN (revsets make changes visible to jj commands, but do not
 materialize files on disk):
 
@@ -632,7 +645,7 @@ consistently produce **Pattern B** (independent branches off the shared base). T
 dual-topology detection below is retained as a safety net.
 
 **Pattern A: Auto-chained** — Subagents see each other's commits and chain linearly.
-The default workspace's `@` already sits on top of all changes. Content is merged.
+The orchestrator's `@` already sits on top of all changes. Content is merged.
 
 > **Safety net (v3):** With orchestrator-managed workspaces pinned to the wave's
 > base revision, Pattern A is not expected to occur. It is retained for
@@ -653,7 +666,7 @@ jj log -r '<change-id-1> | <change-id-2> | <change-id-3>' --no-graph -T 'change_
 Check: do all change IDs share the same parent? If yes → Pattern B (independent branches).
 If changes are ancestors of each other → Pattern A (auto-chained).
 
-Simpler heuristic: check if the default workspace's `@` is already a descendant of all change IDs:
+Simpler heuristic: check if the orchestrator's `@` is already a descendant of all change IDs:
 
 ```bash
 # If this returns all change IDs, they're already in @'s ancestry — Pattern A
@@ -715,15 +728,15 @@ If the user specified `--merge-order`, use their explicit ordering instead.
 jj diff -r <change-id> --stat | tail -1
 ```
 
-**Before fan-in, verify orchestrator is in the default workspace:**
+**Before fan-in, verify you are back in the orchestrator's own workspace (the one fan-flames was started from — not a task workspace):**
 
 ```bash
-jj workspace list  # default workspace should be marked
+jj workspace list  # the workspace you started fan-flames from should be the active one
 ```
 
 **For each completed task, in order:**
 
-1. **Squash into the default workspace:**
+1. **Squash into the orchestrator's workspace:**
 
 ```bash
 JJ_EDITOR=true jj squash --from <change-id> --into @
