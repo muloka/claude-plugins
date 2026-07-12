@@ -160,6 +160,28 @@ fresh. On resume:
 
 On start fresh: overwrite the ledger with a new header when PLAN initializes it.
 
+## Model Selection
+
+Parallel dispatch multiplies model cost: each wave fans the chosen model out
+across N workspaces, then reviewers, then fix loops. Use the least capable
+model that can handle each role, and specify it explicitly on every Agent
+call — an omitted `model` silently inherits the session's model, often the
+most capable and most expensive.
+
+| Role | Model |
+|------|-------|
+| Implementer — brief contains the complete code to write (transcription + tests) | `haiku` |
+| Implementer — prose spec, 1-2 files | `sonnet` |
+| Implementer — multi-file integration or design judgment | session model (omit) |
+| Reviewer — small mechanical wave | `sonnet` |
+| Reviewer — subtle/risky changes, or the final wave (covers the combined result) | `opus` or session model |
+| Fix subagent | same model as the task's implementer |
+
+**Turn count beats token price.** Cost scales with how many turns a subagent
+takes, and the cheapest models routinely take 2-3× the turns on multi-step
+work — costing more overall. `sonnet` is the floor for reviewers and for
+implementers working from prose descriptions.
+
 ## Phase 1: PLAN — Validate Independence and Compute Waves
 
 Before fanning out, validate that tasks can run in parallel and compute execution waves:
@@ -183,6 +205,19 @@ Wave assignment:
   Wave 1: Task 1, Task 2, Task 4  ← no edges between them
   Wave 2: Task 3, Task 5          ← no edges between them
 ```
+
+### Pre-Flight Plan Scan
+
+While extracting tasks, scan the plan once for conflicts:
+
+- tasks that contradict each other or the plan's Global Constraints
+- anything the plan explicitly mandates that review would flag as a defect
+  (a test that asserts nothing, verbatim duplication of a logic block)
+
+Batch anything found into the same interaction as the wave-plan
+confirmation — each finding beside the plan text that mandates it, asking
+which governs. If the scan is clean, proceed without comment. The review
+loop remains the net for conflicts that only emerge from implementation.
 
 ### User Interaction
 
@@ -282,6 +317,7 @@ For each task, dispatch a subagent **without** `isolation: "worktree"`:
 ```
 Agent tool:
   description: "Task N: <short description>"
+  model: <per Model Selection — always specify explicitly>
   prompt: |
     ## Working Directory
     CRITICAL: Your first action MUST be:
@@ -405,7 +441,7 @@ As subagents return, classify each result:
 | DONE | Verify workspace integrity, then ready for fan-in |
 | DONE_WITH_CONCERNS | Verify workspace integrity, read concerns, decide if fan-in safe |
 | NEEDS_CONTEXT | Provide context, re-dispatch |
-| BLOCKED | Note failure, track workspace for sweep |
+| BLOCKED | Assess the blocker: missing context → provide it and re-dispatch same model; needs more reasoning → re-dispatch with a more capable model; task too large or plan wrong → escalate to user. Otherwise note failure, track workspace for sweep |
 
 Track which tasks succeeded and which failed. **Capture the change ID and workspace directory name from each subagent's report** — change IDs are needed for fan-in squash, workspace names for cleanup.
 
@@ -505,6 +541,12 @@ Use the template at `./fan-flames-wave-reviewer.md` to construct each reviewer p
 - `[FILES_TO_REVIEW]` — the files assigned to this reviewer
 - `[CHANGE_IDS]` — the jj change IDs from the implementers
 
+When filling the template, never pre-judge findings: no "do not flag X", no
+pre-rated severities ("suggestion at most"), and no open-ended extras
+("check all uses") without a concrete task-specific reason. If you expect a
+finding would be a false positive, let the reviewer raise it and adjudicate
+it in the fix loop.
+
 Dispatch all reviewers for the wave in parallel.
 
 ### Handling Review Results
@@ -516,8 +558,14 @@ Reviewers report findings as JSON with severity levels:
 | critical | Must fix before fan-in |
 | important | Must fix before fan-in |
 | suggestion | Note for user, don't block |
+| cannot-verify | Orchestrator resolves it — you hold the plan and cross-task context the reviewer lacks. A confirmed gap = review-failed for that task |
 
 If no critical/important findings: all tasks approved for fan-in.
+
+A finding labeled plan-mandated — or any finding that conflicts with what
+the plan's text requires — goes to the user: present the finding beside the
+plan text and ask which governs. Don't dismiss it because the plan mandates
+it, and don't dispatch a fix that contradicts the plan without asking.
 
 Append a ledger line per task as verdicts land: `task N: review-passed` or
 `task N: review-failed findings=<n>c,<n>i` (append `review-passed` after a
@@ -527,11 +575,19 @@ successful fix loop).
 
 When reviewers find critical or important issues:
 
-1. Dispatch fix subagent **without** `isolation: "worktree"` (the workspace already exists — `isolation` would create a new one). Tell the subagent to work in the existing workspace directory path and provide the reviewer's specific findings
+1. Dispatch ONE fix subagent per task carrying that task's complete findings
+   list — never one subagent per finding (per-finding fixers each rebuild
+   context and re-run suites). Dispatch **without** `isolation: "worktree"`
+   (the workspace already exists — `isolation` would create a new one), on
+   the same model as the task's implementer (see Model Selection). Tell it
+   to work in the existing workspace directory path, and name the test files
+   covering the change — a small fix doesn't need the whole suite
 2. Fix subagent uses the same implementer protocol (DONE / BLOCKED /
-   NEEDS_CONTEXT) and appends its fix report — what it changed and the
-   test results — to the task's existing `<artifacts>/task-N-report.md`
-3. Re-run tests, then re-dispatch reviewer for affected files only
+   NEEDS_CONTEXT) and appends its fix report to the task's existing
+   `<artifacts>/task-N-report.md`. The report must contain the covering
+   tests, the command run, and the output — confirm all three are present
+   before re-dispatching the reviewer
+3. Re-dispatch reviewer for affected files only
 4. Repeat until no critical/important findings remain
 5. Escalate to user after 2 failed fix attempts — present the findings and ask how to proceed
 

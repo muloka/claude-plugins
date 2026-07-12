@@ -13,6 +13,7 @@ Use this template when dispatching peer review agents during the REVIEW phase.
 ```
 Agent tool:
   subagent_type: "peer-review-jj:change-reviewer"
+  model: <per the skill's Model Selection — sonnet floor; opus/session for risky or final waves>
   description: "Wave N review: <files summary>"
   prompt: |
     You are reviewing code from a parallel execution wave. You have the original
@@ -71,7 +72,7 @@ Agent tool:
       {
         "file": "path/to/file.rs",
         "line": 42,
-        "severity": "critical|important|suggestion",
+        "severity": "critical|important|suggestion|cannot-verify",
         "category": "spec|quality|cross-module",
         "finding": "description of the issue"
       }
@@ -82,8 +83,20 @@ Agent tool:
 
     Severity guide:
     - **critical**: wrong behavior, missing requirement, security issue
-    - **important**: naming confusion, missing edge case, API misuse, pattern violation
-    - **suggestion**: style preference, minor improvement — don't block on these
+    - **important**: the task can't be merged until fixed — incorrect or
+      fragile behavior, a missed requirement, verbatim duplication of a
+      logic block, swallowed errors, tests that assert nothing
+    - **suggestion**: style preference, broader-coverage wishes, polish —
+      don't block on these
+    - **cannot-verify**: a requirement you can't verify from this wave's
+      changes alone (it lives in unchanged code or spans tasks). Say in the
+      finding what the orchestrator should check. Report it alongside your
+      other findings — don't widen your search to chase it
+
+    Calibration: not everything is critical. If the brief itself mandates
+    something this rubric calls a defect, that IS a finding — report it as
+    important with "plan-mandated" in the text. The plan's authorship does
+    not grade its own work; the human decides.
 ```
 
 ## Placeholders
