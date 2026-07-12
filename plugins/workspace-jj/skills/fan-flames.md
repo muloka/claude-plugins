@@ -528,6 +528,12 @@ Use the template at `./fan-flames-wave-reviewer.md` to construct each reviewer p
 - `[FILES_TO_REVIEW]` — the files assigned to this reviewer
 - `[CHANGE_IDS]` — the jj change IDs from the implementers
 
+When filling the template, never pre-judge findings: no "do not flag X", no
+pre-rated severities ("suggestion at most"), and no open-ended extras
+("check all uses") without a concrete task-specific reason. If you expect a
+finding would be a false positive, let the reviewer raise it and adjudicate
+it in the fix loop.
+
 Dispatch all reviewers for the wave in parallel.
 
 ### Handling Review Results
@@ -539,8 +545,14 @@ Reviewers report findings as JSON with severity levels:
 | critical | Must fix before fan-in |
 | important | Must fix before fan-in |
 | suggestion | Note for user, don't block |
+| cannot-verify | Orchestrator resolves it — you hold the plan and cross-task context the reviewer lacks. A confirmed gap = review-failed for that task |
 
 If no critical/important findings: all tasks approved for fan-in.
+
+A finding labeled plan-mandated — or any finding that conflicts with what
+the plan's text requires — goes to the user: present the finding beside the
+plan text and ask which governs. Don't dismiss it because the plan mandates
+it, and don't dispatch a fix that contradicts the plan without asking.
 
 Append a ledger line per task as verdicts land: `task N: review-passed` or
 `task N: review-failed findings=<n>c,<n>i` (append `review-passed` after a
