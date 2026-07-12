@@ -258,11 +258,22 @@ Before dispatching any agents, create all workspaces for the wave:
 # For each task in the wave:
 DIR="/tmp/jj-workspaces/$(basename $(jj root))/<task-name>"
 mkdir -p "$(dirname "$DIR")"
-parent_rev=$(jj log -r '@-' --no-graph -T 'commit_id')
-jj workspace add "$DIR" --name "workspace-<task-name>" --revision "$parent_rev"
+# Wave 1: pin to @- (the parent revision).
+base_rev=$(jj log -r '@-' --no-graph -T 'commit_id')
+# Wave 2+: pin to @ instead — prior waves' merged content lives in the
+# accumulating working-copy change, and agents must build on it:
+#   base_rev=$(jj log -r '@' --no-graph -T 'commit_id')
+jj workspace add "$DIR" --name "workspace-<task-name>" --revision "$base_rev"
 ```
 
-All workspaces are pinned to `@-` (the parent revision), ensuring each creates an independent branch (Pattern B).
+**The pin revision is wave-aware.** Wave 1 workspaces are pinned to `@-`, so
+each agent's change is an independent sibling of `@` (Pattern B). Wave 2+
+workspaces MUST be pinned to `@`: FAN IN squashes each wave into `@`, so `@`
+is where prior waves' content lives — a Wave 2 workspace pinned to `@-` would
+be missing the files earlier waves created, and the dispatch prompt's claim
+that prior-wave changes "are already in your working copy" would be false.
+Wave 2+ agent changes are therefore children of `@`; the FAN IN squash
+(`jj squash --from <change-id> --into @`) is identical either way.
 
 ### Step 2: Dispatch agents
 
@@ -413,7 +424,11 @@ change=<id> files=<paths>` (or `done-with-concerns …`, `blocked reason=…`,
 jj diff -r @ --stat
 ```
 
-If `@` shows unexpected changes, at least one agent failed to `cd` to its workspace.
+The expected baseline is wave-aware: in Wave 1, `@` should show no changes;
+from Wave 2 on, `@` legitimately contains all prior waves' merged content, so
+compare against the stat recorded after the previous FAN IN (record
+`jj diff -r @ --stat` after every FAN IN to refresh the baseline). If `@`
+differs from its baseline, at least one agent failed to `cd` to its workspace.
 
 **Step 2:** For each agent that reported DONE or DONE_WITH_CONCERNS, verify its change landed in the correct workspace:
 
@@ -461,9 +476,14 @@ Runs once per wave, after COLLECT and before FAN IN. Combines spec compliance an
 
 Run the project's test suite against the wave's changes. This is the primary spec compliance gate — if tests pass, the implementation satisfies testable requirements.
 
+Run it **inside each task workspace** — that is where the wave's changes are
+materialized as files. The default workspace's working copy does not contain
+them until FAN IN (revsets make changes visible to jj commands, but do not
+materialize files on disk):
+
 ```bash
-# Run from the default workspace — all wave changes are visible via jj revsets
-cargo test  # or the project's equivalent test command
+# For each task in the wave:
+(cd /tmp/jj-workspaces/<repo>/<task-name> && cargo test)  # or the project's equivalent test command
 ```
 
 If tests fail, dispatch fix subagents to the relevant workspace(s) and re-run. Escalate to user after 2 failed attempts.
@@ -524,6 +544,10 @@ Fix-induced file overlap changes for later waves are ignored. jj handles any res
    jj workspace forget workspace-<task-name>
    rm -rf /tmp/jj-workspaces/<repo>/<task-name>
    ```
+   If `rm -rf` is denied (sandbox or permission policy), leaving the
+   directory is safe: after `jj workspace forget` it is inert, and /tmp
+   self-cleans. Report the leftover path and move on — don't retry or
+   escalate over it.
 2. Proceed to FAN IN
 
 ### Wave-End Workspace Sweep
@@ -546,19 +570,21 @@ When `--skip-review` is set, the review phase is skipped. Workspaces are cleaned
 
 **Only review-approved tasks are squashed.** Tasks that failed review and couldn't be fixed are preserved in their workspaces — same handling as BLOCKED tasks.
 
-jj workspaces share a single DAG. With orchestrator-managed workspaces pinned to `@-`,
-subagents should consistently produce **Pattern B** (independent branches). The
+jj workspaces share a single DAG. With orchestrator-managed workspaces pinned to
+the wave's base revision (`@-` for Wave 1, `@` for Wave 2+), subagents should
+consistently produce **Pattern B** (independent branches off the shared base). The
 dual-topology detection below is retained as a safety net.
 
 **Pattern A: Auto-chained** — Subagents see each other's commits and chain linearly.
 The default workspace's `@` already sits on top of all changes. Content is merged.
 
-> **Safety net (v3):** With orchestrator-managed workspaces pinned to `@-`, Pattern A
-> is not expected to occur. It is retained for defense-in-depth. If Pattern A is
-> detected, it is handled correctly — no squash needed.
+> **Safety net (v3):** With orchestrator-managed workspaces pinned to the wave's
+> base revision, Pattern A is not expected to occur. It is retained for
+> defense-in-depth. If Pattern A is detected, it is handled correctly — no squash needed.
 
 **Pattern B: Independent branches (expected)** — Each subagent created a change off the
-shared parent. Changes need to be squashed into `@`.
+wave's shared base (Wave 1: siblings of `@`; Wave 2+: children of `@`). Changes
+need to be squashed into `@`.
 
 Both patterns produce correct content. Detect which occurred, then handle accordingly.
 
