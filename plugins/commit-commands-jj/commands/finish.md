@@ -81,7 +81,7 @@ What would you like to do?
 
 3. Push the bookmark:
    ```bash
-   jj git push --bookmark <name> --allow-new
+   jj git push --bookmark <name>
    ```
 
 4. Create the PR:
