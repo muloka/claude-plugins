@@ -78,6 +78,9 @@ What would you like to do?
    ```bash
    jj bookmark create <kebab-case-name> -r <target>
    ```
+   (Descriptive names make better PR branches. Only if the user explicitly
+   wants a quick anonymous push: `jj git push --change <target>` generates a
+   `push-<change-id>` bookmark and pushes it in one step.)
 
 3. Push the bookmark:
    ```bash
