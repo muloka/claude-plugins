@@ -195,9 +195,9 @@ most capable and most expensive.
 |------|-------|
 | Implementer — brief contains the complete code to write (transcription + tests) | `haiku` |
 | Implementer — prose spec, 1-2 files | `sonnet` |
-| Implementer — multi-file integration or design judgment | session model (omit) |
+| Implementer — multi-file integration or design judgment | `opus` |
 | Reviewer — small mechanical wave | `sonnet` |
-| Reviewer — subtle/risky changes, or the final wave (covers the combined result) | `opus` or session model |
+| Reviewer — subtle/risky changes, or the final wave (covers the combined result) | `opus` |
 | Fix subagent | same model as the task's implementer |
 
 **Turn count beats token price.** Cost scales with how many turns a subagent
