@@ -126,7 +126,7 @@ in jj's DAG even when your context no longer remembers creating them.
 Append-only line format (latest line for a task wins):
 
 ```
-# fan-flames ledger — plan: docs/plans/foo-plan.md — parent: xyzabc12
+# fan-flames ledger — plan: docs/plans/foo-plan.md — parent: xyzabc12 — start-op: 4279dc009e64
 wave-plan: wave 1: tasks 1,2,4 | wave 2: tasks 3,5
 task 1: dispatched workspace=workspace-task-1
 task 1: done change=abc12345 files=src/a.ts,src/b.ts
@@ -143,6 +143,23 @@ Event lines: `dispatched workspace=…`, `done change=… files=…`,
 
 Write ledger lines in the same message as the phase's other bookkeeping —
 never as a separate turn.
+
+### Aborting a Run (atomic rollback)
+
+The ledger header's `start-op` is the run's whole-repo checkpoint. If the
+user aborts a run (or fix loops fail beyond repair), the entire run — every
+workspace add, squash, and abandon — can be undone atomically:
+
+```
+jj op restore <start-op-id>
+```
+
+This restores the repo to the exact state before PLAN ran. The artifacts
+directory lives outside the repo, so briefs, reports, and the ledger
+survive — append `run: aborted (restored to <start-op-id>)` to the ledger
+afterward so the resume check doesn't misread the run as interrupted.
+Only use this for full aborts: it also reverts any changes the run
+legitimately merged.
 
 ### Resume Check (at skill start, before PLAN)
 
@@ -283,7 +300,7 @@ Once waves are confirmed:
    `<artifacts>/progress.md`:
 
    ```
-   # fan-flames ledger — plan: <plan path or "ad-hoc"> — parent: <change-id of @->
+   # fan-flames ledger — plan: <plan path or "ad-hoc"> — parent: <change-id of @-> — start-op: <jj op log -n1 --no-graph -T 'id.short()'>
    wave-plan: wave 1: tasks … | wave 2: tasks …
    ```
 
