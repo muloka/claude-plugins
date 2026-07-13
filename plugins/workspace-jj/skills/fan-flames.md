@@ -359,6 +359,12 @@ Agent tool:
     discovery. Always use jj equivalents (jj log, jj diff, jj status, etc.).
     The only exceptions are `jj git` subcommands and `gh` CLI.
 
+    CRITICAL: Use only non-interactive jj forms — interactive commands hang
+    you. Always pass -m to describe/commit/squash. Never run bare
+    `jj describe`, `jj resolve`, `jj diffedit`, `jj split` without paths, or
+    any command that opens an editor or TUI. To resolve a conflict, edit the
+    conflict markers in the file, then verify with `jj resolve --list`.
+
     ## Self-Review Before Reporting
 
     Before reporting back, review your work with fresh eyes:
@@ -702,13 +708,9 @@ jj log -r 'conflicts()'           # verify no conflicts in rebased descendants
 
 `jj abandon` removes the change and rebases all descendants onto its parent — as if the rejected task never existed. If the rebased descendants conflict (because they touched lines the rejected task introduced), resolve before proceeding.
 
-For partial acceptance (keep some changes from a rejected task):
-
-```bash
-jj diffedit -r <change-id>        # remove unwanted parts from the diff
-```
-
-Or split by file path, then abandon the unwanted half:
+For partial acceptance (keep some changes from a rejected task), split by
+file path, then abandon the unwanted half (`jj diffedit` also works but is
+interactive — human-only, never for agents):
 
 ```bash
 jj split -r <change-id> paths/to/keep
@@ -754,7 +756,11 @@ jj resolve --list
 If conflicts exist:
 - Report them clearly with file paths
 - Ask user: resolve now, skip this task, or abandon the merge
-- If user wants to resolve: use `jj resolve` to handle each conflict
+- If the user wants it resolved: edit the conflict markers in each file to
+  the intended content, then verify with `jj resolve --list` (should be
+  empty). For take-one-side resolutions, `jj resolve --tool :ours <path>`
+  (or `:theirs`) is non-interactive and safe. Never run `jj resolve` bare
+  or with only a file argument — that launches an interactive merge tool
 
 3. **Append the ledger line:** `task N: squashed`
 
@@ -832,7 +838,10 @@ jj's conflict model is first-class — conflicts are recorded in the tree, not b
 - But compounding conflicts become harder to reason about
 - Smallest-diff-first ordering minimizes conflict cascading
 - Use `jj resolve --list` to see conflicted files
-- Use `jj resolve <file>` to resolve interactively
+- Resolve by editing the conflict markers in the file to the intended
+  content — or `jj resolve --tool :ours <path>` / `:theirs` for
+  take-one-side cases — then re-check `jj resolve --list` (interactive
+  `jj resolve` is human-only — it hangs agents)
 
 ## DAG Topology Reference
 
