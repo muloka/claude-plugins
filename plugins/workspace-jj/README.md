@@ -52,7 +52,7 @@ claude --worktree
 | Already inside a session | ask Claude to enter a worktree (native `EnterWorktree` → same hook) | zero |
 | Parallel agent execution of a plan | `/fan-flames` | the skill orchestrates workspaces itself |
 
-Each workspace has its own working copy (`@`), so tabs never affect each other; all changes remain visible in the shared `jj log` from anywhere.
+Each workspace has its own working copy (`@`), so tabs never affect each other; all changes remain visible in the shared `jj log` from anywhere. One rule: never `jj edit` (or otherwise rewrite) a change that another workspace has checked out as its `@` — that creates a divergent change (`change_id??`, two commits for one change). Recover by abandoning the unwanted commit by its commit ID.
 
 The `jjtab` function for your shell config:
 

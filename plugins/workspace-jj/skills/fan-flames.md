@@ -126,7 +126,7 @@ in jj's DAG even when your context no longer remembers creating them.
 Append-only line format (latest line for a task wins):
 
 ```
-# fan-flames ledger — plan: docs/plans/foo-plan.md — parent: xyzabc12
+# fan-flames ledger — plan: docs/plans/foo-plan.md — parent: xyzabc12 — start-op: 4279dc009e64
 wave-plan: wave 1: tasks 1,2,4 | wave 2: tasks 3,5
 task 1: dispatched workspace=workspace-task-1
 task 1: done change=abc12345 files=src/a.ts,src/b.ts
@@ -143,6 +143,23 @@ Event lines: `dispatched workspace=…`, `done change=… files=…`,
 
 Write ledger lines in the same message as the phase's other bookkeeping —
 never as a separate turn.
+
+### Aborting a Run (atomic rollback)
+
+The ledger header's `start-op` is the run's whole-repo checkpoint. If the
+user aborts a run (or fix loops fail beyond repair), the entire run — every
+workspace add, squash, and abandon — can be undone atomically:
+
+```
+jj op restore <start-op-id>
+```
+
+This restores the repo to the exact state before PLAN ran. The artifacts
+directory lives outside the repo, so briefs, reports, and the ledger
+survive — append `run: aborted (restored to <start-op-id>)` to the ledger
+afterward so the resume check doesn't misread the run as interrupted.
+Only use this for full aborts: it also reverts any changes the run
+legitimately merged.
 
 ### Resume Check (at skill start, before PLAN)
 
@@ -283,7 +300,7 @@ Once waves are confirmed:
    `<artifacts>/progress.md`:
 
    ```
-   # fan-flames ledger — plan: <plan path or "ad-hoc"> — parent: <change-id of @->
+   # fan-flames ledger — plan: <plan path or "ad-hoc"> — parent: <change-id of @-> — start-op: <jj op log -n1 --no-graph -T 'id.short()'>
    wave-plan: wave 1: tasks … | wave 2: tasks …
    ```
 
@@ -358,6 +375,12 @@ Agent tool:
     CRITICAL: You MUST NOT use ANY raw git commands — not even for context
     discovery. Always use jj equivalents (jj log, jj diff, jj status, etc.).
     The only exceptions are `jj git` subcommands and `gh` CLI.
+
+    CRITICAL: Use only non-interactive jj forms — interactive commands hang
+    you. Always pass -m to describe/commit/squash. Never run bare
+    `jj describe`, `jj resolve`, `jj diffedit`, `jj split` without paths, or
+    any command that opens an editor or TUI. To resolve a conflict, edit the
+    conflict markers in the file, then verify with `jj resolve --list`.
 
     ## Self-Review Before Reporting
 
@@ -508,6 +531,20 @@ jj log -r 'description("Task N: <short description>")' --no-graph -T 'change_id'
 
 If multiple matches, use the most recent. If no matches, the subagent likely never created any changes — treat as BLOCKED.
 
+### Divergent Changes (`change_id??`)
+
+A change ID printed with a `??` suffix means the same change has two
+commits — divergence. In fan-flames this happens if anything rewrites a
+change that a live task workspace still holds as its `@` (e.g. the
+orchestrator running `jj edit`/`jj squash` on a task's change before that
+workspace is forgotten, or two fix subagents amending the same change).
+
+- Detect: `jj log -r '<change-id>'` shows both commits when divergent
+- Fix: inspect both sides, then `jj abandon <unwanted-COMMIT-id>` (commit
+  ID, not change ID — the change ID is ambiguous while divergent)
+- Prevent: never rewrite a task's change while its workspace is still
+  registered; fix subagents work only in their own task's workspace
+
 ### Workspace Lifecycle
 
 The orchestrator owns the full workspace lifecycle — no hooks are involved:
@@ -603,7 +640,11 @@ When reviewers find critical or important issues:
    `<artifacts>/task-N-report.md`. The report must contain the covering
    tests, the command run, and the output — confirm all three are present
    before re-dispatching the reviewer
-3. Re-dispatch reviewer for affected files only
+3. Re-dispatch reviewer scoped to the fix delta: fix subagents amend in
+   place, so `jj evolog -r <change-id> -p --limit 2` shows exactly what the
+   fix changed. Name that command in the re-review prompt as the reviewer's
+   primary view (with the original findings for context) — re-reviews judge
+   the amendment, not the whole task again
 4. Repeat until no critical/important findings remain
 5. Escalate to user after 2 failed fix attempts — present the findings and ask how to proceed
 
@@ -702,13 +743,9 @@ jj log -r 'conflicts()'           # verify no conflicts in rebased descendants
 
 `jj abandon` removes the change and rebases all descendants onto its parent — as if the rejected task never existed. If the rebased descendants conflict (because they touched lines the rejected task introduced), resolve before proceeding.
 
-For partial acceptance (keep some changes from a rejected task):
-
-```bash
-jj diffedit -r <change-id>        # remove unwanted parts from the diff
-```
-
-Or split by file path, then abandon the unwanted half:
+For partial acceptance (keep some changes from a rejected task), split by
+file path, then abandon the unwanted half (`jj diffedit` also works but is
+interactive — human-only, never for agents):
 
 ```bash
 jj split -r <change-id> paths/to/keep
@@ -754,7 +791,11 @@ jj resolve --list
 If conflicts exist:
 - Report them clearly with file paths
 - Ask user: resolve now, skip this task, or abandon the merge
-- If user wants to resolve: use `jj resolve` to handle each conflict
+- If the user wants it resolved: edit the conflict markers in each file to
+  the intended content, then verify with `jj resolve --list` (should be
+  empty). For take-one-side resolutions, `jj resolve --tool :ours <path>`
+  (or `:theirs`) is non-interactive and safe. Never run `jj resolve` bare
+  or with only a file argument — that launches an interactive merge tool
 
 3. **Append the ledger line:** `task N: squashed`
 
@@ -832,7 +873,10 @@ jj's conflict model is first-class — conflicts are recorded in the tree, not b
 - But compounding conflicts become harder to reason about
 - Smallest-diff-first ordering minimizes conflict cascading
 - Use `jj resolve --list` to see conflicted files
-- Use `jj resolve <file>` to resolve interactively
+- Resolve by editing the conflict markers in the file to the intended
+  content — or `jj resolve --tool :ours <path>` / `:theirs` for
+  take-one-side cases — then re-check `jj resolve --list` (interactive
+  `jj resolve` is human-only — it hangs agents)
 
 ## DAG Topology Reference
 
