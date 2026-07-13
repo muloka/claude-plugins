@@ -514,6 +514,20 @@ jj log -r 'description("Task N: <short description>")' --no-graph -T 'change_id'
 
 If multiple matches, use the most recent. If no matches, the subagent likely never created any changes — treat as BLOCKED.
 
+### Divergent Changes (`change_id??`)
+
+A change ID printed with a `??` suffix means the same change has two
+commits — divergence. In fan-flames this happens if anything rewrites a
+change that a live task workspace still holds as its `@` (e.g. the
+orchestrator running `jj edit`/`jj squash` on a task's change before that
+workspace is forgotten, or two fix subagents amending the same change).
+
+- Detect: `jj log -r '<change-id>'` shows both commits when divergent
+- Fix: inspect both sides, then `jj abandon <unwanted-COMMIT-id>` (commit
+  ID, not change ID — the change ID is ambiguous while divergent)
+- Prevent: never rewrite a task's change while its workspace is still
+  registered; fix subagents work only in their own task's workspace
+
 ### Workspace Lifecycle
 
 The orchestrator owns the full workspace lifecycle — no hooks are involved:
