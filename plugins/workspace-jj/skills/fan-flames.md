@@ -640,7 +640,11 @@ When reviewers find critical or important issues:
    `<artifacts>/task-N-report.md`. The report must contain the covering
    tests, the command run, and the output — confirm all three are present
    before re-dispatching the reviewer
-3. Re-dispatch reviewer for affected files only
+3. Re-dispatch reviewer scoped to the fix delta: fix subagents amend in
+   place, so `jj evolog -r <change-id> -p --limit 2` shows exactly what the
+   fix changed. Name that command in the re-review prompt as the reviewer's
+   primary view (with the original findings for context) — re-reviews judge
+   the amendment, not the whole task again
 4. Repeat until no critical/important findings remain
 5. Escalate to user after 2 failed fix attempts — present the findings and ask how to proceed
 
