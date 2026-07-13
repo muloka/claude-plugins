@@ -49,10 +49,26 @@ Read the current `.claude/settings.local.json` (may not exist). Deep-merge the f
           }
         ]
       }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jj status >/dev/null 2>&1 || true"
+          }
+        ]
+      }
     ]
   }
 }
 ```
+
+The PreCompact hook forces a working-copy snapshot (and an operation-log
+entry) immediately before context compaction, so `jj undo` / `jj op restore`
+can always reach the pre-compaction state even if the session's memory of
+recent edits is lost. It deliberately omits `--ignore-working-copy` — the
+snapshot is the point.
 
 **Permissions:**
 ```json
@@ -168,6 +184,7 @@ The CLAUDE.md file is at the project root (from `jj root`).
 Show a summary of what was set up:
 
 - SessionStart hook script copied to `.claude/scripts/jj-session-start.sh`
+- PreCompact hook snapshots the working copy before context compaction
 - PreToolUse guard hook copied to `.claude/scripts/require-jj-new.sh`
 - WorktreeCreate hook script copied to `.claude/scripts/jj-workspace-create.sh`
 - WorktreeRemove hook script copied to `.claude/scripts/jj-workspace-remove.sh`
