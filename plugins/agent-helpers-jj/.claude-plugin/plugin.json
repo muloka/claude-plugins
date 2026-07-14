@@ -1,0 +1,8 @@
+{
+  "name": "agent-helpers-jj",
+  "description": "Machine-level jj (Jujutsu) query shortcuts for agents — read-only helpers that bake in --ignore-working-copy so concurrent workspaces don't race",
+  "author": {
+    "name": "muloka",
+    "email": "muloka@users.noreply.github.com"
+  }
+}

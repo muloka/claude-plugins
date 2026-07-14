@@ -50,6 +50,17 @@
       "source": "./plugins/workspace-jj",
       "category": "productivity",
       "homepage": "https://github.com/muloka/claude-plugins/tree/main/plugins/workspace-jj"
+    },
+    {
+      "name": "agent-helpers-jj",
+      "description": "Machine-level jj (Jujutsu) query shortcuts for agents — read-only helpers that bake in --ignore-working-copy so concurrent workspaces don't race",
+      "author": {
+        "name": "muloka",
+        "email": "muloka@users.noreply.github.com"
+      },
+      "source": "./plugins/agent-helpers-jj",
+      "category": "productivity",
+      "homepage": "https://github.com/muloka/claude-plugins/tree/main/plugins/agent-helpers-jj"
     }
   ]
 }
