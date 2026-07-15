@@ -336,7 +336,7 @@ Undoes the last jj operation by restoring the repository to its previous state.
 
 **What it does:**
 1. Reviews the operation log to identify the last operation
-2. Runs `jj undo` to reverse it
+2. Runs `jj op revert <op-id>` to reverse it
 3. Confirms the result and reports what was undone
 
 **Usage:**
@@ -608,7 +608,7 @@ claude plugins add ./plugins/commit-commands-jj
 | `git checkout <commit>` | `jj edit` — move working copy to a change |
 | `git pull --rebase` | `jj git fetch` + `jj rebase` |
 | `git rebase -i` (squash) | `jj squash` |
-| `git reset HEAD~1` | `jj undo` |
+| `git reset HEAD~1` | `jj op revert` |
 | `git reflog` | `jj op log` |
 | branch | bookmark |
 | `git branch` | `jj bookmark` |
