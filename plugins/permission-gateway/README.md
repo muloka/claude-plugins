@@ -16,7 +16,7 @@ Seven evaluation stages, one exit per command. Each decision is logged for rule 
 
 | Tier | Action | Examples |
 |------|--------|---------|
-| **Gate-the-Gate** | Confirms config writes | Write/Edit to `*permission-gateway*` files |
+| **Gate-the-Gate** | Confirms config writes | Write/Edit to `*permission-gate*`, `.claude/settings*`, or `.claude-plugin/` paths |
 | **Deny** | Blocked, never runs | `rm -rf /`, `sudo`, `eval`, `dd`, `kill -9` |
 | **Confirm** | Human sees prompt | `npm publish`, `ssh`, `mv`, `docker run`, `xargs` |
 | **Approve** | Silent, no prompt | `ls`, `npm test`, `jj log`, `cargo build`, `grep` |
@@ -26,7 +26,7 @@ Seven evaluation stages, one exit per command. Each decision is logged for rule 
 
 **One-way ratchet:** Hardcoded deny runs before `.local.md` rules. No override can loosen a deny — the deny tier is an immutable floor. This prevents prompt injection attacks where malicious content instructs Claude to write `.local.md` rules promoting dangerous commands.
 
-**Gate the gate:** Writes to files matching `permission-gateway` trigger a human confirmation prompt via a separate Write/Edit hook (`gate-config-writes.sh`). The injection attempt is caught before the file is modified.
+**Gate the gate:** Writes to the gateway's own scripts/config (`*permission-gate*`), hook registration (`.claude/settings*`), or the plugin manifest (`.claude-plugin/`) trigger a human confirmation prompt via a separate Write/Edit hook (`gate-config-writes.sh`). The injection attempt is caught before the file is modified.
 
 **Full-string scanning:** Dangerous patterns (`rm -rf`, `> ~/path`) are scanned in the full command string, not just the leading command. This prevents bypass via wrappers like `find -exec`, `xargs`, or redirect clobbers to paths outside the project directory.
 
@@ -87,7 +87,7 @@ The command scans the log, normalizes commands into patterns (`pip install reque
 - `scripts/gate-config-writes.sh` — gate-the-gate hook (Write/Edit to config files)
 - `prompts/permission-evaluate.md` — Tier 2 LLM evaluation prompt template
 - `commands/tune.md` — `/tune` command for log-based rule self-tuning
-- `tests/test-permission-gate.sh` — 124 tests
+- `tests/test-permission-gate.sh` — 127 tests
 
 ## Testing
 
