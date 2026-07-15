@@ -503,12 +503,21 @@ if echo "$command_normalized" | grep -qE '^(go\s+(test|build|vet|fmt)|rustfmt)\b
 fi
 
 # Safe VCS (jj read-only)
-if echo "$command_normalized" | grep -qE '^jj\s+(log|status|diff|show|file|config\s+list|root|workspace\s+list|op\s+log)\b'; then
+if echo "$command_normalized" | grep -qE '^jj\s+(log|status|diff|show|file|config\s+list|root|workspace\s+list|op\s+(log|show|diff))\b'; then
   approve
 fi
 
 # Safe jj write operations (local only, no push)
-if echo "$command_normalized" | grep -qE '^jj\s+(new|describe|commit|edit|squash|abandon|undo|rebase|resolve|bookmark)\b'; then
+#
+# `op revert` and `op restore` belong here for the same reason the rest do:
+# they are local-only, and they are themselves recorded in the operation log,
+# so they are as recoverable as any other jj write. Both are run by shipped
+# workflows — /undo runs `jj op revert`, fan-flames' abort path runs
+# `jj op restore` — so gating them prompts the user on their own tooling.
+#
+# `op abandon` is deliberately absent: it discards operation history, which is
+# the one jj write no later operation can recover. It falls through to Tier 2.
+if echo "$command_normalized" | grep -qE '^jj\s+(new|describe|commit|edit|squash|abandon|undo|rebase|resolve|bookmark|op\s+(revert|restore))\b'; then
   approve
 fi
 
