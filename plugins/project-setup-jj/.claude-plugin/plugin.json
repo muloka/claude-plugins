@@ -1,6 +1,7 @@
 {
   "name": "project-setup-jj",
   "description": "Bootstrap jj (Jujutsu) workflow enforcement for any Claude Code project with a single /project-setup command",
+  "version": "0.1.0",
   "author": {
     "name": "muloka",
     "email": "muloka@users.noreply.github.com"
