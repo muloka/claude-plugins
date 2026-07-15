@@ -263,6 +263,22 @@ assert_decision "jj git push" "jj git push" "ask"
 assert_decision "jj new" "jj new" "silent"
 assert_decision "jj describe" "jj describe -m 'test'" "silent"
 
+# jj operation log — read-only inspection. /op-show runs `jj op show`.
+assert_decision "jj op log" "jj op log" "silent"
+assert_decision "jj op show" "jj op show abc123" "silent"
+assert_decision "jj op diff" "jj op diff" "silent"
+
+# jj operation rewrites — local-only and themselves recorded in the op log, so
+# they are recoverable exactly like the other allowlisted jj writes. Both are
+# run by shipped workflows: /undo runs `jj op revert` (commands/undo.md), and
+# fan-flames' abort path runs `jj op restore` (skills/fan-flames.md).
+assert_decision "jj op revert" "jj op revert abc123" "silent"
+assert_decision "jj op restore" "jj op restore abc123" "silent"
+
+# jj op abandon discards operation history — the one op that no later op can
+# recover. It must NOT be silently approved. This pins the boundary.
+assert_decision "jj op abandon" "jj op abandon" "ask"
+
 echo ""
 echo "=== Rule precedence ==="
 
