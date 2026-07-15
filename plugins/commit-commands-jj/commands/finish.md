@@ -103,10 +103,51 @@ What would you like to do?
 
 5. Output the PR URL.
 
-6. **Post-merge cleanup.** After a successful `gh pr merge`, before syncing, abandon all local changes that were ancestors of the PR branch (between trunk and the bookmark), since they're now in trunk via the squash-merge:
-   ```bash
-   jj abandon 'ancestors(TARGET) & ~ancestors(trunk())'
-   ```
+6. **Post-merge cleanup.** After a successful `gh pr merge`.
+
+   Do not pass `--delete-branch` to `gh pr merge`. It tries to delete a local
+   *git* branch and fails with `could not determine current branch`, because a
+   jj working copy is not on one. The merge itself still succeeds — only the
+   branch cleanup fails, and step (e) below handles that.
+
+   a. **Fetch**, so `trunk()` names the merged trunk rather than the state you
+      pushed from:
+      ```bash
+      jj git fetch
+      ```
+
+   b. **Verify trunk actually has the work — before abandoning anything.** A
+      squash-merge rebuilds your changes as a new commit; nothing guarantees it
+      matches what you pushed, and the next step is destructive:
+      ```bash
+      jj diff --from 'trunk()' --to <target> --stat
+      ```
+      Empty output means trunk's content equals the target's, so the local
+      changes are redundant copies. **If it is not empty, stop and report** —
+      something did not land, and abandoning would destroy the only copy.
+
+   c. **Abandon** the local changes now duplicated in trunk:
+      ```bash
+      jj abandon 'ancestors(<target>) & ~ancestors(trunk())'
+      ```
+
+   d. **Move the working copy onto the merged trunk:**
+      ```bash
+      jj new trunk()
+      ```
+      This is not optional. Abandoning re-parents `@` onto whatever the bottom
+      of the stack sat on — the *pre-merge* trunk — so `@` silently lands on a
+      stale base and every file you just merged reads as reverted on disk. The
+      work is safe in trunk; the working copy is simply looking at the wrong
+      revision, which is far more alarming than it sounds.
+
+   e. **Delete the bookmark.** Abandoning the target usually takes the local
+      bookmark with it (it pointed at an abandoned change), so this is often
+      just the remote half:
+      ```bash
+      jj bookmark delete <name>   # only if it survived (c)
+      jj git push --deleted
+      ```
 
 7. Then: Workspace cleanup (Step 4).
 
