@@ -41,13 +41,15 @@ Plus an entry in the repo marketplace manifest `./.claude-plugin/marketplace.jso
 
 ### Runtime dependency: the shell snapshot (must be documented for users)
 
-The agent's Bash tool runs a non-interactive shell that replays a Claude Code **shell snapshot** (`~/.claude/shell-snapshots/snapshot-*.sh`), regenerated at session start. A function added to `~/.zshrc` becomes callable by the agent **only after the next session regenerates the snapshot** — i.e. after a restart. So `agent-helpers-setup` must tell the user, prominently: *the helpers (and their prompt-free allowlist) take effect only after you restart Claude Code / start a new session.* Without a restart, `jjctx` is both "command not found" and un-allowlisted — a baffling double failure if undocumented. (This same mechanism is what makes the permission claim below hold: the matcher sees the literal token `jjctx` replayed from the snapshot, not the expanded `jj …`.)
+The agent's Bash tool runs a non-interactive shell that replays a Claude Code **shell snapshot** (`~/.claude/shell-snapshots/snapshot-*.sh`), regenerated at session start. A function added to `~/.zshrc` becomes callable by the agent **only after the next session regenerates the snapshot** — i.e. after a restart. (Re-sourcing `~/.zshrc` fixes an interactive terminal but NOT the agent, which reads the frozen snapshot.)
+
+> **Snapshot filters single-underscore functions (discovered in live testing, 2026-07-14).** The snapshot capture drops functions whose names begin with a single underscore (the zsh completion-function convention, `_command`) — a double underscore survives. So an internal helper like `_jjq` is *absent* from the snapshot even though its public callers are present, and every helper fails at runtime with `command not found: _jjq`. **Consequence for this design:** the helpers must not share a single-underscore private helper. Each function inlines `jj --ignore-working-copy` instead. Unit tests can't catch this (they `source` the file directly, where `_jjq` exists) — only an end-to-end run through the real snapshot does. So `agent-helpers-setup` must tell the user, prominently: *the helpers (and their prompt-free allowlist) take effect only after you restart Claude Code / start a new session.* Without a restart, `jjctx` is both "command not found" and un-allowlisted — a baffling double failure if undocumented. (This same mechanism is what makes the permission claim below hold: the matcher sees the literal token `jjctx` replayed from the snapshot, not the expanded `jj …`.)
 
 ## Components
 
 ### 1. `scripts/jj-agent-helpers.sh` — the function library
 
-Target shell: **zsh** (the source line is added to `~/.zshrc`; bash support is a Non-Goal for v1). A private `_jjq` backs every function so the `--ignore-working-copy` flag exists in exactly one place.
+Target shell: **zsh** (the source line is added to `~/.zshrc`; bash support is a Non-Goal for v1). **Each function inlines `jj --ignore-working-copy`** — the original design used a shared private `_jjq` helper, but live testing showed the shell snapshot drops single-underscore functions (see Runtime dependency above), so inlining is required. The code block below shows the original `_jjq` form; the shipped code inlines the flag into each of the four functions.
 
 ```zsh
 # _jjq: read-only jj — never snapshots the working copy; safe under concurrent workspaces.
