@@ -58,7 +58,9 @@ Agent tool:
 
     ## Your Job
 
-    cargo test already passes — don't re-verify test values.
+    The wave's test gate has already run — don't re-verify test values.
+    If the orchestrator told you this wave has no test surface, then no
+    automated check has validated this work at all; review accordingly.
     Focus on what tests CAN'T catch.
 
     1. **Spec compliance:** does the code match the spec? Missing/extra/wrong?

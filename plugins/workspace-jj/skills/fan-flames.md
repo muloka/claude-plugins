@@ -31,7 +31,7 @@ PLAN ─── validate independence, compute waves, confirm with user
   ║     │       classify status                  ║
   ║     │       workspaces kept alive            ║
   ║     ▼                                        ║
-  ║  REVIEW ── cargo test (spec gate)            ║
+  ║  REVIEW ── test suite (spec gate)            ║
   ║     │      spec-informed peer review         ║
   ║     │      (batched, ~1 agent per 300 lines) ║
   ║     │      fix loop on critical findings     ║
@@ -573,10 +573,18 @@ materialize files on disk):
 
 ```bash
 # For each task in the wave:
-(cd /tmp/jj-workspaces/<repo>/<task-name> && cargo test)  # or the project's equivalent test command
+(cd /tmp/jj-workspaces/<repo>/<task-name> && <the project's test command>)
 ```
 
 If tests fail, dispatch fix subagents to the relevant workspace(s) and re-run. Escalate to user after 2 failed attempts.
+
+**If the wave has no test surface** — its changes are documentation, prose, or
+config that no test in the project reads — say so and move on. Record
+`wave <W>: no-test-surface` in the ledger, tell the reviewers no automated
+check has validated this wave, and rely on review. Do not invent a test, and
+do not run an unrelated suite and report its pass as this wave's gate: a suite
+that cannot fail on these changes has verified nothing, and reporting it as a
+pass is worse than reporting no gate at all.
 
 ### Step 2: Spec-Informed Peer Review
 
@@ -640,7 +648,10 @@ When reviewers find critical or important issues:
    NEEDS_CONTEXT) and appends its fix report to the task's existing
    `<artifacts>/task-N-report.md`. The report must contain the covering
    tests, the command run, and the output — confirm all three are present
-   before re-dispatching the reviewer
+   before re-dispatching the reviewer. If no test covers the change (a docs
+   or config fix), the report must say that explicitly and state what was
+   verified instead; a fix subagent must never fabricate a test command to
+   satisfy this gate
 3. Re-dispatch reviewer scoped to the fix delta: fix subagents amend in
    place, so `jj evolog -r <change-id> -p --limit 2` shows exactly what the
    fix changed. Name that command in the re-review prompt as the reviewer's
