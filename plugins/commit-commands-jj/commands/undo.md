@@ -34,6 +34,12 @@ Notes:
 - For restoring to an older state, use `jj op restore <op-id>` (the op IDs are visible in `jj op log`)
 - The revert itself is an operation and can be reverted
 - This is much safer than git's approach — no risk of losing commits
-- Do NOT use `jj undo` — it is deprecated and will be removed in a future version
+- Prefer `jj op revert <op-id>` over bare `jj undo` here. `jj undo` is *not*
+  deprecated — it is current — but it is **sequential**: calling it twice walks
+  two operations back, not one. An agent that retries after an ambiguous result
+  will undo more than it meant to. `jj op revert <op-id>` names exactly what it
+  reverses, so it says the same thing every time it runs
+- `jj op undo` **was** deprecated in favour of `jj op revert`, and has been
+  removed. Don't confuse it with bare `jj undo`, which still exists
 
 You have the capability to call multiple tools in a single response. Perform the undo using a single message. Do not use any other tools or do anything else. Do not send any other text or messages besides these tool calls.
