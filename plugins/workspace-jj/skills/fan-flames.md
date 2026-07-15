@@ -293,7 +293,8 @@ Once waves are confirmed:
 2. Write one brief per task:
    - **Plan document input:** `../scripts/fan-flames-task-brief <plan-file> <N>`
      for each task — the script extracts the task's full text without it
-     passing through your context again
+     passing through your context again, and prepends the plan's preamble
+     (Global Constraints, shared definitions) so the brief stands alone
    - **Ad-hoc input:** Write `<artifacts>/task-N-brief.md` yourself containing
      the full task description
 3. Initialize the ledger — write the header and wave plan to

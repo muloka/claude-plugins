@@ -6,6 +6,12 @@
 # A task starts at a markdown heading matching "Task N" (any heading level)
 # and ends at the next task heading. Headings inside code fences are ignored.
 #
+# The plan's preamble — everything before the first task heading — holds the
+# Global Constraints and shared definitions that task text references but does
+# not repeat. It is prepended to every brief, because the skill tells
+# implementers the brief IS their requirements, and without the preamble that
+# claim is false.
+#
 # Usage: fan-flames-task-brief PLAN_FILE TASK_NUMBER [OUTFILE]
 # Default OUTFILE: <artifacts-dir>/task-<N>-brief.md
 set -euo pipefail
@@ -26,17 +32,40 @@ else
   out="$dir/task-${n}-brief.md"
 fi
 
-awk -v n="$n" '
+task=$(awk -v n="$n" '
   /^```/ { infence = !infence }
   !infence && /^#+[ \t]+Task[ \t]+[0-9]+/ {
     intask = ($0 ~ ("^#+[ \t]+Task[ \t]+" n "([^0-9]|$)"))
   }
   intask { print }
-' "$plan" > "$out"
+' "$plan")
 
-if [ ! -s "$out" ]; then
+if [ -z "$task" ]; then
   echo "task ${n} not found in ${plan} (no heading matching 'Task ${n}')" >&2
   exit 3
 fi
+
+# Everything before the first task heading. Same fence awareness as the task
+# pass above — otherwise the two halves of this script would disagree about
+# where the first task begins.
+preamble=$(awk '
+  /^```/ { infence = !infence }
+  !infence && /^#+[ \t]+Task[ \t]+[0-9]+/ { exit }
+  { print }
+' "$plan")
+
+# Plans conventionally close their preamble with a horizontal rule before the
+# first task, and we add a separator of our own — drop theirs so the brief does
+# not carry a doubled rule.
+preamble=${preamble%$'\n'---}
+[ "$preamble" = "---" ] && preamble=""
+while [ "$preamble" != "${preamble%$'\n'}" ]; do preamble=${preamble%$'\n'}; done
+
+{
+  if [ -n "$(printf '%s' "$preamble" | tr -d '[:space:]')" ]; then
+    printf '%s\n\n---\n\n' "$preamble"
+  fi
+  printf '%s\n' "$task"
+} > "$out"
 
 echo "wrote ${out}: $(wc -l < "$out" | tr -d ' ') lines"
