@@ -182,7 +182,36 @@ fresh. On resume:
   re-dispatching
 - Trust the ledger and `jj log` over your own recollection
 
-On start fresh: overwrite the ledger with a new header when PLAN initializes it.
+If it exists and **does** end with `run: complete`, the previous run finished.
+There is nothing to resume — but its artifacts are still sitting there, so
+this is a start-fresh, not a no-op.
+
+### Starting Fresh — clear the artifacts directory
+
+The artifacts directory is **per-repo, not per-run**: every run in this repo
+reuses it. Any file a new run does not happen to overwrite survives from the
+old one, and nothing distinguishes the two. A three-task run following a
+five-task run leaves `task-4-report.md` and `task-5-report.md` in place; hand
+a reviewer that path and it reads the previous run's work as if it were this
+one's. So does a reviewer whose implementer died before writing its report.
+
+Clear them before PLAN:
+
+```bash
+ART=$(../scripts/fan-flames-artifacts)
+find "$ART" -maxdepth 1 \( -name 'task-*-brief.md' -o -name 'task-*-report.md' \
+  -o -name 'prior-waves.md' \) -delete
+```
+
+`find`, not `rm -f task-*.md`: an unmatched glob is an error in zsh (`no
+matches found`) and fails before `rm` runs, so the glob form breaks on the
+first run in a repo, when there is nothing to clear yet. `find` is a no-op
+when nothing matches, in every shell.
+
+PLAN then writes the ledger header and the briefs this run needs.
+
+**On resume, clear nothing.** The ledger and the reports are the recovery
+map — deleting them is deleting the reason you resumed.
 
 ## Model Selection
 
