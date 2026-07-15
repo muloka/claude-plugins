@@ -642,7 +642,7 @@ After tests pass, dispatch batched peer review agents using the `change-reviewer
 
 **Prompt:** Each reviewer gets the brief files of all tasks in the wave as ground truth — this eliminates hallucinations about intent (reviewers verify against the spec rather than guessing about history). Reviewers check both spec compliance and code quality in one pass.
 
-Use the template at `./fan-flames-wave-reviewer.md` to construct each reviewer prompt. Fill in:
+Use the template at `./wave-reviewer.md` to construct each reviewer prompt. Fill in:
 - `[WAVE_NUMBER]` — the current wave number
 - `[BRIEF_FILES]` — paths to the brief files of every task in the wave
   (`<artifacts>/task-N-brief.md` — paths, not pasted text)

@@ -271,7 +271,7 @@ assert_decision "jj op diff" "jj op diff" "silent"
 # jj operation rewrites — local-only and themselves recorded in the op log, so
 # they are recoverable exactly like the other allowlisted jj writes. Both are
 # run by shipped workflows: /undo runs `jj op revert` (commands/undo.md), and
-# fan-flames' abort path runs `jj op restore` (skills/fan-flames.md).
+# fan-flames' abort path runs `jj op restore` (skills/fan-flames/SKILL.md).
 assert_decision "jj op revert" "jj op revert abc123" "silent"
 assert_decision "jj op restore" "jj op restore abc123" "silent"
 
