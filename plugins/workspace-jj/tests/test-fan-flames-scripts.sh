@@ -32,8 +32,9 @@ repo="$tmp/fan-flames-test-$$"
 trap 'rm -rf "$tmp" "/tmp/jj-workspaces/$(basename "$repo")"' EXIT
 
 # Fixture: a jj repo (uniquely named so its /tmp artifacts dir cannot collide
-# with a real repo's) and a plan file with three tasks and a decoy heading
-# inside a code fence.
+# with a real repo's) and a plan file with three tasks and two decoy headings
+# inside code fences — one in the preamble (which the preamble pass must not
+# stop at) and one inside Task 2 (which the task pass must not split on).
 mkdir -p "$repo"
 (cd "$repo" && jj git init >/dev/null 2>&1)
 cat > "$repo/plan.md" <<'EOF'
@@ -42,6 +43,13 @@ cat > "$repo/plan.md" <<'EOF'
 ## Overview
 
 Intro text that belongs to no task.
+
+```markdown
+### Task 8: preamble decoy inside a code fence
+this fenced heading must not terminate the preamble
+```
+
+Global rule: the preamble continues past the fence.
 
 ### Task 1: First thing
 
@@ -90,6 +98,49 @@ check "brief contains post-fence body" grep -q 'line two (after the fence)' "$br
 check "brief keeps the fenced decoy verbatim" grep -q 'Task 9: decoy' "$brief"
 check_fails "brief excludes Task 1" 1 grep -q 'First thing' "$brief"
 check_fails "brief excludes Task 3" 1 grep -q 'Third thing' "$brief"
+
+# --- preamble is prepended (finding #2) ---
+# A plan's Global Constraints live in the preamble, and task text references
+# them without repeating them. A brief without the preamble is incomplete,
+# which contradicts what the dispatch prompt tells the implementer.
+check "brief contains the plan preamble" \
+  grep -q 'Intro text that belongs to no task' "$brief"
+check "brief separates preamble from task" grep -qx -- '---' "$brief"
+check "fenced Task heading does not terminate the preamble" \
+  grep -q 'Global rule: the preamble continues past the fence' "$brief"
+
+# A plan whose first line is already a task heading has no preamble, and
+# must not get a stray leading separator.
+cat > "$repo/plan-nopreamble.md" <<'EOF'
+### Task 1: Only thing
+
+**Files:** `z.ts`
+EOF
+"$SCRIPTS/fan-flames-task-brief" plan-nopreamble.md 1 "$tmp/nopre.md" >/dev/null
+check "no-preamble plan still yields the task" grep -q 'Only thing' "$tmp/nopre.md"
+check_fails "no-preamble plan yields no separator" 1 grep -qx -- '---' "$tmp/nopre.md"
+
+# Every plan in this repo closes its preamble with a horizontal rule before
+# the first task — it is the writing-plans convention. Our own separator must
+# not double it.
+cat > "$repo/plan-rule.md" <<'EOF'
+# Ruled Plan
+
+## Global Constraints
+
+- Everything must obey this.
+
+---
+
+### Task 1: Ruled thing
+
+**Files:** `r.ts`
+EOF
+"$SCRIPTS/fan-flames-task-brief" plan-rule.md 1 "$tmp/ruled.md" >/dev/null
+check "preamble ending in a rule yields exactly one separator" \
+  test "$(grep -cx -- '---' "$tmp/ruled.md")" = "1"
+check "trailing-rule plan keeps its constraints" \
+  grep -q 'Everything must obey this' "$tmp/ruled.md"
 
 "$SCRIPTS/fan-flames-task-brief" plan.md 3 "$tmp/custom-out.md" >/dev/null
 check "explicit OUTFILE honored" grep -q 'Third thing' "$tmp/custom-out.md"

@@ -29,11 +29,13 @@ This is a **machine-level, one-time** install (not per-project). It:
 1. copies the helper script to `~/.config/jj-agent-helpers/jj-agent-helpers.sh`;
 2. adds a `source` line to `~/.zshrc` (consent-gated);
 3. adds a one-line catalog to `~/.claude/CLAUDE.md` so agents know the helpers exist;
-4. allowlists the six helpers in `~/.claude/settings.json` so they run prompt-free.
+4. allowlists the four helpers in `~/.claude/settings.json` so they run prompt-free.
 
 **Restart Claude Code afterward** — the helpers become callable only once the next
 session regenerates its shell snapshot.
 
 Uninstall with `/agent-helpers-remove` (reverses all four steps).
 
-Requires zsh and `jj`. Bash shells are not supported in this version.
+Requires zsh, `jj`, and [`jq`](https://jqlang.github.io/jq/) (used by the
+installer to edit `~/.claude/settings.json`). Bash shells are not supported in
+this version.

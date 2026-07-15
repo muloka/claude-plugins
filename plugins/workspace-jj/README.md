@@ -4,7 +4,7 @@ Wave-based parallel orchestration with spec review gates for jj (Jujutsu) reposi
 
 ## Overview
 
-Provides the **fan-flames** skill — a parallel task orchestrator that dispatches subagents to isolated jj workspaces, reviews their work per-task, then reunifies results into a single change. The jj-native replacement for superpowers' `subagent-driven-development`. Workspace hooks are installed by `/project-setup` from the [project-setup-jj](../project-setup-jj) plugin.
+Provides the **fan-flames** skill — a parallel task orchestrator that dispatches subagents to isolated jj workspaces, gates each wave with a test + peer review pass, then reunifies results into a single change. The jj-native replacement for superpowers' `subagent-driven-development`. Workspace hooks are installed by `/project-setup` from the [project-setup-jj](../project-setup-jj) plugin.
 
 ## How It Works
 
@@ -27,8 +27,8 @@ Workspace hooks are installed automatically by `/project-setup` from the [projec
 
 | Command | Description |
 |---------|-------------|
-| `/fan-flames [plan-file]` | Execute a plan using wave-based parallel orchestration with spec review gates |
-| `/workspace-list` | List all active jj workspaces (JSON output) |
+| `/fan-flames [plan-file] [--skip-review] [--merge-order auto\|task-1,task-2,...]` | Execute a plan using wave-based parallel orchestration with spec review gates |
+| `/workspace-list` | List all jj workspaces with JSON output |
 
 ## Usage
 
@@ -39,7 +39,7 @@ claude --worktree feature-auth
 # Auto-generated name
 claude --worktree
 
-# List active workspaces
+# List all workspaces
 /workspace-list
 ```
 
@@ -81,10 +81,10 @@ Workspaces are cleaned up automatically when you exit a session and choose to re
 
 ## Fan-Flames Skill
 
-Parallel workspace orchestration — fan out tasks to isolated jj workspaces, fan in results.
+Wave-based parallel workspace orchestration — fan out tasks to isolated jj workspaces, gate each wave on a test + peer review pass, then fan in the review-approved results.
 
 ```
-🪭 Fan out → N workspaces → N subagents → 🔥 Fan in → single change → /peer-review
+PLAN → per wave: 🪭 Fan out → Collect → Review (test + peer review) → 🔥 Fan in → next wave or report
 ```
 
 **Usage:** Triggered automatically when `subagent-driven-development` runs in a jj repo, or directly:
@@ -98,7 +98,7 @@ Parallel workspace orchestration — fan out tasks to isolated jj workspaces, fa
 - **Auto-chained:** Content already merged — skip squash, optionally `jj parallelize` for clean history
 - **Independent branches:** Squash each into `@`, smallest diff first (by files touched)
 
-Override merge order with `--merge-order task-3,task-1,task-2`.
+Override merge order with `--merge-order task-3,task-1,task-2`. Skip the REVIEW phase (cleanup straight to FAN IN, no test + peer review) with `--skip-review`.
 
 **Failure handling:** Partial success is preserved. Failed workspaces stay alive for inspection via `/workspace-list`.
 

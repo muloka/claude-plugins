@@ -13,7 +13,8 @@ Use this template when dispatching peer review agents during the REVIEW phase.
 ```
 Agent tool:
   subagent_type: "peer-review-jj:change-reviewer"
-  model: <per the skill's Model Selection — sonnet floor; opus/session for risky or final waves>
+  model: <per the skill's Model Selection — sonnet floor; opus for risky or
+         final waves. Always explicit; never omitted>
   description: "Wave N review: <files summary>"
   prompt: |
     You are reviewing code from a parallel execution wave. You have the original
@@ -56,7 +57,9 @@ Agent tool:
 
     ## Your Job
 
-    cargo test already passes — don't re-verify test values.
+    The wave's test gate has already run — don't re-verify test values.
+    If the orchestrator told you this wave has no test surface, then no
+    automated check has validated this work at all; review accordingly.
     Focus on what tests CAN'T catch.
 
     1. **Spec compliance:** does the code match the spec? Missing/extra/wrong?
