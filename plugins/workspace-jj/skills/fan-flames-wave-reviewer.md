@@ -13,9 +13,8 @@ Use this template when dispatching peer review agents during the REVIEW phase.
 ```
 Agent tool:
   subagent_type: "peer-review-jj:change-reviewer"
-  model: <per the skill's Model Selection — sonnet floor; opus for risky or final
-         waves. Always specify explicitly — an omitted model silently inherits
-         the session's model>
+  model: <per the skill's Model Selection — sonnet floor; opus for risky or
+         final waves. Always explicit; never omitted>
   description: "Wave N review: <files summary>"
   prompt: |
     You are reviewing code from a parallel execution wave. You have the original
