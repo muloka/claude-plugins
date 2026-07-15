@@ -1,7 +1,7 @@
 {
   "name": "peer-review-jj",
   "description": "Unified change review for jj repos — generalist-first with emergent specialists, two-phase pipeline, structured findings",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "author": {
     "name": "muloka",
     "email": "muloka@users.noreply.github.com"
