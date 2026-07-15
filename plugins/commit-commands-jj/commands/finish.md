@@ -118,13 +118,34 @@ What would you like to do?
 
    b. **Verify trunk actually has the work — before abandoning anything.** A
       squash-merge rebuilds your changes as a new commit; nothing guarantees it
-      matches what you pushed, and the next step is destructive:
+      matches what you pushed, and the next step is destructive. Which check
+      is right depends on what you merged.
+
+      **One PR, or a stack merged as one PR** — the target should now be
+      identical to trunk:
       ```bash
       jj diff --from 'trunk()' --to <target> --stat
       ```
       Empty output means trunk's content equals the target's, so the local
       changes are redundant copies. **If it is not empty, stop and report** —
       something did not land, and abandoning would destroy the only copy.
+
+      **Sibling PRs merged separately** — do NOT use the check above. It will
+      report a failure on a perfectly clean merge: each sibling legitimately
+      differs from trunk by the *other* sibling's content, so whole-tree
+      equality is the wrong question. Ask instead whether each target's own
+      contribution landed — for every file it touched, trunk's copy must match
+      its copy:
+      ```bash
+      for f in $(jj diff -r <target> --summary | awk '{print $2}'); do
+        diff -q <(jj file show -r <target> "$f") \
+                <(jj file show -r 'trunk()' "$f") >/dev/null \
+          && echo "ok      $f" || echo "DIFFERS $f"
+      done
+      ```
+      Every file must report `ok`. A `DIFFERS` means either the merge dropped
+      something, or a later change touched the same file — **stop and look**
+      either way. Repeat per target; abandon only the targets that pass.
 
    c. **Abandon** the local changes now duplicated in trunk:
       ```bash
