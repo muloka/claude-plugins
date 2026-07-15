@@ -38,7 +38,7 @@ PLAN ─── validate independence, compute waves, confirm with user
   ║     │      cleanup workspaces on pass        ║
   ║     ▼                                        ║
   ║  FAN IN ── squash into @, smallest first     ║
-  ║            (only review-approved tasks)       ║
+  ║            (only review-approved tasks)      ║
   ╚══════════════════════════════════════════════╝
   │
   Report plan coverage
