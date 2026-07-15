@@ -139,7 +139,8 @@ run: complete
 Event lines: `dispatched workspace=…`, `done change=… files=…`,
 `done-with-concerns change=… files=…`, `blocked reason=…`, `needs-context`,
 `workspace-leak`, `review-passed`, `review-failed findings=<n>c,<n>i`,
-`squashed`, `wave <W>: fanned-in`, `run: complete`.
+`fixing from=<commit-id>`, `squashed`, `wave <W>: no-test-surface`,
+`wave <W>: fanned-in`, `run: complete`.
 
 Write ledger lines in the same message as the phase's other bookkeeping —
 never as a separate turn.
@@ -297,7 +298,12 @@ Once waves are confirmed:
      (Global Constraints, shared definitions) so the brief stands alone
    - **Ad-hoc input:** Write `<artifacts>/task-N-brief.md` yourself containing
      the full task description
-3. Initialize the ledger — write the header and wave plan to
+3. Record the integrity baseline: run `jj diff -r @ --stat` and keep the
+   result. It is the recorded baseline every Workspace Integrity Check
+   compares against — `@` may legitimately be non-empty at PLAN, and
+   comparing against zero would report the run's own starting content as a
+   leak.
+4. Initialize the ledger — write the header and wave plan to
    `<artifacts>/progress.md`:
 
    ```
@@ -415,7 +421,9 @@ Agent tool:
     - Self-review findings (if any)
     - Any issues or concerns
 
-    Before reporting back, capture your change ID and workspace name:
+    Before reporting back, describe your change so it can be recovered if
+    you die before reporting, then capture your change ID and workspace name:
+    jj describe -m "Task N: <short description>"
     jj log -r @ --no-graph -T 'change_id'
     basename "$PWD"
 
@@ -497,11 +505,12 @@ change=<id> files=<paths>` (or `done-with-concerns …`, `blocked reason=…`,
 jj diff -r @ --stat
 ```
 
-The expected baseline is wave-aware: in Wave 1, `@` should show no changes;
-from Wave 2 on, `@` legitimately contains all prior waves' merged content, so
-compare against the stat recorded after the previous FAN IN (record
-`jj diff -r @ --stat` after every FAN IN to refresh the baseline). If `@`
-differs from its baseline, at least one agent failed to `cd` to its workspace.
+Compare against the **recorded baseline**, never against zero. `@` is not
+required to be empty — it routinely holds the plan document, or work in
+progress the run builds on. PLAN records `jj diff -r @ --stat` as the run's
+baseline; every FAN IN re-records it, so from Wave 2 on the baseline includes
+all prior waves' merged content. If `@` differs from the current baseline, at
+least one agent failed to `cd` to its workspace.
 
 **Step 2:** For each agent that reported DONE or DONE_WITH_CONCERNS, verify its change landed in the correct workspace:
 
@@ -531,6 +540,16 @@ jj log -r 'description("Task N: <short description>")' --no-graph -T 'change_id'
 ```
 
 If multiple matches, use the most recent. If no matches, the subagent likely never created any changes — treat as BLOCKED.
+
+### Empty Changes Are a Valid Outcome
+
+A task can correctly produce no change — an audit that finds nothing, a
+check that confirms the code is already right. An empty change is a result,
+not a failure: review it like any other (the claim "there was nothing to do"
+is exactly as verifiable as a diff, just against the source rather than
+against a patch), and fan it in normally. `jj squash` abandons an empty
+source silently, which is the correct no-op. Distinguish this from a subagent
+that produced nothing because it failed — the report and the ledger say which.
 
 ### Divergent Changes (`change_id??`)
 
@@ -643,7 +662,11 @@ When reviewers find critical or important issues:
    (the workspace already exists — `isolation` would create a new one), on
    the same model as the task's implementer (see Model Selection). Tell it
    to work in the existing workspace directory path, and name the test files
-   covering the change — a small fix doesn't need the whole suite
+   covering the change — a small fix doesn't need the whole suite. Before
+   dispatching, record the change's current commit ID —
+   `jj log -r <change-id> --no-graph -T 'commit_id.short()'` — to the ledger
+   as `task N: fixing from=<commit-id>`. This is the only moment the fix's
+   starting point is unambiguous; step 3 needs it
 2. Fix subagent uses the same implementer protocol (DONE / BLOCKED /
    NEEDS_CONTEXT) and appends its fix report to the task's existing
    `<artifacts>/task-N-report.md`. The report must contain the covering
@@ -652,13 +675,20 @@ When reviewers find critical or important issues:
    or config fix), the report must say that explicitly and state what was
    verified instead; a fix subagent must never fabricate a test command to
    satisfy this gate
-3. Re-dispatch reviewer scoped to the fix delta: fix subagents amend in
-   place, so `jj evolog -r <change-id> -p --limit 2` shows exactly what the
-   fix changed. Name that command in the re-review prompt as the reviewer's
-   primary view (with the original findings for context) — re-reviews judge
-   the amendment, not the whole task again
-4. Repeat until no critical/important findings remain
-5. Escalate to user after 2 failed fix attempts — present the findings and ask how to proceed
+3. Re-dispatch reviewer scoped to the fix delta. Fix subagents amend in
+   place, so the delta is exactly `jj diff --from <the commit-id recorded in
+   step 1> --to <change-id>`. Name that command in the re-review prompt as
+   the reviewer's primary view (with the original findings for context) —
+   re-reviews judge the amendment, not the whole task again. Do not derive
+   the delta from `jj evolog --limit N`: that counts evolution steps, not
+   "the fix", and a `jj describe` or a second snapshot silently shifts the
+   window — a truncated delta is indistinguishable from a small one
+4. Re-run the Workspace Integrity Check (Phase 3) against the recorded baseline.
+   Fix subagents reach their workspace by `cd`, exactly as implementers do, and
+   are exactly as able to miss it — a check that runs only after COLLECT does
+   not cover an agent dispatched after COLLECT
+5. Repeat until no critical/important findings remain
+6. Escalate to user after 2 failed fix attempts — present the findings and ask how to proceed
 
 Fix-induced file overlap changes for later waves are ignored. jj handles any resulting conflicts during fan-in.
 
@@ -797,8 +827,13 @@ JJ_EDITOR=true jj squash --from <change-id> --into @
 2. **Check for conflicts:**
 
 ```bash
-jj resolve --list
+jj log -r 'conflicts()' --no-graph -T 'change_id.short() ++ "\n"'
 ```
+
+Empty output means clean. Use this rather than `jj resolve --list` as the
+check: `resolve --list` exits 2 when there are *no* conflicts, so any scripted
+use reads the clean case as a failure. `jj resolve --list` is still the right
+way to show a human which files conflict, once you know some do.
 
 If conflicts exist:
 - Report them clearly with file paths
