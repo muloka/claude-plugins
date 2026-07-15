@@ -3,7 +3,7 @@
 #
 # Why this exists: fan-flames' Model Selection table is restated in the
 # dispatch templates that actually get used. PR #65 fixed the table and missed
-# fan-flames-wave-reviewer.md, which went on offering "opus/session" —
+# the wave-reviewer template, which went on offering "opus/session" —
 # session-model inheritance — for three more PRs. Nothing caught it: source,
 # cache, and installed copy all agreed, because they agreed on the unfixed
 # text. Prose is not executed, so it is not checked. This checks the one rule
