@@ -8,6 +8,8 @@ The Commit Commands Plugin for jj automates common Jujutsu operations, reducing 
 
 **Key difference from Git**: In jj, the working copy IS already a commit. There is no staging area. All changes are automatically tracked. The `/commit` command finalizes the current change with a description and starts a new empty change on top.
 
+The plugin itself (independent of any specific command above) also registers a `PreToolUse` hook on all `Bash` calls that blocks raw `git` commands, backed by `scripts/block-raw-git.sh`. This is active as soon as the plugin is enabled.
+
 ## Setup
 
 ### Colocated repos (`.jj/` + `.git/`)
@@ -92,12 +94,51 @@ Complete workflow command that commits, pushes, and creates a pull request in on
 **Features:**
 - Uses jj revsets (`trunk()`) for idiomatic trunk detection
 - Creates bookmarks automatically when needed
+- For a quick anonymous push, skips bookmark creation and pushes directly with `jj git push --change @-` (generates a `push-<change-id>` bookmark)
 - Works with colocated repos out of the box
 - For non-colocated repos, provides guidance on `GIT_DIR` setup
 
 **Requirements:**
 - GitHub CLI (`gh`) must be installed and authenticated
 - Repository must have a remote configured
+
+### `/finish`
+
+Finishes development work by presenting a menu of completion options and executing the chosen workflow. Replaces `superpowers:finishing-a-development-branch` for jj repos.
+
+**What it does:**
+1. Verifies the target change (current or parent, if `@` is empty) has content against trunk
+2. Presents four options: push and create a PR, squash into trunk (local merge), keep as-is, or discard
+3. Executes the chosen workflow:
+   - **Push and create PR:** warns about non-target ancestor changes that would be swept into the PR, creates a bookmark if needed (or uses `jj git push --change <target>` for a quick anonymous push), pushes with `jj git push --bookmark`, and opens the PR with `gh pr create`
+   - **Squash into trunk:** fetches, rebases the change onto trunk, and folds it in with `jj squash --into trunk()`
+   - **Keep as-is:** reports the change ID and stops — no cleanup
+   - **Discard:** requires typed confirmation, then runs `jj abandon`
+4. For push, squash, and discard, cleans up the jj workspace if running in a non-default one (`jj workspace forget`)
+
+**Usage:**
+```bash
+/finish
+```
+
+**Example workflow:**
+```bash
+# Work is done and tested:
+/finish
+
+# Claude will:
+# - Confirm there's work to finish (against trunk)
+# - Ask which of the 4 options you want
+# - Execute it (push+PR, squash, keep, or discard)
+# - Clean up the workspace if applicable
+```
+
+**Features:**
+- Never force-pushes — uses `jj git push` only
+- Requires typed confirmation before discarding work (recoverable via `/undo`)
+- Detects and warns about ancestor changes not part of the target work before pushing
+- After a PR merges, abandons the now-landed local ancestor changes as part of cleanup
+- Does not run tests or reviews — finishing work is its own concern
 
 ### `/describe`
 
@@ -256,6 +297,38 @@ Squashes the current change into its parent, combining their content and descrip
 - Reports "nothing to squash" if the current change is empty
 - Supports `--into <rev>` for squashing into a non-parent change
 - Automatically cleans up combined descriptions
+
+### `/absorb`
+
+Distributes the working copy's edits into the mutable ancestor changes that last touched those lines.
+
+**What it does:**
+1. Reports "nothing to absorb" if the current change has no diff
+2. Runs `jj absorb` (optionally scoped to specific paths, or `--into <revset>` to restrict target changes)
+3. Reports which changes absorbed what, from the command's output
+4. Flags any edits left in the working copy afterward — lines with no single clear ancestor are left behind by design; suggests `/squash` for those
+
+**Usage:**
+```bash
+/absorb
+```
+
+**Example workflow:**
+```bash
+# Fixed a bug that touches three earlier changes in a stack:
+/absorb
+
+# Claude will:
+# - Distribute your edits into the changes that last touched those lines
+# - Report which change absorbed what
+# - Flag any leftover edits that need a manual /squash
+```
+
+**Features:**
+- jj's built-in equivalent of `git absorb` — no plugin needed
+- Fixes the "I amended three stacked changes in one sitting" problem
+- Scope with `--into <revset>` or specific paths
+- Leftover edits (no clear single ancestor) are reported, not silently dropped
 
 ### `/undo`
 
@@ -459,6 +532,11 @@ claude plugins add ./plugins/commit-commands-jj
 - Ensure all your changes are complete and tested
 - Review the PR description and edit if needed
 
+### Using `/finish`
+- Use when work is complete and tested — it presents the completion options rather than assuming one
+- Get typed confirmation before discarding; `/undo` can still recover it immediately after
+- Prefer this over `/commit-push-pr` when you also want the squash-into-trunk, keep, or discard paths
+
 ### Using `/new`
 - Run after `/commit` to start fresh work
 - Use `/new <rev>` to branch from a specific change
@@ -478,6 +556,11 @@ claude plugins add ./plugins/commit-commands-jj
 - Use to fold small fixups into the parent change
 - Check the combined description after squashing
 - For squashing into non-parent changes, specify `--into <rev>`
+
+### Using `/absorb`
+- Use for stacked changes — fold a fix into whichever ancestor last touched those lines
+- Restrict scope with `--into <revset>` or specific paths when you don't want it touching the whole stack
+- Check for leftover edits afterward — not every line has a single clear ancestor
 
 ### Using `/undo`
 - Safe to run — the undo itself can be undone
