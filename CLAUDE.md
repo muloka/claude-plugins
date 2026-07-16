@@ -1,7 +1,9 @@
-<!-- jj-project-setup:start hash:422ef786 -->
+<!-- jj-project-setup:start hash:fe023f83 -->
 ## VCS — jj (Jujutsu)
 
 This project uses **jj (Jujutsu)** as its VCS. Never use raw git commands. Use jj equivalents instead (e.g. `jj log`, `jj status`, `jj diff`). The only exceptions are `jj git` subcommands (e.g. `jj git push`) and the `gh` CLI for GitHub operations.
+
+In jj, the working copy IS a commit. There is no uncommitted state. Never ask "want to commit?" or "ready to commit?" — the work is already committed. Use `jj new` to start a new change, `jj describe` to set intent. The only meaningful checkpoint questions are "want to start a new change?", "want to describe this change?", or "want to push?"
 
 ### Superpowers overrides
 
@@ -10,7 +12,7 @@ When superpowers skills reference git-based workflows, use these jj-native repla
 | Superpowers skill | Use instead | Why |
 |---|---|---|
 | `finishing-a-development-branch` | `/finish` | jj-native: bookmarks, `jj git push`, workspace cleanup |
-| `subagent-driven-development` | `workspace-jj:kaisen` | jj-native workspace isolation with reunification |
+| `subagent-driven-development` | `workspace-jj:kaisen` | jj-native: wave-based parallel execution with spec review gates |
 <!-- jj-project-setup:end -->
 
 # CLAUDE.md
