@@ -512,7 +512,7 @@ fi
 # `op revert` and `op restore` belong here for the same reason the rest do:
 # they are local-only, and they are themselves recorded in the operation log,
 # so they are as recoverable as any other jj write. Both are run by shipped
-# workflows — /undo runs `jj op revert`, fan-flames' abort path runs
+# workflows — /undo runs `jj op revert`, kaisen's abort path runs
 # `jj op restore` — so gating them prompts the user on their own tooling.
 #
 # `op abandon` is deliberately absent: it discards operation history, which is

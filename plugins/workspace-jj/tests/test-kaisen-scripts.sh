@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for fan-flames-artifacts and fan-flames-task-brief.
+# Tests for kaisen-artifacts and kaisen-task-brief.
 # Runs in a throwaway jj repo under mktemp; requires jj on PATH.
 set -euo pipefail
 
@@ -28,7 +28,7 @@ check_fails() { # check_fails DESCRIPTION EXPECTED_EXIT COMMAND...
 }
 
 tmp=$(mktemp -d)
-repo="$tmp/fan-flames-test-$$"
+repo="$tmp/kaisen-test-$$"
 trap 'rm -rf "$tmp" "/tmp/jj-workspaces/$(basename "$repo")"' EXIT
 
 # Fixture: a jj repo (uniquely named so its /tmp artifacts dir cannot collide
@@ -77,18 +77,18 @@ EOF
 
 cd "$repo"
 
-# --- fan-flames-artifacts ---
-dir=$("$SCRIPTS/fan-flames-artifacts")
+# --- kaisen-artifacts ---
+dir=$("$SCRIPTS/kaisen-artifacts")
 check "artifacts prints a path under /tmp/jj-workspaces" \
   test "${dir#/tmp/jj-workspaces/}" != "$dir"
 check "artifacts dir exists" test -d "$dir"
 check "artifacts path ends in /artifacts" \
   test "$(basename "$dir")" = "artifacts"
 check "artifacts is idempotent" \
-  test "$("$SCRIPTS/fan-flames-artifacts")" = "$dir"
+  test "$("$SCRIPTS/kaisen-artifacts")" = "$dir"
 
-# --- fan-flames-task-brief ---
-out=$("$SCRIPTS/fan-flames-task-brief" plan.md 2)
+# --- kaisen-task-brief ---
+out=$("$SCRIPTS/kaisen-task-brief" plan.md 2)
 brief="$dir/task-2-brief.md"
 check "brief reports the file it wrote" \
   test "${out#wrote $brief:}" != "$out"
@@ -116,7 +116,7 @@ cat > "$repo/plan-nopreamble.md" <<'EOF'
 
 **Files:** `z.ts`
 EOF
-"$SCRIPTS/fan-flames-task-brief" plan-nopreamble.md 1 "$tmp/nopre.md" >/dev/null
+"$SCRIPTS/kaisen-task-brief" plan-nopreamble.md 1 "$tmp/nopre.md" >/dev/null
 check "no-preamble plan still yields the task" grep -q 'Only thing' "$tmp/nopre.md"
 check_fails "no-preamble plan yields no separator" 1 grep -qx -- '---' "$tmp/nopre.md"
 
@@ -136,18 +136,18 @@ cat > "$repo/plan-rule.md" <<'EOF'
 
 **Files:** `r.ts`
 EOF
-"$SCRIPTS/fan-flames-task-brief" plan-rule.md 1 "$tmp/ruled.md" >/dev/null
+"$SCRIPTS/kaisen-task-brief" plan-rule.md 1 "$tmp/ruled.md" >/dev/null
 check "preamble ending in a rule yields exactly one separator" \
   test "$(grep -cx -- '---' "$tmp/ruled.md")" = "1"
 check "trailing-rule plan keeps its constraints" \
   grep -q 'Everything must obey this' "$tmp/ruled.md"
 
-"$SCRIPTS/fan-flames-task-brief" plan.md 3 "$tmp/custom-out.md" >/dev/null
+"$SCRIPTS/kaisen-task-brief" plan.md 3 "$tmp/custom-out.md" >/dev/null
 check "explicit OUTFILE honored" grep -q 'Third thing' "$tmp/custom-out.md"
 
-check_fails "missing task exits 3" 3 "$SCRIPTS/fan-flames-task-brief" plan.md 42
-check_fails "missing plan exits 2" 2 "$SCRIPTS/fan-flames-task-brief" nope.md 1
-check_fails "bad usage exits 2" 2 "$SCRIPTS/fan-flames-task-brief" plan.md
+check_fails "missing task exits 3" 3 "$SCRIPTS/kaisen-task-brief" plan.md 42
+check_fails "missing plan exits 2" 2 "$SCRIPTS/kaisen-task-brief" nope.md 1
+check_fails "bad usage exits 2" 2 "$SCRIPTS/kaisen-task-brief" plan.md
 
 echo
 echo "$PASS passed, $FAIL failed"

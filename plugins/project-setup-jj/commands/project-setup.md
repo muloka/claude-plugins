@@ -170,6 +170,15 @@ Replace `<project-root>` with the actual absolute path from `jj root`.
 
 Read the CLAUDE.md template from the plugin's `templates/CLAUDE.md.template`. The template includes a content hash in its start marker (`<!-- jj-project-setup:start hash:<hex> -->`) for version tracking. It uses an `## VCS` heading (h2) so it fits naturally into any existing CLAUDE.md heading hierarchy.
 
+**Maintainers — the hash is load-bearing.** Case 2 below skips the update when the installed marker's hash equals the template's, so **editing the template body without recomputing the hash means the change reaches nobody** and `/project-setup` reports "already up to date". Recompute it whenever the body changes:
+
+```bash
+T=templates/CLAUDE.md.template
+sed -n '/jj-project-setup:start/,/jj-project-setup:end/p' "$T" | sed '1d;$d' | md5 -q | cut -c1-8
+```
+
+(md5 of the body between the markers, exclusive, first 8 hex chars. On Linux use `md5sum` in place of `md5 -q`.) The recipe lives here rather than in the template because everything between the markers is copied verbatim into every user's CLAUDE.md.
+
 Then handle four cases:
 
 1. **No CLAUDE.md exists:** Create it from the template.

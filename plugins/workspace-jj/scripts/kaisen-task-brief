@@ -12,12 +12,12 @@
 # implementers the brief IS their requirements, and without the preamble that
 # claim is false.
 #
-# Usage: fan-flames-task-brief PLAN_FILE TASK_NUMBER [OUTFILE]
+# Usage: kaisen-task-brief PLAN_FILE TASK_NUMBER [OUTFILE]
 # Default OUTFILE: <artifacts-dir>/task-<N>-brief.md
 set -euo pipefail
 
 if [ $# -lt 2 ] || [ $# -gt 3 ]; then
-  echo "usage: fan-flames-task-brief PLAN_FILE TASK_NUMBER [OUTFILE]" >&2
+  echo "usage: kaisen-task-brief PLAN_FILE TASK_NUMBER [OUTFILE]" >&2
   exit 2
 fi
 
@@ -28,7 +28,7 @@ n=$2
 if [ $# -eq 3 ]; then
   out=$3
 else
-  dir=$("$(cd "$(dirname "$0")" && pwd)/fan-flames-artifacts")
+  dir=$("$(cd "$(dirname "$0")" && pwd)/kaisen-artifacts")
   out="$dir/task-${n}-brief.md"
 fi
 

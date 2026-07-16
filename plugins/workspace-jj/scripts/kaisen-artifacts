@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Resolve and ensure the shared artifacts directory for a fan-flames run:
+# Resolve and ensure the shared artifacts directory for a kaisen run:
 # task briefs, implementer reports, the prior-waves summary, and the
 # progress ledger. Prints the directory's absolute path.
 #
@@ -7,10 +7,10 @@
 # every working copy, so no workspace snapshot ever picks the artifacts up
 # and nothing here can leak into a squashed change.
 #
-# Single source of truth for the location, so fan-flames-task-brief and the
+# Single source of truth for the location, so kaisen-task-brief and the
 # skill text cannot drift to different directories.
 #
-# Usage: fan-flames-artifacts
+# Usage: kaisen-artifacts
 set -euo pipefail
 
 root=$(jj root)

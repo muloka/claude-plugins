@@ -4,7 +4,7 @@ Tiered permission gateway for Claude Code — auto-approves safe commands, block
 
 ## Why
 
-When running 3-5 subagents in parallel (e.g., fan-flames), each making 20+ tool calls, you either pre-approve everything (dangerous) or get 60+ confirmation prompts (kills parallelism). Permission gateway is the middle ground: ~85% auto-approved, ~10% auto-denied, ~5% human-confirmed.
+When running 3-5 subagents in parallel (e.g., kaisen), each making 20+ tool calls, you either pre-approve everything (dangerous) or get 60+ confirmation prompts (kills parallelism). Permission gateway is the middle ground: ~85% auto-approved, ~10% auto-denied, ~5% human-confirmed.
 
 ## How It Works
 
