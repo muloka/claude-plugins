@@ -1,0 +1,60 @@
+name: Tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: macos-latest
+    # macOS runners bill at a 10x multiplier and the job default is 6 hours.
+    # A hung suite should cost minutes, not a day's budget.
+    timeout-minutes: 15
+    env:
+      # Load-bearing, not defensive: the suites rely on the developer's
+      # ~/.config/jj/config.toml for an identity and never mention it. Without
+      # this, test-statusline-jj.sh fails 6/8 (measured against a clean $HOME).
+      JJ_USER: CI
+      JJ_EMAIL: ci@example.invalid
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install jj
+        run: brew install jj
+
+      - name: Run all suites
+        run: |
+          # Glob, never a hardcoded list: a list goes stale silently when a
+          # suite is added, and CI stays green while checking less. That is the
+          # #82 failure inside the fix for #82.
+          suites=$(find plugins -path '*/tests/test-*.sh' | sort)
+          count=$(printf '%s' "$suites" | grep -c . || true)
+
+          # A glob that matches nothing passes by doing nothing — #82's other
+          # half. This repo has seven suites; zero means the glob rotted.
+          if [ "$count" -eq 0 ]; then
+            echo "::error::no test suites found — the glob is broken, not the repo clean"
+            exit 1
+          fi
+          echo "found $count suite(s)"
+
+          # `while read`, not `for t in $suites`: the latter word-splits on IFS
+          # and glob-expands. Harmless for today's paths, but the failure mode
+          # of an unquoted expansion is silent and wrong, not loud.
+          failed=0
+          while IFS= read -r t; do
+            [ -n "$t" ] || continue
+            echo "::group::$t"
+            if bash "$t"; then
+              echo "PASS $t"
+            else
+              echo "::error::FAIL $t"
+              failed=$((failed + 1))
+            fi
+            echo "::endgroup::"
+          done <<< "$suites"
+
+          echo "---"
+          echo "$((count - failed))/$count suites passed"
+          [ "$failed" -eq 0 ]
