@@ -90,7 +90,7 @@ no workspace snapshot ever picks them up and nothing bulky is pasted through
 the orchestrator's context:
 
 ```bash
-../../scripts/fan-flames-artifacts   # prints /tmp/jj-workspaces/<repo>/artifacts, creating it
+../../scripts/kaisen-artifacts   # prints /tmp/jj-workspaces/<repo>/artifacts, creating it
 ```
 
 (Script paths are relative to this skill file's directory.)
@@ -167,7 +167,7 @@ legitimately merged.
 Check for a ledger from an interrupted run:
 
 ```bash
-cat "$(../../scripts/fan-flames-artifacts)/progress.md" 2>/dev/null
+cat "$(../../scripts/kaisen-artifacts)/progress.md" 2>/dev/null
 ```
 
 If it exists and does not end with `run: complete`, a previous run was
@@ -198,7 +198,7 @@ one's. So does a reviewer whose implementer died before writing its report.
 Clear them before PLAN:
 
 ```bash
-ART=$(../../scripts/fan-flames-artifacts)
+ART=$(../../scripts/kaisen-artifacts)
 find "$ART" -maxdepth 1 \( -name 'task-*-brief.md' -o -name 'task-*-report.md' \
   -o -name 'prior-waves.md' \) -delete
 ```
@@ -319,9 +319,9 @@ Wait for user decision.
 
 Once waves are confirmed:
 
-1. Resolve the artifacts directory: `../../scripts/fan-flames-artifacts`
+1. Resolve the artifacts directory: `../../scripts/kaisen-artifacts`
 2. Write one brief per task:
-   - **Plan document input:** `../../scripts/fan-flames-task-brief <plan-file> <N>`
+   - **Plan document input:** `../../scripts/kaisen-task-brief <plan-file> <N>`
      for each task — the script extracts the task's full text without it
      passing through your context again, and prepends the plan's preamble
      (Global Constraints, shared definitions) so the brief stands alone
@@ -470,7 +470,7 @@ Agent tool:
     itself — the orchestrator acts on it directly.
 ```
 
-(`<artifacts>` is the absolute path printed by `../../scripts/fan-flames-artifacts` —
+(`<artifacts>` is the absolute path printed by `../../scripts/kaisen-artifacts` —
 substitute the real path when composing each prompt.)
 
 **Dispatch rules:**
