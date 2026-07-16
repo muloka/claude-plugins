@@ -34,5 +34,5 @@ jjconflicts() {
   return "$rc"
 }
 
-# jjcheckpoint — current operation id (for a fan-flames ledger start-op)
+# jjcheckpoint — current operation id (for a kaisen ledger start-op)
 jjcheckpoint() { jj --ignore-working-copy op log -n1 --no-graph -T 'id.short()'; }

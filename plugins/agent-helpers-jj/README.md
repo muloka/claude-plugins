@@ -3,7 +3,7 @@
 Machine-level jj (Jujutsu) query shortcuts for agents. Four read-only shell
 functions, each wrapping `jj --ignore-working-copy …`, so an agent orienting
 inside a jj repo never writes a working-copy snapshot to the shared operation
-log — the serialization point that concurrent workspaces (e.g. fan-flames)
+log — the serialization point that concurrent workspaces (e.g. kaisen)
 would otherwise race on.
 
 | Function | Output | Purpose |
@@ -11,7 +11,7 @@ would otherwise race on.
 | `jjctx` | one JSON object | current change (orientation) |
 | `jjstack` | JSONL | local changes ahead of trunk |
 | `jjconflicts` | exit code | 0 = clean, 1 = conflicts (printed), >1 = jj error |
-| `jjcheckpoint` | short op id | for a fan-flames ledger `start-op` |
+| `jjcheckpoint` | short op id | for a kaisen ledger `start-op` |
 
 These are **structural** queries — they read committed / op-log state, where
 `--ignore-working-copy` is strictly correct. Two working-copy helpers

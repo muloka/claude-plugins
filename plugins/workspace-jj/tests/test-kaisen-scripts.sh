@@ -28,7 +28,7 @@ check_fails() { # check_fails DESCRIPTION EXPECTED_EXIT COMMAND...
 }
 
 tmp=$(mktemp -d)
-repo="$tmp/fan-flames-test-$$"
+repo="$tmp/kaisen-test-$$"
 trap 'rm -rf "$tmp" "/tmp/jj-workspaces/$(basename "$repo")"' EXIT
 
 # Fixture: a jj repo (uniquely named so its /tmp artifacts dir cannot collide

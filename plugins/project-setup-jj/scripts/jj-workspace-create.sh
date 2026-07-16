@@ -18,7 +18,7 @@ mkdir -p "$(dirname "$DIR")"
 # Pin workspace to the current working copy's parents (not the working copy itself).
 # Without --revision, concurrent workspaces can see each other's changes and chain
 # instead of branching independently. Pinning ensures each workspace creates an
-# independent change from the same base — the fan-out pattern fan-flames expects.
+# independent change from the same base — the fan-out pattern kaisen expects.
 parent_rev=$(jj -R "$cwd" log -r '@-' --no-graph -T 'commit_id' 2>/dev/null || echo "")
 
 if [ -n "$parent_rev" ]; then

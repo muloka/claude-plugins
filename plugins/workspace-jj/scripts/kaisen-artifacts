@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Resolve and ensure the shared artifacts directory for a fan-flames run:
+# Resolve and ensure the shared artifacts directory for a kaisen run:
 # task briefs, implementer reports, the prior-waves summary, and the
 # progress ledger. Prints the directory's absolute path.
 #

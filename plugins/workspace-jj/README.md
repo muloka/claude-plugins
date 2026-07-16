@@ -4,7 +4,7 @@ Wave-based parallel orchestration with spec review gates for jj (Jujutsu) reposi
 
 ## Overview
 
-Provides the **fan-flames** skill — a parallel task orchestrator that dispatches subagents to isolated jj workspaces, gates each wave with a test + peer review pass, then reunifies results into a single change. The jj-native replacement for superpowers' `subagent-driven-development`. Workspace hooks are installed by `/project-setup` from the [project-setup-jj](../project-setup-jj) plugin.
+Provides the **kaisen** skill — a parallel task orchestrator that dispatches subagents to isolated jj workspaces, gates each wave with a test + peer review pass, then reunifies results into a single change. The jj-native replacement for superpowers' `subagent-driven-development`. Workspace hooks are installed by `/project-setup` from the [project-setup-jj](../project-setup-jj) plugin.
 
 ## How It Works
 
@@ -27,7 +27,7 @@ Workspace hooks are installed automatically by `/project-setup` from the [projec
 
 | Command | Description |
 |---------|-------------|
-| `/fan-flames [plan-file] [--skip-review] [--merge-order auto\|task-1,task-2,...]` | Execute a plan using wave-based parallel orchestration with spec review gates |
+| `/kaisen [plan-file] [--skip-review] [--merge-order auto\|task-1,task-2,...]` | Execute a plan using wave-based parallel orchestration with spec review gates |
 | `/workspace-list` | List all jj workspaces with JSON output |
 
 ## Usage
@@ -50,7 +50,7 @@ claude --worktree
 | New terminal tab, ephemeral thread | `claude --worktree <name>` from the main checkout | one command — the WorktreeCreate hook makes the jj workspace (in `/tmp`, pinned to `@-`) and the session starts inside it |
 | New terminal tab, durable thread | `jjtab <name> [revset]` shell function (below) | one command — sibling directory next to the repo, survives reboots, custom base revset |
 | Already inside a session | ask Claude to enter a worktree (native `EnterWorktree` → same hook) | zero |
-| Parallel agent execution of a plan | `/fan-flames` | the skill orchestrates workspaces itself |
+| Parallel agent execution of a plan | `/kaisen` | the skill orchestrates workspaces itself |
 
 Each workspace has its own working copy (`@`), so tabs never affect each other; all changes remain visible in the shared `jj log` from anywhere. One rule: never `jj edit` (or otherwise rewrite) a change that another workspace has checked out as its `@` — that creates a divergent change (`change_id??`, two commits for one change). Recover by abandoning the unwanted commit by its commit ID.
 
@@ -79,7 +79,7 @@ Finish a side thread with `/finish` in-session, or manually: `jj workspace forge
 
 Workspaces are cleaned up automatically when you exit a session and choose to remove the worktree. For manual cleanup of stale workspaces, use the `/clean_stale` command from the [commit-commands-jj](../commit-commands-jj) plugin.
 
-## Fan-Flames Skill
+## Kaisen Skill
 
 Wave-based parallel workspace orchestration — fan out tasks to isolated jj workspaces, gate each wave on a test + peer review pass, then fan in the review-approved results.
 
@@ -93,7 +93,7 @@ PLAN → per wave: 🪭 Fan out → Collect → Review (test + peer review) → 
 - "Run these tasks in parallel with isolation"
 - "Dispatch subagents for these independent tasks"
 
-**Dual-topology handling:** jj workspaces share a single DAG. Concurrent subagents may auto-chain (building on each other's commits) or create independent branches. Fan-flames detects which pattern occurred and handles both:
+**Dual-topology handling:** jj workspaces share a single DAG. Concurrent subagents may auto-chain (building on each other's commits) or create independent branches. Kaisen detects which pattern occurred and handles both:
 
 - **Auto-chained:** Content already merged — skip squash, optionally `jj parallelize` for clean history
 - **Independent branches:** Squash each into `@`, smallest diff first (by files touched)
@@ -104,7 +104,7 @@ Override merge order with `--merge-order task-3,task-1,task-2`. Skip the REVIEW 
 
 **Change-ID based fan-in:** Subagents report their change ID and workspace directory name (`basename $PWD`) before returning. Fan-in uses change IDs (not workspace revsets) because the orchestrator cleans up workspaces after review, before it runs squash.
 
-See [design spec](../../docs/specs/2026-03-18-permission-gateway-and-fan-flames-design.md) for full details.
+See [design spec](../../docs/specs/2026-07-15-kaisen-rename-and-collision-design.md) for full details.
 
 ## Author
 

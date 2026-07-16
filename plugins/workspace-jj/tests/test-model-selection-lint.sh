@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Lints model-selection directives across every plugin's markdown.
 #
-# Why this exists: fan-flames' Model Selection table is restated in the
+# Why this exists: kaisen's Model Selection table is restated in the
 # dispatch templates that actually get used. PR #65 fixed the table and missed
 # the wave-reviewer template, which went on offering "opus/session" —
 # session-model inheritance — for three more PRs. Nothing caught it: source,

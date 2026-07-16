@@ -89,7 +89,7 @@ Running `/project-setup` multiple times is safe. It will:
 
 ## Related Plugins
 
-- **[workspace-jj](../workspace-jj)** — fan-flames parallel orchestration and workspace listing
+- **[workspace-jj](../workspace-jj)** — kaisen parallel orchestration and workspace listing
 - **[commit-commands-jj](../commit-commands-jj)** — commit, push, and PR workflows for jj
 
 ## Requirements
