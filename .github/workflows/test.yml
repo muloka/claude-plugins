@@ -28,7 +28,9 @@ jobs:
           # Glob, never a hardcoded list: a list goes stale silently when a
           # suite is added, and CI stays green while checking less. That is the
           # #82 failure inside the fix for #82.
-          suites=$(find plugins -path '*/tests/test-*.sh' | sort)
+          # plugins/*/tests AND .github/tests: the latter holds repo-level
+          # lints (e.g. workflow-glob checks) that belong to no single plugin.
+          suites=$(find plugins .github -path '*/tests/test-*.sh' | sort)
           count=$(printf '%s' "$suites" | grep -c . || true)
 
           # A glob that matches nothing passes by doing nothing — #82's other
