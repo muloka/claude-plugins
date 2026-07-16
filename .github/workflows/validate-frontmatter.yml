@@ -21,7 +21,14 @@ jobs:
       - name: Get changed frontmatter files
         id: changed
         run: |
-          FILES=$(gh pr diff ${{ github.event.pull_request.number }} --name-only | grep -E '(agents/.*\.md|skills/.*/SKILL\.md|commands/.*\.md)$' || true)
+          # Filter to files that still EXIST. detectFileType matches on the path
+          # string alone, so a deleted path is classified, queued, and readFile'd —
+          # exiting 2 with ENOENT and failing CI on a correct change. The
+          # pull_request checkout holds the PR's tree, so "exists on disk" is the
+          # same question as "survives this PR". `gh pr diff` has no --diff-filter.
+          FILES=$(gh pr diff ${{ github.event.pull_request.number }} --name-only \
+            | grep -E '(agents/.*\.md|skills/.*/SKILL\.md|commands/.*\.md)$' \
+            | while IFS= read -r f; do [ -f "$f" ] && printf '%s\n' "$f"; done || true)
           echo "files<<EOF" >> "$GITHUB_OUTPUT"
           echo "$FILES" >> "$GITHUB_OUTPUT"
           echo "EOF" >> "$GITHUB_OUTPUT"
