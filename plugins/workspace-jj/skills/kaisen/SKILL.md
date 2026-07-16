@@ -1,5 +1,5 @@
 ---
-name: fan-flames
+name: kaisen
 description: |
   Orchestrate parallel subagent execution across isolated jj workspaces with
   wave-based scheduling and spec-informed peer review, then reunify results
@@ -8,13 +8,15 @@ description: |
   or when subagent-driven-development routes here via CLAUDE.md override in a jj repo.
 ---
 
-# Fan-Flames: Parallel Workspace Orchestration
+**CRITICAL: This is a jj (Jujutsu) plugin. You MUST NOT use ANY raw git commands — not even for context discovery. Always use jj equivalents (jj log, jj diff, jj status, etc.). The only exceptions are `jj git` subcommands and `gh` CLI.**
+
+# Kaisen: Parallel Workspace Orchestration
 
 Orchestrate parallel subagent execution across isolated jj workspaces with
 wave-based scheduling and spec-informed peer review, then reunify results
 into a single change. The jj-native replacement for superpowers' subagent-driven-development.
 
-**Announce at start:** "I'm using the fan-flames skill to orchestrate parallel workspace execution."
+**Announce at start:** "I'm using the kaisen skill to orchestrate parallel workspace execution."
 
 ## Phase Overview
 
@@ -95,7 +97,7 @@ the orchestrator's context:
 
 (Script paths are relative to this skill file's directory.)
 
-Fan-flames can be orchestrated from any jj workspace, not just the default —
+Kaisen can be orchestrated from any jj workspace, not just the default —
 `@` and `jj root` resolve to the workspace you run it from, so the whole run
 targets that workspace's working copy. This also isolates artifacts for free:
 `jj root` returns the current workspace's directory, so runs orchestrated
@@ -112,7 +114,7 @@ from different workspaces get separate artifacts dirs (and separate ledgers).
 Everything pasted into a dispatch prompt — and everything a subagent prints
 back — stays resident in the orchestrator's context for the rest of the run
 and is re-read on every later turn. A real superpowers session hit a 42k-char
-dispatch prompt that was 99% pasted history; file handoffs are how fan-flames
+dispatch prompt that was 99% pasted history; file handoffs are how kaisen
 avoids that failure mode.
 
 ## Durable Progress and Resume
@@ -126,7 +128,7 @@ in jj's DAG even when your context no longer remembers creating them.
 Append-only line format (latest line for a task wins):
 
 ```
-# fan-flames ledger — plan: docs/plans/foo-plan.md — parent: xyzabc12 — start-op: 4279dc009e64
+# kaisen ledger — plan: docs/plans/foo-plan.md — parent: xyzabc12 — start-op: 4279dc009e64
 wave-plan: wave 1: tasks 1,2,4 | wave 2: tasks 3,5
 task 1: dispatched workspace=workspace-task-1
 task 1: done change=abc12345 files=src/a.ts,src/b.ts
@@ -307,7 +309,7 @@ File overlaps make most tasks sequential. The overhead of workspace setup,
 spec review, and squash ceremony may exceed the time saved.
 
 Options:
-  a) Proceed with fan-flames anyway
+  a) Proceed with kaisen anyway
   b) Switch to single-agent sequential execution (superpowers:executing-plans)
 ```
 
@@ -336,7 +338,7 @@ Once waves are confirmed:
    `<artifacts>/progress.md`:
 
    ```
-   # fan-flames ledger — plan: <plan path or "ad-hoc"> — parent: <change-id of @-> — start-op: <jj op log -n1 --no-graph -T 'id.short()'>
+   # kaisen ledger — plan: <plan path or "ad-hoc"> — parent: <change-id of @-> — start-op: <jj op log -n1 --no-graph -T 'id.short()'>
    wave-plan: wave 1: tasks … | wave 2: tasks …
    ```
 
@@ -583,7 +585,7 @@ that produced nothing because it failed — the report and the ledger say which.
 ### Divergent Changes (`change_id??`)
 
 A change ID printed with a `??` suffix means the same change has two
-commits — divergence. In fan-flames this happens if anything rewrites a
+commits — divergence. In kaisen this happens if anything rewrites a
 change that a live task workspace still holds as its `@` (e.g. the
 orchestrator running `jj edit`/`jj squash` on a task's change before that
 workspace is forgotten, or two fix subagents amending the same change).
@@ -839,10 +841,10 @@ If the user specified `--merge-order`, use their explicit ordering instead.
 jj diff -r <change-id> --stat | tail -1
 ```
 
-**Before fan-in, verify you are back in the orchestrator's own workspace (the one fan-flames was started from — not a task workspace):**
+**Before fan-in, verify you are back in the orchestrator's own workspace (the one kaisen was started from — not a task workspace):**
 
 ```bash
-jj workspace list  # the workspace you started fan-flames from should be the active one
+jj workspace list  # the workspace you started kaisen from should be the active one
 ```
 
 **For each completed task, in order:**
@@ -912,7 +914,7 @@ Append `run: complete` to the ledger — this is what the resume check keys on.
 **If plan-based:**
 
 ```
-🪭🔥 Fan-flames complete (N/M tasks across W waves)
+🪭🔥 Kaisen complete (N/M tasks across W waves)
 
 ### Waves
 - Wave 1: Tasks 1, 2, 4 — all passed spec review, merged
@@ -930,7 +932,7 @@ Append `run: complete` to the ledger — this is what the resume check keys on.
 **If ad-hoc:**
 
 ```
-🪭🔥 Fan-flames complete (N/M tasks across W waves)
+🪭🔥 Kaisen complete (N/M tasks across W waves)
 
 ### Waves
 - Wave 1: "Add validation", "Update types" — merged

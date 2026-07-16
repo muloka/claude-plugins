@@ -550,9 +550,16 @@ is a bare apostrophe; "kaisen" does not, so a naive substitution yields the ungr
 `'fan-flames'` (apostrophe-quoted) string exists in `plugins/`, so the possessive rule cannot
 corrupt a quoted token.
 
+**Three casings exist** — `fan-flames`, `Fan-flames`, and `Fan-Flames` (prose and headings use the
+capitalised forms). A lowercase-only sed leaves the capitalised ones behind, and a case-sensitive
+`grep 'fan-flames'` then reports **clean** while they are still there. Handle every casing, and use
+`grep -i` for the gate.
+
 ```bash
 cd /Users/muloka/projects/sonder-hale/tools/claude-plugins
 sed -i '' -e "s|workspace-jj:fan-flames|workspace-jj:kaisen|g" \
+          -e "s|Fan-Flames|Kaisen|g" \
+          -e "s|Fan-flames|Kaisen|g" \
           -e "s|fan-flames'|kaisen's|g" \
           -e "s|fan-flames|kaisen|g" \
   CLAUDE.md \
@@ -631,10 +638,13 @@ Expected: one hit in each — the superpowers override table now routes to the l
 - [ ] **Step 7: The gate — zero `fan-flames` anywhere in plugins/**
 
 ```bash
-grep -rn 'fan-flames' plugins/ CLAUDE.md || echo "clean"
+grep -rni 'fan.flames' plugins/ CLAUDE.md || echo "clean"
 ```
 
-Expected: `clean`. Trust this gate over any file list — during spec review it, not the inventory,
+Expected: `clean`. **Case-insensitive, and `.` not `-`** — prose uses `Fan-Flames` and
+`Fan-flames`, which a lowercase `grep 'fan-flames'` silently misses, reporting clean while the name
+is still there. (That happened during Task 4: the gate said 0 while the skill's `<h1>` still read
+`# Fan-Flames`.) Trust this gate over any file list — during spec review it, not the inventory,
 surfaced the cross-plugin references.
 
 - [ ] **Step 8: Run every suite**
