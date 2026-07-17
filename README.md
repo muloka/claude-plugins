@@ -2,7 +2,15 @@
 
 Claude Code plugins for **jj (Jujutsu)** workflows — project setup, workspace isolation, commit management, peer review, and autonomous permission gating.
 
-The jj plugins (project-setup, workspace, commit-commands, peer-review) include a `PreToolUse` hook (`block-raw-git.sh`) that intercepts Bash tool calls and blocks raw `git` commands, keeping your workflow pure jj. When Claude reaches for `git add` or `git commit`, the hook catches it and suggests the jj equivalent. Permission-gateway is a standalone plugin that works in any repo (jj or git).
+## Who this is for
+
+These plugins are for people who have chosen **jj (Jujutsu)** and want their coding agents to *stay* on it. They are opinionated and jj-only by design: the jj plugins install **hard walls**, not gentle reminders. If you're git-first, or want something neutral between the two, this isn't it.
+
+## Why hard walls instead of instructions
+
+LLM agents have a strong reflex toward git. It dominates their training data, so `git add` / `git commit` / `git status` are what they reach for automatically — often mid-task, **even when the project explicitly specifies jj, and even when the agent agrees jj is the better choice.** A written rule like "use jj, not git" is a suggestion the model can rationalize past a moment later.
+
+So enforcement sits below the level the model can argue with. A `PreToolUse` hook (`block-raw-git.sh`) in the jj plugins (project-setup, workspace, commit-commands, peer-review) intercepts every Bash call, blocks raw `git`, and hands back the jj equivalent — turning a reflexive `git commit` into a redirect the agent recovers from. The two deliberate exceptions are `jj git` subcommands (e.g. `jj git push`) and the `gh` CLI, the legitimate git-interop seams. Permission-gateway is standalone and works in any repo, jj or git.
 
 All jj output commands (`jj log`, `jj diff`, `jj bookmark list`, `jj op log`, `jj workspace list`, `jj show`, `jj evolog`, `jj op show`, `jj config list`, `jj tag list`) use JSON templates (`-T 'json(self)'`) by default, giving Claude Code structured, machine-parseable output instead of human-readable text. Requires jj >= 0.31.0.
 
