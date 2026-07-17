@@ -1,0 +1,26 @@
+name: Require Version Bump
+
+on:
+  pull_request:
+    paths:
+      - 'plugins/**'
+
+jobs:
+  require-version-bump:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4          # PR head into the workspace root
+
+      - uses: actions/checkout@v4          # PR base into ./_base for comparison
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: _base
+
+      - name: Require a version bump for any changed plugin
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE_DIR: _base
+        run: |
+          CHANGED_FILES="$(gh pr diff ${{ github.event.pull_request.number }} --name-only)"
+          export CHANGED_FILES
+          bash .github/scripts/require-version-bump.sh
