@@ -18,7 +18,6 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-WF="$ROOT/.github/workflows/validate-frontmatter.yml"
 PASS=0
 FAIL=0
 
@@ -34,42 +33,56 @@ bad() { echo "FAIL: $1"; FAIL=$((FAIL+1)); }
 _glob_to_findpath() {
   local g="$1"
   g="${g#\*\*/}"       # strip a leading **/
-  g="${g//\*\*/\*}"    # any remaining ** -> *
+  g="${g//\*\*/*}"     # any remaining ** -> *
   printf '*/%s' "$g"
 }
 _glob_match_count() {
   find "$ROOT" -path "$(_glob_to_findpath "$1")" -not -path '*/.jj/*' 2>/dev/null | wc -l | tr -d ' '
 }
 
-# Extract the quoted entries under `paths:` in the workflow.
-globs=$(awk '
-  /^[[:space:]]*paths:/ {inpaths=1; next}
-  inpaths && /^[[:space:]]*-[[:space:]]/ {
-    line=$0
-    sub(/^[[:space:]]*-[[:space:]]*/, "", line)
-    gsub(/^['\''"]|['\''"]$/, "", line)
-    print line
-    next
-  }
-  inpaths && /^[[:space:]]*[^[:space:]-]/ {inpaths=0}
-' "$WF")
+# Extract the quoted entries under `paths:` in a workflow file.
+extract_globs() {
+  awk '
+    /^[[:space:]]*paths:/ {inpaths=1; next}
+    inpaths && /^[[:space:]]*-[[:space:]]/ {
+      line=$0
+      sub(/^[[:space:]]*-[[:space:]]*/, "", line)
+      gsub(/^['\''"]|['\''"]$/, "", line)
+      print line
+      next
+    }
+    inpaths && /^[[:space:]]*[^[:space:]-]/ {inpaths=0}
+  ' "$1"
+}
 
-# fail loudly if we extracted nothing — a glob-checker that checks no globs is
-# the bug (#82 applied to itself).
-n=$(printf '%s\n' "$globs" | grep -c .)
-if [ "$n" -eq 0 ]; then
-  bad "no paths: globs found in $WF — the parser or the workflow changed"
-else
-  ok "extracted $n glob(s) from validate-frontmatter.yml"
+# Check EVERY workflow, not one hardcoded file: any paths:-gated workflow can
+# rot a glob (#77). A hardcoded single file is #82 inside the fix for #82.
+total_globs=0
+for wf in "$ROOT"/.github/workflows/*.yml; do
+  name="$(basename "$wf")"
+  globs="$(extract_globs "$wf")"
+  # `|| true`: grep -c exits 1 on zero matches, which set -e would treat as fatal.
+  n=$(printf '%s\n' "$globs" | grep -c . || true)
+  # A workflow with no paths: filter is legitimate (test.yml, close-external-prs.yml).
+  [ "$n" -eq 0 ] && continue
+  ok "extracted $n glob(s) from $name"
+  total_globs=$((total_globs + n))
   while IFS= read -r g; do
     [ -n "$g" ] || continue
     c=$(_glob_match_count "$g")
     if [ "$c" -gt 0 ]; then
-      ok "$g matches $c file(s)"
+      ok "$name: $g matches $c file(s)"
     else
-      bad "$g matches ZERO files — the workflow gates on it but it is dead (see #77)"
+      bad "$name: $g matches ZERO files — the workflow gates on it but it is dead (see #77)"
     fi
   done <<< "$globs"
+done
+
+# Backstop (#82 applied to itself): we KNOW at least validate-frontmatter.yml and
+# require-version-bump.yml gate on paths. Zero globs across ALL workflows means
+# the parser broke or every filter vanished — fail loud, never pass by doing nothing.
+if [ "$total_globs" -eq 0 ]; then
+  bad "no paths: globs found in ANY workflow — the parser or the workflows changed"
 fi
 
 echo
