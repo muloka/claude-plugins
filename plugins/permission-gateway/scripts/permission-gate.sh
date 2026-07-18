@@ -1,4 +1,24 @@
 #!/usr/bin/env bash
+
+# Fail-closed (#70): a crashed gate must not be a bypass. Mirrors the ERR trap
+# in gate-config-writes.sh so the two hooks agree. On any uncaught error, emit
+# `ask`. Parity + defense-in-depth: Claude Code builds the hook payload, so the
+# malformed-input path is likely unreachable here — this is consistency with
+# the sibling gate, not the patch of a demonstrated hole. It does, incidentally,
+# close one reachable fail-open: a Tier-2 command containing a bare `|` breaks the
+# prompt-template `sed` below and would otherwise exit non-zero with no output. The
+# trap can only ever emit `ask`, never approve/deny, so it cannot loosen a decision.
+trap 'cat <<EREOF
+{
+  "hookSpecificOutput": {
+    "hookEventName": "PreToolUse",
+    "permissionDecision": "ask",
+    "permissionDecisionReason": "Permission gateway: permission-gate encountered an error and is failing closed. Human approval required."
+  }
+}
+EREOF
+exit 0' ERR
+
 set -euo pipefail
 
 # Permission Gateway — PreToolUse hook
