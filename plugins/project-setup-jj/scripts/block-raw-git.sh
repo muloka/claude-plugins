@@ -4,6 +4,29 @@
 # Blocks: git * (bare git commands, not jj git subcommands)
 
 input=$(cat)
+
+# Gate on jj-repo presence (#45). This hard wall is intended only inside a jj
+# repo. Installed at the user (global) level the hook fires in every project,
+# and blocking git in a non-jj project is collateral damage, not the design.
+# Detect a .jj directory at cwd or any ancestor; if absent, pass through so git
+# is allowed. The walk stops at a dirname fixed point, which checks "/" too and
+# never hangs on a relative cwd (dirname "." == "."). bash 3.2-safe: no
+# globstar, no associative arrays.
+cwd=$(echo "$input" | jq -r '.cwd // ""')
+[ -n "$cwd" ] || cwd="$PWD"
+jj_repo=false
+dir="$cwd"
+prev=""
+while [ -n "$dir" ] && [ "$dir" != "$prev" ]; do
+  if [ -d "$dir/.jj" ]; then
+    jj_repo=true
+    break
+  fi
+  prev="$dir"
+  dir=$(dirname "$dir")
+done
+[ "$jj_repo" = true ] || exit 0
+
 command=$(echo "$input" | jq -r '.tool_input.command // ""')
 
 # Normalize: collapse newlines

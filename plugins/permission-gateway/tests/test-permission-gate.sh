@@ -350,6 +350,44 @@ else
   fail=$((fail + 1))
 fi
 
+echo ""
+echo "=== #70: fail-closed on malformed / unparseable input ==="
+
+# run_gate builds valid JSON, so it cannot exercise the malformed path. Feed
+# raw stdin directly instead.
+run_gate_raw() {
+  printf '%s' "$1" | bash "$GATE" 2>/dev/null || true
+}
+
+assert_raw_ask() {
+  local test_name="$1" raw="$2"
+  local output
+  output=$(run_gate_raw "$raw")
+  if echo "$output" | jq -r '.hookSpecificOutput.permissionDecision' 2>/dev/null | grep -q '^ask$'; then
+    echo "  PASS: $test_name"; pass=$((pass + 1))
+  else
+    echo "  FAIL: $test_name — expected fail-closed ask, got: $output"; fail=$((fail + 1))
+  fi
+}
+
+# Unparseable / wrong-shape input must fail CLOSED (ask), not open (silent).
+assert_raw_ask "malformed: not json"       'not json at all'
+assert_raw_ask "malformed: truncated json" '{"tool_input":}'
+assert_raw_ask "wrong-shape: array"        '[1,2,3]'
+assert_raw_ask "wrong-shape: bare number"  '42'
+
+# Tier-2 command with a bare `|`: the prompt sed `s|{{COMMAND}}|$command|g`
+# breaks on the extra delimiter. Today that path fails OPEN; the trap must turn
+# it into fail-closed ask — never approve/deny. This is the case the four clean
+# decision paths below would miss.
+assert_decision "tier2 metachar pipe" "frobnicate a|b" "ask"
+
+# The clean decision paths must be UNCHANGED — the trap must not misfire.
+assert_decision "no-misfire: deny path"    "rm -rf /"      "deny"
+assert_decision "no-misfire: ask path"     "git push origin main" "ask"
+assert_decision "no-misfire: approve path" "ls -la"        "silent"
+assert_decision "no-misfire: tier2 clean"  "htop"          "ask"
+
 # ---- Summary ----
 echo ""
 echo "=== Results: $pass passed, $fail failed ==="

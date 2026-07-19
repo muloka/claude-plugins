@@ -34,7 +34,7 @@ jobs:
           count=$(printf '%s' "$suites" | grep -c . || true)
 
           # A glob that matches nothing passes by doing nothing — #82's other
-          # half. This repo has seven suites; zero means the glob rotted.
+          # half. Zero means the glob rotted, not that the repo is clean.
           if [ "$count" -eq 0 ]; then
             echo "::error::no test suites found — the glob is broken, not the repo clean"
             exit 1
