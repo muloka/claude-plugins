@@ -43,12 +43,20 @@ PLAN ─── validate independence, compute waves, confirm with user
   ║            (only review-approved tasks)      ║
   ╚══════════════════════════════════════════════╝
   │
+  VERIFY ── final wave only: run the full test suite in @
+  │         (the run's ONLY combined-result gate)
+  │
   Report plan coverage
 ```
 
-No separate VERIFY phase — the last wave's peer review inherently covers the
-combined result, since all prior waves are already squashed into @ before the
-last wave dispatches.
+After the final wave's FAN IN, the orchestrator runs the project's whole test
+suite once in `@` — the combined-result gate. In a **multi-wave** run the last
+wave's peer review already saw most of the integrated tree (prior waves were
+squashed into `@` before it dispatched). In a **single-wave** run — the common
+case for a handful of independent tasks — nothing was pre-squashed and every
+review was scoped to one task's change, so this suite run in `@` is the ONLY
+thing that ever exercises the tasks *together*. It is cheap and mandatory either
+way; a red combined suite blocks `run: complete`.
 
 ## Per-Wave Execution
 
@@ -902,14 +910,41 @@ before fan-in. Change IDs are stable regardless of workspace lifecycle.
    `jj diff -r <change-id> --stat` if you need to refresh which files a task
    touched. Never paste diffs.
 
-(For Pattern A waves, where no squash is needed, the same two appends apply
-once content is verified.)
+3. **If this was the final (or only) wave — run the combined-result gate.**
+   The fully-integrated tree now lives in the orchestrator's `@` (every merged
+   task materialized on disk). Run the project's *entire* test suite there — the
+   same discovery the project's CI uses, not just the wave's touched suites:
+
+   ```bash
+   # example — use the project's real command; this mirrors a CI glob runner
+   for t in $(find <test-roots> -path '<suite-glob>' | sort); do bash "$t"; done
+   ```
+
+   This is the run's ONLY check of the tasks *together*: the per-task test gates
+   (REVIEW step 1) ran each suite in isolation inside its own workspace,
+   pre-fan-in, and never exercised the squashed combination. A failure here
+   blocks `run: complete` exactly like a wave test-gate failure — the merged
+   content is in `@`, so fix it there (or dispatch a fix subagent to work in
+   `@`), re-run the full suite, and only then proceed to Phase 6. A red combined
+   suite is never "done".
+
+(For Pattern A waves, where no squash is needed, the same appends apply once
+content is verified; the combined-result gate still runs for the final wave.)
 
 ## Phase 6: Report — Plan Coverage
 
-After all waves complete, report plan coverage. No separate peer review is needed — the last wave's review inherently covers the combined result, since all prior waves are already squashed into @ before the last wave dispatches.
+After all waves complete **and the final wave's combined-result gate is green**
+(the full-suite run in `@` from "After the Wave's FAN IN"), report plan coverage.
+No separate peer-review *pass* is dispatched here — but mind the boundary it
+leaves: the wave reviewers verified each task against its brief's stated values
+as ground truth, so they **cannot catch an error in the plan itself** (a wrong
+constant, a stale count, a misstated requirement) — they will *confirm* it. Kaisen
+executes the plan faithfully, mistakes and all. The only nets against plan-level
+errors are this combined-result gate and the upstream plan/spec review — never
+the wave reviewers.
 
 Append `run: complete` to the ledger — this is what the resume check keys on.
+Do not append it while the combined-result gate is red.
 
 **If plan-based:**
 
