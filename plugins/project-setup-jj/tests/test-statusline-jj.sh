@@ -129,6 +129,42 @@ code3=$?
 out3=$(cat /tmp/sl-test-out3)
 assert_ok "no crash when master bookmark missing (pipefail regression)" "$out3" "$code3"
 
+# ── Test 7: one cache file is shared across invocations ──
+# Regression: Claude Code spawns the statusline as a NEW PROCESS per redraw, so a
+# $$-keyed cache filename can never match on the next run. That made the cache-hit
+# branch dead code (all 11 jj queries re-ran every redraw) and leaked one /tmp file
+# per redraw — ~6,000 files / 24MB had accumulated before this was caught.
+CACHE_PROBE="$TMPDIR_ROOT/cache-probe"
+mkdir -p "$CACHE_PROBE"
+
+for _i in 1 2 3; do
+  STATUSLINE_JJ_CACHE_DIR="$CACHE_PROBE" bash "$SL" <<<"$STDIN" >/dev/null 2>&1 || true
+done
+
+n_cache=$(find "$CACHE_PROBE" -type f | wc -l | tr -d ' ')
+if [ "$n_cache" -eq 1 ]; then
+  echo "  PASS: three invocations share one cache file"
+  pass=$((pass + 1))
+else
+  echo "  FAIL: three invocations produced $n_cache cache files (expected 1)"
+  fail=$((fail + 1))
+fi
+
+# ── Test 8: the cache-hit branch is actually taken ──
+# Poison the cached payload while keeping the validity key intact. A genuine hit
+# renders the sentinel; a miss re-queries jj and the sentinel never appears.
+# Without this, test 7 alone would still pass if the cache were written but never read.
+cache_file=$(find "$CACHE_PROBE" -type f | head -1)
+if [ -n "$cache_file" ]; then
+  _key=$(head -1 "$cache_file")
+  printf '%s\n%s' "$_key" "|sentin3l|poisoned|@trunk|healthy" > "$cache_file"
+  out7=$(STATUSLINE_JJ_CACHE_DIR="$CACHE_PROBE" bash "$SL" <<<"$STDIN" 2>/dev/null || true)
+  assert_contains "cache-hit branch is used (sentinel rendered)" "$out7" "sentin3l"
+else
+  echo "  FAIL: no cache file created — cannot verify cache-hit branch"
+  fail=$((fail + 1))
+fi
+
 # ── Summary ──
 echo ""
 total=$((pass + fail))

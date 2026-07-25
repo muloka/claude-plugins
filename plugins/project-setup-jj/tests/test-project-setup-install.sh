@@ -46,6 +46,15 @@ for ev in SessionStart PreCompact PreToolUse WorktreeCreate WorktreeRemove; do
   [ "$(jq --arg e "$ev" '(.hooks[$e]|length) > 0' "$P/.claude/settings.local.json")" = true ] \
     && ok "fresh: hooks.$ev present" || bad "fresh" "hooks.$ev missing"
 done
+# Hook commands must be portable: $CLAUDE_PROJECT_DIR-relative, never an absolute
+# machine path. An absolute path pins the settings file to one checkout — it cannot
+# be shared with collaborators and resolves to nothing in a clone or jj workspace
+# living elsewhere on disk.
+allcmds=$(jq -r '[.hooks[][].hooks[].command] | .[]' "$P/.claude/settings.local.json")
+n_abs=$(printf '%s\n' "$allcmds" | grep -c '^/' || true)
+[ "$n_abs" -eq 0 ] && ok "fresh: no absolute hook paths" || bad "fresh" "$n_abs hook command(s) absolute: $allcmds"
+n_portable=$(printf '%s\n' "$allcmds" | grep -c '^\$CLAUDE_PROJECT_DIR/\.claude/scripts/' || true)
+[ "$n_portable" -eq 4 ] && ok "fresh: 4 hook paths use \$CLAUDE_PROJECT_DIR" || bad "fresh" "expected 4 portable hook paths, got $n_portable"
 [ "$(jq '.permissions.allow | index("Bash(gh *)") != null' "$P/.claude/settings.local.json")" = true ] && ok "fresh: allow has gh" || bad "fresh" "allow missing gh"
 [ "$(jq '.permissions.deny | index("Bash(git *)") != null' "$P/.claude/settings.local.json")" = true ] && ok "fresh: deny has git" || bad "fresh" "deny missing git"
 [ -f "$P/CLAUDE.md" ] && grep -q 'jj-project-setup:start' "$P/CLAUDE.md" && ok "fresh: CLAUDE.md created w/ marker" || bad "fresh" "CLAUDE.md missing marker"
