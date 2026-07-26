@@ -46,10 +46,19 @@ echo "require_jj_new=copied"
 echo "workspace_hooks=copied"
 
 # --- 2. settings.local.json merge ---
-SS="$DST/jj-session-start.sh"
-RJN="$DST/require-jj-new.sh"
-WSC="$DST/jj-workspace-create.sh"
-WSR="$DST/jj-workspace-remove.sh"
+# Hook commands are written $CLAUDE_PROJECT_DIR-relative rather than as absolute
+# paths. An absolute /Users/... path is machine-specific: it pins the settings file
+# to one checkout, so it cannot be shared with collaborators and breaks in any clone
+# or jj workspace living at a different path. Claude Code expands
+# $CLAUDE_PROJECT_DIR to the project root when the hook runs.
+# The endswith() upsert below matches on the shared suffix, so re-running the
+# installer over a pre-existing absolute-path entry replaces it in place instead of
+# leaving a duplicate (covered by the "stale" case in test-project-setup-install.sh).
+HOOK_DIR='$CLAUDE_PROJECT_DIR/.claude/scripts'
+SS="$HOOK_DIR/jj-session-start.sh"
+RJN="$HOOK_DIR/require-jj-new.sh"
+WSC="$HOOK_DIR/jj-workspace-create.sh"
+WSR="$HOOK_DIR/jj-workspace-remove.sh"
 
 merged=$(printf '%s' "$base" | jq \
   --arg ss "$SS" --arg rjn "$RJN" --arg wsc "$WSC" --arg wsr "$WSR" '
