@@ -3,3 +3,4 @@
 .jj/
 node_modules/
 *.log
+**/evals/results/
