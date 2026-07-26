@@ -181,5 +181,169 @@ else
   bad "unknown --gate value aborts (exit 64) (got rc=$rc: ${err:-<empty>})"
 fi
 
+D=$(mktemp -d)
+mkdir -p "$D/plugins/demo/evals/alpha"
+cat > "$D/plugins/demo/evals/alpha/case.yaml" <<'YAML'
+schema_version: "1.1"
+name: alpha
+execution:
+  prompt: hello
+  allowed_tools: [Bash]
+graders:
+  - type: regex
+    name: g
+    pattern: hi
+YAML
+mkdir -p "$D/plugins/demo/.claude-plugin"
+printf '{"name":"demo","description":"d","version":"0.0.1"}\n' \
+  > "$D/plugins/demo/.claude-plugin/plugin.json"
+
+cmd=$(cd "$D" && /bin/bash "$SCRIPT" --plugin demo --dry-run 2>&1) || true
+
+for flag in "--ablation with-without" "--allow-tools" "--scaffold" "--output-dir" "CLAUDE_CODE_WALNUT_SPIRE=1"; do
+  if printf '%s' "$cmd" | grep -q -- "$flag"; then
+    ok "dry-run includes $flag"
+  else
+    bad "dry-run includes $flag (got: $cmd)"
+  fi
+done
+
+# --output-dir must land OUTSIDE plugins/, or results trip the #84 version
+# lint. Anchor on the flag being PRESENT — a bare not-match is vacuously
+# green on empty or error output and can never fail first (third review).
+if printf '%s' "$cmd" | grep -q -- '--output-dir' \
+   && ! printf '%s' "$cmd" | grep -q -- '--output-dir[= ]*[^ ]*plugins/'; then
+  ok "output-dir stays outside plugins/"
+else
+  bad "output-dir stays outside plugins/ (got: $cmd)"
+fi
+
+# A case declaring a gated tool absent from the grant must abort loudly,
+# rather than scoring both arms 0.00 and reading as "no gap".
+mkdir -p "$D/plugins/demo/evals/needswrite"
+cat > "$D/plugins/demo/evals/needswrite/case.yaml" <<'YAML'
+schema_version: "1.1"
+name: needswrite
+execution:
+  prompt: hello
+  allowed_tools: [Bash, Write]
+graders:
+  - type: regex
+    name: g
+    pattern: hi
+YAML
+set +e
+(cd "$D" && /bin/bash "$SCRIPT" --plugin demo --allow-tools Bash --dry-run >/dev/null 2>&1)
+rc=$?
+set -e
+if [ "$rc" -eq 7 ]; then
+  ok "ungranted gated tool aborts (exit 7)"
+else
+  bad "ungranted gated tool aborts (exit 7) (got rc=$rc)"
+fi
+
+# Block-style YAML must be caught too — it is the layout `eval init` writes,
+# so a flow-only guard is blind to precisely the cases it exists to protect.
+mkdir -p "$D/plugins/demo/evals/blockstyle"
+cat > "$D/plugins/demo/evals/blockstyle/case.yaml" <<'YAML'
+schema_version: "1.1"
+name: blockstyle
+execution:
+  prompt: hello
+  allowed_tools:
+    - Bash
+    - Write
+graders:
+  - type: regex
+    name: g
+    pattern: hi
+YAML
+set +e
+(cd "$D" && /bin/bash "$SCRIPT" --plugin demo --allow-tools Bash --dry-run >/dev/null 2>&1)
+rc=$?
+set -e
+if [ "$rc" -eq 7 ]; then
+  ok "block-style allowed_tools caught by guard"
+else
+  bad "block-style allowed_tools caught by guard (got rc=$rc)"
+fi
+rm -rf "$D/plugins/demo/evals/blockstyle" "$D/plugins/demo/evals/needswrite"
+
+# --- LIVE PATH via a stub `claude` on PATH ---
+# Every exit-code test above goes through --classify directly. Without a live
+# test, `set -e` killing the runner before classify() is invisible — a green
+# suite that cannot fail, which is the exact disease this project exists to
+# prevent. These stubs cost nothing and cover the real invocation path.
+STUB=$(mktemp -d)
+mkdir -p "$STUB/bin"
+cat > "$STUB/bin/claude" <<'STUBEOF'
+#!/usr/bin/env bash
+# Emulate the CLI's exit contract: 1 when a case scores under --threshold,
+# 2 on --max-cost-usd breach. The real CLI also prints its human summary
+# table to STDOUT (verified live on 2.1.220) — the stub must too, or the
+# stdout-purity test below can only pass vacuously.
+printf 'CASE  WITH  W/OUT (stub table noise)\n'
+outdir=""
+prev=""
+for a in "$@"; do
+  [ "$prev" = "--output-dir" ] && outdir="$a"
+  prev="$a"
+done
+mkdir -p "$outdir"
+case "${STUB_MODE:-ok}" in
+  threshold)
+    printf '{"schema_version":"1.0","partial":false,"cases":[{"name":"c","score":0.5,"score_without":0,"delta":0.5}]}\n' > "$outdir/aggregate-result.json"
+    exit 1 ;;
+  maxcost)
+    printf '{"schema_version":"1.0","partial":true,"cases":[{"name":"c","score":1,"score_without":0,"delta":1}]}\n' > "$outdir/aggregate-result.json"
+    exit 2 ;;
+  *)
+    printf '{"schema_version":"1.0","partial":false,"cases":[{"name":"c","score":1,"score_without":0,"delta":1}]}\n' > "$outdir/aggregate-result.json"
+    exit 0 ;;
+esac
+STUBEOF
+chmod +x "$STUB/bin/claude"
+
+# A case scoring under 1.0 makes the CLI exit 1. The runner must survive it
+# and still classify — otherwise --threshold silently pre-empts the delta gate.
+out=$(cd "$D" && PATH="$STUB/bin:$PATH" STUB_MODE=threshold \
+  /bin/bash "$SCRIPT" --plugin demo 2>/dev/null) || true
+if printf '%s' "$out" | grep -q 'DISCRIMINATING'; then
+  ok "live path survives CLI exit 1 and still classifies"
+else
+  bad "live path survives CLI exit 1 and still classifies (got: ${out:-<empty>})"
+fi
+
+# The assembled command must carry --threshold 0, or the above is luck.
+cmd=$(cd "$D" && /bin/bash "$SCRIPT" --plugin demo --dry-run 2>/dev/null) || true
+if printf '%s' "$cmd" | grep -q -- '--threshold 0'; then
+  ok "assembles --threshold 0"
+else
+  bad "assembles --threshold 0 (got: $cmd)"
+fi
+
+# A budget breach is CLI exit 2; .partial must still reach classify as exit 6.
+set +e
+(cd "$D" && PATH="$STUB/bin:$PATH" STUB_MODE=maxcost \
+  /bin/bash "$SCRIPT" --plugin demo >/dev/null 2>&1)
+rc=$?
+set -e
+if [ "$rc" -eq 6 ]; then
+  ok "budget breach reaches the .partial tripwire (exit 6)"
+else
+  bad "budget breach reaches the .partial tripwire (exit 6) (got rc=$rc)"
+fi
+
+# stdout must be pure TSV — Task 7 pipes it to a file. The stub prints a fake
+# summary table to stdout precisely because the real CLI does; if the runner
+# fails to redirect the CLI's stdout, this catches it.
+out=$(cd "$D" && PATH="$STUB/bin:$PATH" /bin/bash "$SCRIPT" --plugin demo 2>/dev/null) || true
+if printf '%s' "$out" | grep -q 'DISCRIMINATING' \
+   && ! printf '%s' "$out" | grep -qE 'discovered|stub table noise'; then
+  ok "stdout is pure TSV"
+else
+  bad "stdout is pure TSV (got: ${out:-<empty>})"
+fi
+
 printf '%d passed, %d failed\n' "$PASS" "$FAIL"
 test "$FAIL" -eq 0
