@@ -1,0 +1,2 @@
+{"schema_version":"1.0","partial":true,"cost_usd":5.0,
+ "cases":[{"name":"budget-breached","score":1,"score_without":0,"delta":1,"pass_rate":1,"pass_rate_without":0}]}
