@@ -14,6 +14,25 @@ else
   bad "denies raw git inside a jj repo (got: $out)"
 fi
 
+# #101: the `jj git …` exemption used to be evaluated over the whole command
+# string, so one jj-git token anywhere exempted every other clause and
+# `jj git fetch && git reset --hard origin/main` came back ALLOWED. These run
+# against THIS plugin's copy of the hook — the drift-guard in project-setup-jj
+# proves byte-identity, this proves the shipped bytes behave.
+for denied in \
+  'jj git fetch && git reset --hard origin/main' \
+  'git status; jj git fetch' \
+  'jj git fetch;git status' \
+  'jj git fetch\ngit reset --hard origin/main'
+do
+  out=$(printf '{"cwd":"%s","tool_input":{"command":"%s"}}' "$JJ_DIR" "$denied" | /bin/bash "$HOOK")
+  if printf '%s' "$out" | grep -q '"permissionDecision": *"deny"'; then
+    ok "denies raw git in a compound command: $denied"
+  else
+    bad "denies raw git in a compound command: $denied (got: $out)"
+  fi
+done
+
 # The internals branch is the hook's only code path with no other coverage.
 # The raw-git branch returns first for any command carrying a bare `git `
 # token, which shadows BOTH commands the internals regex names -- `git config`
@@ -46,7 +65,15 @@ fi
 # so both arms passed and the delta could never mean anything. The hook is a
 # pure stdin/stdout function, so the assertion belongs here where it is
 # deterministic and free.
-for allowed in "jj git remote list" "gh pr list"; do
+#
+# The trailing three are #101 regression guards rather than fail-first cases:
+# they passed before the per-clause split and must still pass after it. This
+# hook is a hard wall, so a false positive costs as much as a bypass —
+# /commit-push-pr and /finish both instruct `jj git push` in their own prose.
+for allowed in "jj git remote list" "gh pr list" \
+               "jj git push --bookmark feature-x" \
+               "jj git fetch && jj rebase -d main" \
+               "echo 'git status'"; do
   out=$(printf '{"cwd":"%s","tool_input":{"command":"%s"}}' "$JJ_DIR" "$allowed" | /bin/bash "$HOOK")
   if [ -z "$out" ]; then
     ok "allows '$allowed' inside a jj repo (lookahead)"
