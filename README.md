@@ -153,7 +153,7 @@ Layer 2 is the gate. The eval suite gates nothing — it is a measurement instru
 /bin/bash .github/scripts/run-evals.sh --plugin commit-commands-jj --runs 2
 ```
 
-Run from the repo root. Useful flags: `--case <glob>` scopes to one case, `--gate report` downgrades `NO_GAP`/`PARTIAL` from failures to findings, `--max-cost-usd` caps spend (default `5`), `--keep-temp` keeps the sandboxes. Verdict rows go to stdout as TSV; everything else, including the result-JSON path, goes to stderr.
+Run from the repo root — running elsewhere exits 3 rather than dying on a stray `find` error. Useful flags: `--case <glob>` scopes to one case, matched against the case's `name:` field exactly as the CLI matches it (a case that declares no name defaults to its directory basename); `--gate report` downgrades `NO_GAP`/`PARTIAL` from failures to findings; `--max-cost-usd` caps spend (default `5`); `--keep-temp` keeps the sandboxes. `--allow-tools` accepts a comma- or space-separated list and forwards each tool separately. A `--plugin`/`--case` combination that selects no case exits 3: scoped-to-nothing is not a clean run. Verdict rows go to stdout as TSV; everything else, including the result-JSON path, goes to stderr.
 
 ### Manual by design — not wired into CI
 
@@ -175,7 +175,9 @@ The runner emits one TSV row per case — `name / score / score_without / delta 
 | `REGRESSION` | Δ < 0 | the plugin made things worse. Fails in both gate modes |
 | `BROKEN` | both arms scored 0.00 | **the harness failed, not the plugin** |
 
-> **`BROKEN` never means "no gap".** Both arms scoring zero is the signature of a case that could not run at all — nearly always a **gated tool the case declares that `--allow-tools` does not grant**, leaving the agent unable to call it in either arm. Misread as "no difference between the arms", it deletes the best case in the suite. The runner also checks this before spending and exits 7. Other non-zero exits: 3 nothing measured, 4 gate failure, 5 result-schema drift, 6 budget-truncated run, 64 bad argument, 65 missing or malformed result file.
+Δ comparisons carry a 1e-9 tolerance. The CLI computes the delta by subtraction, so a case scoring 7/10 with and 2/10 without arrives as `0.49999999999999994`; without the tolerance a textbook shipping case at exactly the threshold is filed `PARTIAL` and fails CI.
+
+> **`BROKEN` never means "no gap".** Both arms scoring zero is the signature of a case that could not run at all — nearly always a **gated tool the case declares that `--allow-tools` does not grant**, leaving the agent unable to call it in either arm. Misread as "no difference between the arms", it deletes the best case in the suite. The runner also checks this before spending and exits 7 — for both case layouts, both YAML forms, and whatever `--case` actually selects. Other non-zero exits: 3 nothing measured (no cases discovered, none selected, or none returned), 4 gate failure, 5 result-schema drift, 6 budget-truncated run, 64 bad argument or bad `--gate` (rejected before spending), 65 missing or malformed result file.
 
 ### Measured results
 

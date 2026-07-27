@@ -336,6 +336,14 @@ a second added file and both arms described "notes.txt and jj config". Harmless
 to the result, but it muddies "what changed". Move scaffold config outside the
 work tree.
 
+The two shipped scaffolds now do exactly that, and for a second reason found in
+the #79 review: the CLI spawns `scaffold.sh` with a fixed env whitelist and runs
+the turn in a **separate process**, so an `export JJ_CONFIG=…` in a scaffold
+configures nothing the agent can see. `HOME` is what the two processes share, so
+the scaffolds write jj's user config inside the sandbox home — out of the work
+tree and actually visible to the turn. Asserted in
+`plugins/commit-commands-jj/tests/test-eval-scaffold.sh`.
+
 ---
 
 ## 4. The one command actually measured: `describe`
@@ -484,7 +492,8 @@ over-read them is real.
 ## 7. Runner gaps found and logged, not fixed
 
 Three defects in `.github/scripts/run-evals.sh` surfaced during the probes. All
-three were left unfixed by ruling and are recorded here so they are not lost.
+three were left unfixed at the time and are recorded here so they are not lost.
+**Gap C has since been closed** (see below); Gaps A and B remain open.
 
 **Gap A — `SlashCommand` is missing from the exit-7 guard's gated list.**
 The guard (`.github/scripts/run-evals.sh:179`) matches
@@ -507,6 +516,10 @@ When the CLI loads 0 cases it writes no output directory, so
 operator sees a bare `find: … No such file or directory` and exit 1 instead of a
 diagnostic naming the load failures, and `classify()` never runs. Any workflow
 that depends on the `result JSON:` line printed two lines later inherits this.
+**Closed** in the #79 review fix-wave: an empty `RESULT` now exits 3 with a
+diagnosis, and the same fix covers a missing `plugins/` directory (a
+wrong-cwd invocation, which previously exited 1 with no output at all).
+Both are asserted in `.github/tests/test-run-evals.sh`.
 
 ### Authoring hazard, if tranche 2 writes another case generator
 
