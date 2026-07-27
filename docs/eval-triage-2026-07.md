@@ -496,7 +496,7 @@ three were left unfixed at the time and are recorded here so they are not lost.
 **Gap C has since been closed** (see below); Gaps A and B remain open.
 
 **Gap A — `SlashCommand` is missing from the exit-7 guard's gated list.**
-The guard (`.github/scripts/run-evals.sh:179`) matches
+The guard (`.github/scripts/run-evals.sh:351`) matches
 `Bash|Write|Edit|WebFetch|mcp__*`. A case declaring `SlashCommand` in
 `allowed_tools` passes the guard clean while the CLI denies the tool at runtime:
 `cmd-describe: denied tools (pass --allow-tools to grant): SlashCommand`. The
@@ -512,7 +512,7 @@ requirement that every case carry at least one positive outcome grader.
 **Gap C — zero loadable cases kills the runner on `find` before `classify()`.**
 When the CLI loads 0 cases it writes no output directory, so
 `RESULT="$(find "$OUT_DIR" -name aggregate-result.json | head -1)"`
-(`run-evals.sh:230`) fails and `set -e` kills the script at that line. The
+(`run-evals.sh:419`) fails and `set -e` kills the script at that line. The
 operator sees a bare `find: … No such file or directory` and exit 1 instead of a
 diagnostic naming the load failures, and `classify()` never runs. Any workflow
 that depends on the `result JSON:` line printed two lines later inherits this.

@@ -213,6 +213,19 @@ first_name_key() {
        END { if (found) print v }'
 }
 
+# Strip leading/trailing whitespace and, if present, one matched pair of
+# surrounding quotes — preserving internal spaces exactly. The prior form
+# used by case_name_of, `tr -d " \"'"`, deleted every space and quote
+# ANYWHERE in the value, not just a surrounding pair: `name: my case` became
+# `mycase`, so --case 'my case' (which the CLI WOULD match) scoped to
+# nothing and --case 'mycase' (which the CLI would NOT match) scoped in and
+# passed the guard — the disjoint-set defect this closes.
+dequote() {
+  sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' \
+      -e 's/^"\(.*\)"$/\1/' \
+      -e "s/^'\(.*\)'\$/\1/"
+}
+
 # The name the CLI will match --case against. Verified against 2.1.220: the
 # glob is applied to the case's `name:` field, and a prose-layout case that
 # declares none defaults to its directory basename. Scoping on the basename
@@ -223,10 +236,10 @@ case_name_of() {
   d="$1"
   n=""
   if [ -f "$d/case.yaml" ]; then
-    n=$(first_name_key < "$d/case.yaml" | tr -d " \"'")
+    n=$(first_name_key < "$d/case.yaml" | dequote)
   fi
   if [ -z "$n" ] && [ -f "$d/prompt.md" ]; then
-    n=$(frontmatter "$d/prompt.md" | first_name_key | tr -d " \"'")
+    n=$(frontmatter "$d/prompt.md" | first_name_key | dequote)
   fi
   if [ -z "$n" ]; then
     n=$(basename "$d")

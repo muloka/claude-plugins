@@ -17,6 +17,19 @@ TMPROOT=$(mktemp -d)
 trap 'rm -rf "$TMPROOT"' EXIT
 new_tmp() { d=$(mktemp -d "$TMPROOT/t.XXXXXX"); printf '%s' "$d"; }
 
+# Baseline for the leak check at the bottom of this file. run-evals.sh
+# computes its OUT_DIR as "${TMPDIR:-/tmp}/eval-results-$$"; every
+# stub-driven invocation below that hits the live path (not --dry-run, not
+# --classify) must have ITS OWN TMPDIR pointed at $TMPROOT, or that directory
+# lands in the real $TMPDIR and outlives this suite — the same leak class
+# #98 fixed for /tmp files. Snapshot what is there BEFORE any of those run;
+# pre-existing directories from unrelated runs are not this suite's problem
+# and must not be flagged.
+REAL_TMPDIR="${TMPDIR:-/tmp}"
+BEFORE_LEAK_FILE="$TMPROOT/before-leak.txt"
+find "$REAL_TMPDIR" -maxdepth 1 -type d -name 'eval-results-*' 2>/dev/null \
+  | sort > "$BEFORE_LEAK_FILE"
+
 # A guard assertion gets its OWN tree, always. Sharing one tree is exactly how
 # the block-style assertion went vacuous: an unrelated flow-form case was left
 # on disk and tripped exit 7 first, so the assertion passed whether or not the
@@ -640,6 +653,32 @@ else
   bad "a --plugin matching nothing aborts (exit 3) (got rc=$rc)"
 fi
 
+# case_name_of previously ran the declared name through `tr -d " \"'"`, which
+# deletes every space and quote ANYWHERE, not just a surrounding pair — so
+# `name: my case` was seen by this guard as `mycase`. That desyncs the
+# guard's matching from the CLI's own: --case 'my case' (which the CLI WOULD
+# match) scoped to nothing here, and --case 'mycase' (which the CLI would
+# NOT match) scoped in and passed the guard. Assert the guard scopes on the
+# name exactly as declared, internal space intact.
+SPACENAME=$(mk_case_tree spacecase <<'YAML'
+schema_version: "1.1"
+name: my case
+execution:
+  prompt: hello
+  allowed_tools: [Bash, Write]
+graders:
+  - type: regex
+    name: g
+    pattern: hi
+YAML
+)
+rc=$(guard_rc "$SPACENAME" --plugin demo --case "my case" --allow-tools Bash)
+if [ "$rc" -eq 7 ]; then
+  ok "--case with an internal space scopes on the name the CLI matches"
+else
+  bad "--case with an internal space scopes on the name the CLI matches (got rc=$rc)"
+fi
+
 # --- LIVE PATH via a stub `claude` on PATH ---
 # Every exit-code test above goes through --classify directly. Without a live
 # test, `set -e` killing the runner before classify() is invisible — a green
@@ -688,7 +727,7 @@ chmod +x "$STUB/bin/claude"
 
 # A case scoring under 1.0 makes the CLI exit 1. The runner must survive it
 # and still classify — otherwise --threshold silently pre-empts the delta gate.
-out=$(cd "$D" && PATH="$STUB/bin:$PATH" STUB_MODE=threshold \
+out=$(cd "$D" && PATH="$STUB/bin:$PATH" TMPDIR="$TMPROOT" STUB_MODE=threshold \
   /bin/bash "$SCRIPT" --plugin demo 2>/dev/null) || true
 if printf '%s' "$out" | grep -q 'DISCRIMINATING'; then
   ok "live path survives CLI exit 1 and still classifies"
@@ -707,7 +746,7 @@ fi
 # The rendered dry-run is a proxy; this is the argv the CLI actually receives.
 ARGV="$STUB/argv.txt"
 rm -f "$ARGV"
-(cd "$D" && PATH="$STUB/bin:$PATH" STUB_ARGV_FILE="$ARGV" \
+(cd "$D" && PATH="$STUB/bin:$PATH" TMPDIR="$TMPROOT" STUB_ARGV_FILE="$ARGV" \
   /bin/bash "$SCRIPT" --plugin demo --allow-tools Bash,Write >/dev/null 2>&1) || true
 if [ -f "$ARGV" ] && grep -qx 'Bash' "$ARGV" && grep -qx 'Write' "$ARGV" \
    && ! grep -q ',' "$ARGV"; then
@@ -718,7 +757,7 @@ fi
 
 # A budget breach is CLI exit 2; .partial must still reach classify as exit 6.
 set +e
-(cd "$D" && PATH="$STUB/bin:$PATH" STUB_MODE=maxcost \
+(cd "$D" && PATH="$STUB/bin:$PATH" TMPDIR="$TMPROOT" STUB_MODE=maxcost \
   /bin/bash "$SCRIPT" --plugin demo >/dev/null 2>&1)
 rc=$?
 set -e
@@ -732,7 +771,7 @@ fi
 # fails under set -e and the runner dies at exit 1 with a bare `find:` message,
 # never reaching classify() and never naming what went wrong.
 set +e
-err=$(cd "$D" && PATH="$STUB/bin:$PATH" STUB_MODE=nooutput \
+err=$(cd "$D" && PATH="$STUB/bin:$PATH" TMPDIR="$TMPROOT" STUB_MODE=nooutput \
   /bin/bash "$SCRIPT" --plugin demo 2>&1 >/dev/null)
 rc=$?
 set -e
@@ -748,7 +787,7 @@ fi
 # see the difference — the sentinel is whether the CLI ran at all.
 rm -f "$ARGV"
 set +e
-(cd "$D" && PATH="$STUB/bin:$PATH" STUB_ARGV_FILE="$ARGV" \
+(cd "$D" && PATH="$STUB/bin:$PATH" TMPDIR="$TMPROOT" STUB_ARGV_FILE="$ARGV" \
   /bin/bash "$SCRIPT" --plugin demo --gate strcit >/dev/null 2>&1)
 rc=$?
 set -e
@@ -761,12 +800,27 @@ fi
 # stdout must be pure TSV — Task 7 pipes it to a file. The stub prints a fake
 # summary table to stdout precisely because the real CLI does; if the runner
 # fails to redirect the CLI's stdout, this catches it.
-out=$(cd "$D" && PATH="$STUB/bin:$PATH" /bin/bash "$SCRIPT" --plugin demo 2>/dev/null) || true
+out=$(cd "$D" && PATH="$STUB/bin:$PATH" TMPDIR="$TMPROOT" /bin/bash "$SCRIPT" --plugin demo 2>/dev/null) || true
 if printf '%s' "$out" | grep -q 'DISCRIMINATING' \
    && ! printf '%s' "$out" | grep -qE 'discovered|stub table noise'; then
   ok "stdout is pure TSV"
 else
   bad "stdout is pure TSV (got: ${out:-<empty>})"
+fi
+
+# No stub-driven invocation above may have left a NEW eval-results-* directory
+# in the REAL $TMPDIR (see #98: an ~8k-file leak of the same shape). Diff
+# against the baseline taken at the top of this file — pre-existing
+# directories from other runs are left alone; this fails only on growth this
+# suite run caused.
+AFTER_LEAK_FILE="$TMPROOT/after-leak.txt"
+find "$REAL_TMPDIR" -maxdepth 1 -type d -name 'eval-results-*' 2>/dev/null \
+  | sort > "$AFTER_LEAK_FILE"
+NEW_LEAK=$(comm -13 "$BEFORE_LEAK_FILE" "$AFTER_LEAK_FILE")
+if [ -z "$NEW_LEAK" ]; then
+  ok "no new eval-results-* directory leaked into \$TMPDIR"
+else
+  bad "no new eval-results-* directory leaked into \$TMPDIR (new: $(printf '%s' "$NEW_LEAK" | tr '\n' ' '))"
 fi
 
 printf '%d passed, %d failed\n' "$PASS" "$FAIL"
