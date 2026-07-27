@@ -116,7 +116,19 @@ elif grep -q 'jj-project-setup:start' "$CLAUDE_MD"; then
   else
     s_line=$(grep -n 'jj-project-setup:start' "$CLAUDE_MD" | head -1 | cut -d: -f1)
     e_line=$(grep -n 'jj-project-setup:end' "$CLAUDE_MD" | head -1 | cut -d: -f1)
-    { sed -n "1,$((s_line-1))p" "$CLAUDE_MD"; cat "$TEMPLATE"; sed -n "$((e_line+1)),\$p" "$CLAUDE_MD"; } > "$CLAUDE_MD.tmp"
+    # The prefix slice must be skipped entirely when the marker is on line 1.
+    # `sed -n "1,0p"` is an inverted range, and BSD sed prints line 1 for it
+    # rather than nothing — which re-emitted the stale start marker above the
+    # fresh one. The file then carried two start markers, and since the hash is
+    # read from the FIRST one, every later run saw a stale hash and duplicated
+    # the pair again. Observed in a real project before this guard existed.
+    # The tail slice needs no such guard: `sed -n "N,\$p"` with N past the last
+    # line correctly prints nothing.
+    {
+      [ "$s_line" -gt 1 ] && sed -n "1,$((s_line-1))p" "$CLAUDE_MD"
+      cat "$TEMPLATE"
+      sed -n "$((e_line+1)),\$p" "$CLAUDE_MD"
+    } > "$CLAUDE_MD.tmp"
     mv "$CLAUDE_MD.tmp" "$CLAUDE_MD"
     claude_outcome="updated"
   fi
