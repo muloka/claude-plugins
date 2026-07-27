@@ -53,12 +53,54 @@ echo "=== jj repo: raw git is blocked ==="
 assert_blocked "git status at jj root"      "git status"            "$JJ_DIR"
 assert_blocked "git status in jj subdir"    "git status"            "$JJ_DIR/sub/deep"
 assert_blocked "git commit at jj root"      "git commit -m x"       "$JJ_DIR"
+assert_blocked "git add"                    "git add -A"            "$JJ_DIR"
+assert_blocked "git log"                    "git log --oneline"     "$JJ_DIR"
+assert_blocked "git diff"                   "git diff"              "$JJ_DIR"
+assert_blocked "git push"                   "git push origin main"  "$JJ_DIR"
+assert_blocked "git reset --hard"           "git reset --hard origin/main" "$JJ_DIR"
 assert_blocked "git config (internals)"     "git config user.name x" "$JJ_DIR"
 assert_blocked "git rev-parse (internals)"  "git rev-parse HEAD"    "$JJ_DIR"
 
+# #101: the jj-git exemption used to be evaluated over the WHOLE command
+# string, so a single `jj git …` token anywhere exempted every other clause —
+# `jj git fetch && git reset --hard origin/main` was ALLOWED even though the
+# second clause is denied on its own. The exemption is now decided per clause.
+# Chaining a fetch onto another command is ordinary model output, not an
+# adversarial input, so every separator the shell accepts is covered here.
+echo "=== jj repo: compound commands are decided per clause (#101) ==="
+assert_blocked "jj-git clause then raw git (&&)"  "jj git fetch && git reset --hard origin/main" "$JJ_DIR"
+assert_blocked "jj-git clause then raw git (;)"   "jj git push; git status"                      "$JJ_DIR"
+assert_blocked "raw git then jj-git clause (;)"   "git status; jj git fetch"                     "$JJ_DIR"
+assert_blocked "raw git then jj-git clause (||)"  "git log --oneline || jj git fetch"            "$JJ_DIR"
+assert_blocked "jj-git clause piped into raw git" "jj git fetch | git log --oneline"             "$JJ_DIR"
+assert_blocked "no space after ; separator"       "jj git fetch;git status"                      "$JJ_DIR"
+assert_blocked "no space after && separator"      "jj git fetch&&git status"                     "$JJ_DIR"
+assert_blocked "raw git in a third clause"        "echo hi && jj git fetch && git status"        "$JJ_DIR"
+# Newlines are folded to ';' before analysis, so a multi-line command must
+# split the same way. The \n below is a JSON escape: jq hands the hook a real
+# newline.
+assert_blocked "multi-line: newline is a separator" 'jj git fetch\ngit reset --hard origin/main' "$JJ_DIR"
+
+# These are regression guards, not fail-first cases: every one of them passed
+# before the #101 per-clause fix and must still pass after it. A false positive
+# in this hook is as bad as a bypass — `jj git push` is instructed in the
+# command prose of /commit-push-pr and /finish, so a hook that blocks it breaks
+# the documented workflow of three plugins.
 echo "=== jj repo: interop seams and non-git pass through ==="
 assert_passthrough "jj git push allowed"    "jj git push"           "$JJ_DIR"
+assert_passthrough "jj git push with bookmark" "jj git push --bookmark feature-x" "$JJ_DIR"
+assert_passthrough "jj git push --change"   "jj git push --change @" "$JJ_DIR"
+assert_passthrough "jj git fetch"           "jj git fetch"          "$JJ_DIR"
+assert_passthrough "jj git remote list"     "jj git remote list"    "$JJ_DIR"
+assert_passthrough "jj git init"            "jj git init"           "$JJ_DIR"
+assert_passthrough "two jj clauses, one jj-git" "jj git fetch && jj rebase -d main" "$JJ_DIR"
+assert_passthrough "jj-git clause last"     "jj log -r @ && jj git push" "$JJ_DIR"
 assert_passthrough "gh allowed"             "gh pr list"            "$JJ_DIR"
+assert_passthrough "gh with flags"          "gh pr create --title x --body y" "$JJ_DIR"
+# Mid-clause prose is not command position: a message that merely names a git
+# command must not be blocked.
+assert_passthrough "git named inside a -m message" "jj describe -m 'replace git status with jj status'" "$JJ_DIR"
+assert_passthrough "quoted git string echoed"      "echo 'git status'" "$JJ_DIR"
 assert_passthrough "non-git command"        "ls -la"               "$JJ_DIR"
 
 echo "=== non-jj repo: git is allowed ==="

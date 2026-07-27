@@ -32,12 +32,35 @@ command=$(echo "$input" | jq -r '.tool_input.command // ""')
 # Normalize: collapse newlines
 command_normalized=$(echo "$command" | tr '\n' ';')
 
-# Check for bare "git " commands (not preceded by "jj ")
+# Check for bare "git " commands, one clause at a time (#101).
+#
+# This used to ask two questions over the WHOLE command string: "is there a git
+# at command position" and "is there a jj git at command position". One
+# `jj git …` token anywhere exempted every other clause, so
+# `jj git fetch && git reset --hard origin/main` was allowed even though the
+# second clause is denied on its own. Chaining a fetch onto another command is
+# ordinary model output, not an evasion, so the seam was reachable by accident.
+#
+# The fix: split on the clause separators the old pattern already treated as
+# command-position boundaries (; & |) and decide each clause alone. `tr` maps
+# each character independently, so `&&` and `||` produce an empty clause in
+# between, which matches nothing and is skipped; `2>&1` likewise splits
+# harmlessly. Newlines were folded to `;` above, so multi-line commands split
+# here too. grep anchors `^` per line, i.e. per clause.
+#
+# The jj-git exemption is now structural rather than a second regex: a clause
+# invoking `jj git …` begins with `jj`, so it can never match a
+# command-position `git`. `jj git push` (used by /commit-push-pr and /finish)
+# stays allowed, in any position of any compound.
+#
+# Deliberately quote-blind, exactly as the previous regex was: a separator
+# inside quotes still starts a clause, and prose mentioning a git command
+# mid-clause (`jj describe -m 'replaces git status'`) is still not at command
+# position and still passes. bash 3.2-safe: no globstar, no associative arrays.
 has_raw_git=false
-if echo "$command_normalized" | grep -qE '(^|[;&|]\s*)git\s'; then
-  if ! echo "$command_normalized" | grep -qE '(^|[;&|]\s*)jj\s+git\s'; then
-    has_raw_git=true
-  fi
+if printf '%s\n' "$command_normalized" | tr ';&|' '\n\n\n' \
+   | grep -qE '^[[:space:]]*git[[:space:]]'; then
+  has_raw_git=true
 fi
 
 # Check for .git/ access or git plumbing

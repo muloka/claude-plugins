@@ -1,0 +1,2 @@
+{"schema_version":"1.0","partial":false,"cost_usd":0.15,
+ "cases":[{"name":"schema-drifted","aggregates":{"delta":1,"score":1,"scoreWithout":0}}]}

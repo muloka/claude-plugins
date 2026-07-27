@@ -131,6 +131,62 @@ Or browse available plugins:
 
 **Note:** After installing workspace-jj, run `/workspace-setup` in your jj project and restart Claude Code.
 
+## Evals
+
+Two verification layers cover this repo, doing different jobs:
+
+| Layer | Question it answers | Where | Gating |
+|---|---|---|---|
+| 1 — evals | Does a plugin change what the **model** does? | `plugins/<name>/evals/<case>/` | none — run by hand |
+| 2 — shell tests | Do the **scripts** behave? | `plugins/<name>/tests/test-*.sh`, `.github/tests/` | CI, every push |
+
+Layer 2 is the gate. The eval suite gates nothing — it is a measurement instrument, run deliberately, to answer what a deterministic test cannot: whether the prose and hooks a plugin ships actually move model behaviour. Each case runs under `--ablation with-without` (plugin loaded vs. not), and the **delta between the two arms is the result**. A case whose arms score the same measured nothing, however green it looks.
+
+### Running it
+
+```bash
+# free — list the cases that would run, and print the CLI invocation
+/bin/bash .github/scripts/run-evals.sh --discover-only
+/bin/bash .github/scripts/run-evals.sh --plugin commit-commands-jj --dry-run
+
+# paid — actually run them (spends model tokens; see below)
+/bin/bash .github/scripts/run-evals.sh --plugin commit-commands-jj --runs 2
+```
+
+Run from the repo root — running elsewhere exits 3 rather than dying on a stray `find` error. Useful flags: `--case <glob>` scopes to one case, matched against the case's `name:` field exactly as the CLI matches it (a case that declares no name defaults to its directory basename); `--gate report` downgrades `NO_GAP`/`PARTIAL` from failures to findings; `--max-cost-usd` caps spend (default `5`); `--keep-temp` keeps the sandboxes. `--allow-tools` accepts a comma- or space-separated list and forwards each tool separately. A `--plugin`/`--case` combination that selects no case exits 3: scoped-to-nothing is not a clean run. Verdict rows go to stdout as TSV; everything else, including the result-JSON path, goes to stderr.
+
+### Manual by design — not wired into CI
+
+Three independent reasons, any one of which is sufficient:
+
+- **Early access.** `claude plugin eval` sits behind `CLAUDE_CODE_WALNUT_SPIRE=1`, which the runner sets on every invocation. That requirement was measured on CLI **2.1.216**; by **2.1.220**, `plugin eval --help` exits 0 with the variable unset. Setting it stays harmless either way, so the runner keeps doing so — but **no logic may treat "exits 1 without the variable" as gate detection.** That signal has already drifted once.
+- **Model spend.** Every run costs real money — per case, per arm, per run. Tranche 1 cost $3.77 in total. A per-push CI job would bill this repo for every typo fix.
+- **No entitlement guarantee on runners.** Nothing guarantees a CI runner can obtain the same early-access entitlement the local operator has, and the suites are macOS/bash 3.2 to begin with.
+
+### Verdicts
+
+The runner emits one TSV row per case — `name / score / score_without / delta / verdict`:
+
+| Verdict | Condition | Means |
+|---|---|---|
+| `DISCRIMINATING` | Δ ≥ 0.5 | the plugin measurably changes behaviour; the case earns its keep |
+| `PARTIAL` | 0 < Δ < 0.5 | some effect — check attribution grader-by-grader before believing it |
+| `NO_GAP` | Δ = 0 | both arms did equally well: the **case** cannot discriminate. Move the assertion to layer 2 |
+| `REGRESSION` | Δ < 0 | the plugin made things worse. Fails in both gate modes |
+| `BROKEN` | both arms scored 0.00 | **the harness failed, not the plugin** |
+
+Δ comparisons carry a 1e-9 tolerance. The CLI computes the delta by subtraction, so a case scoring 7/10 with and 2/10 without arrives as `0.49999999999999994`; without the tolerance a textbook shipping case at exactly the threshold is filed `PARTIAL` and fails CI.
+
+> **`BROKEN` never means "no gap".** Both arms scoring zero is the signature of a case that could not run at all — nearly always a **gated tool the case declares that `--allow-tools` does not grant**, leaving the agent unable to call it in either arm. Misread as "no difference between the arms", it deletes the best case in the suite. The runner also checks this before spending and exits 7 — for both case layouts, both YAML forms, and whatever `--case` actually selects. Other non-zero exits: 3 nothing measured (no cases discovered, none selected, or none returned), 4 gate failure, 5 result-schema drift, 6 budget-truncated run, 64 bad argument or bad `--gate` (rejected before spending), 65 missing or malformed result file.
+
+### Measured results
+
+Tranche 1 (issue #79) is written up in **[docs/eval-triage-2026-07.md](docs/eval-triage-2026-07.md)** — what shipped, what was cut and why, and three runner gaps found but left unfixed. Two cases ship today, both under `plugins/commit-commands-jj/evals/`, both at Δ +1.00. **Both exercise the same branch** of `block-raw-git.sh`: the second case's name promises the git-internals branch but its prompt never reaches it (§1.1). A third case measured Δ 0.00 and was cut; its assertions now live in `plugins/commit-commands-jj/tests/test-block-raw-git-gating.sh`, where they are deterministic and free.
+
+Read the triage document before authoring a case. Its §3 is the prompting-and-grading recipe that was measured to work; its §2 is three separate mechanisms that make a case report green while measuring nothing.
+
+Failure taxonomy informed by netresearch/jujutsu-workflow-skill (MIT AND CC-BY-SA-4.0); cases independently authored.
+
 ## Relationship to claude-plugins-official
 
 This repo started as a fork of Anthropic's [claude-plugins-official](https://github.com/anthropics/claude-plugins-official) and has evolved through two phases:
