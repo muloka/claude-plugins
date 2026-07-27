@@ -102,6 +102,35 @@ P=$(newproj); mkdir -p "$P"
 printf '# Top\n<!-- jj-project-setup:start hash:deadbeef -->\nOLD BODY\n<!-- jj-project-setup:end -->\n# Bottom\n' > "$P/CLAUDE.md"
 bash "$INSTALL" "$PLUG" "$P" >/dev/null
 grep -q 'Use jj, not git.' "$P/CLAUDE.md" && ! grep -q 'OLD BODY' "$P/CLAUDE.md" && grep -q '# Top' "$P/CLAUDE.md" && grep -q '# Bottom' "$P/CLAUDE.md" && ok "claude_md 5c: section replaced, surroundings intact" || bad "claude_md 5c" "replace wrong"
+# 5d marker on LINE 1 -> replaced without duplicating the marker pair.
+# 5c always has content above the marker, so the prefix slice is 1,N with N>=1
+# and the boundary never gets exercised. With the marker on line 1 the slice
+# becomes `sed -n "1,0p"`, and BSD sed prints line 1 for an inverted range
+# instead of nothing — leaving the stale start marker above the fresh one.
+# A real project hit this: the file grew a duplicate start marker carrying the
+# OLD hash, and because the installer reads the FIRST marker's hash it would
+# recur on every subsequent run.
+P=$(newproj); mkdir -p "$P"
+printf '<!-- jj-project-setup:start hash:deadbeef -->\nOLD BODY\n<!-- jj-project-setup:end -->\n# Bottom\n' > "$P/CLAUDE.md"
+bash "$INSTALL" "$PLUG" "$P" >/dev/null
+s_count=$(grep -c 'jj-project-setup:start' "$P/CLAUDE.md")
+e_count=$(grep -c 'jj-project-setup:end' "$P/CLAUDE.md")
+if [ "$s_count" -eq 1 ] && [ "$e_count" -eq 1 ] && ! grep -q 'deadbeef' "$P/CLAUDE.md" \
+   && grep -q 'Use jj, not git.' "$P/CLAUDE.md" && ! grep -q 'OLD BODY' "$P/CLAUDE.md" \
+   && grep -q '# Bottom' "$P/CLAUDE.md"; then
+  ok "claude_md 5d: marker on line 1 replaced without duplication"
+else
+  bad "claude_md 5d" "start=$s_count end=$e_count (want 1/1, no stale deadbeef)"
+fi
+# 5e re-running over a line-1 marker stays at one pair (the defect compounded
+# per run, so idempotence is the property that actually protects the file).
+bash "$INSTALL" "$PLUG" "$P" >/dev/null
+s_count2=$(grep -c 'jj-project-setup:start' "$P/CLAUDE.md")
+if [ "$s_count2" -eq 1 ]; then
+  ok "claude_md 5e: re-run over a line-1 marker stays at one pair"
+else
+  bad "claude_md 5e" "start markers after re-run: $s_count2 (want 1)"
+fi
 
 # ---- Case 6: malformed existing settings -> abort, no clobber ----
 P=$(newproj); mkdir -p "$P/.claude"
