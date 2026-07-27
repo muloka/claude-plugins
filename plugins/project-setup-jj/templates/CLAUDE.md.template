@@ -1,9 +1,15 @@
-<!-- jj-project-setup:start hash:fe023f83 -->
+<!-- jj-project-setup:start hash:be4e280a -->
 ## VCS — jj (Jujutsu)
 
 This project uses **jj (Jujutsu)** as its VCS. Never use raw git commands. Use jj equivalents instead (e.g. `jj log`, `jj status`, `jj diff`). The only exceptions are `jj git` subcommands (e.g. `jj git push`) and the `gh` CLI for GitHub operations.
 
 In jj, the working copy IS a commit. There is no uncommitted state. Never ask "want to commit?" or "ready to commit?" — the work is already committed. Use `jj new` to start a new change, `jj describe` to set intent. The only meaningful checkpoint questions are "want to start a new change?", "want to describe this change?", or "want to push?"
+
+### Gotchas that surprise git users
+
+- **Hand revisions between steps as change IDs, not commit IDs.** A change ID (`kouorrnv`) survives `jj squash`, `jj describe` and every other rewrite; a commit ID (`92ef691b`) is replaced by each one, so a value captured before an edit is stale after it. Read one with `jj log -r <rev> --no-graph -T 'change_id.short()'`. Commit IDs are fine for a one-shot query or an immutable record — not for anything held across a step.
+- **`jj abandon` re-parents `@` onto the abandoned change's parent.** After abandoning work that was merged upstream, `@` lands on the *pre-merge* base and every merged file reads as reverted on disk. Fix with `jj new trunk()`. The work is safe; the working copy is looking at the wrong revision.
+- **Abandoning `@` always leaves a fresh empty change.** You cannot end up with no working copy, so don't chase the new empty change you just created.
 
 ### Superpowers overrides
 
