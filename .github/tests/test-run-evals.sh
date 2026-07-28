@@ -428,6 +428,82 @@ else
   bad "a granted multi-tool case is not blocked by the guard (got rc=$rc)"
 fi
 
+# --- #102 Gap A: a gated tool that CANNOT be granted at all ---
+#
+# `claude plugin eval --help` (2.1.220) documents the operator grant as exactly
+# "Bash, Write, Edit, WebFetch, mcp__*". SlashCommand is gated by a different
+# mechanism and is absent from that set, so it can never be satisfied by
+# --allow-tools. Measured during the Part A probe: a case declared it, the
+# guard passed clean, and the CLI printed `denied tools: SlashCommand` at run
+# time — both arms denied, both scores zeroed, verdict NO_GAP. That is the
+# guard's own failure mode, reached by the tool it does not know about.
+#
+# The fix is NOT to add SlashCommand to the grantable list: telling the
+# operator to pass `--allow-tools SlashCommand` sends them to a flag that
+# cannot accept it. It is a separate category — declared, gated, ungrantable,
+# therefore unmeasurable — and the abort must say so.
+UNGRANTABLE=$(mk_case_tree needsslash <<'YAML'
+schema_version: "1.1"
+name: needsslash
+execution:
+  prompt: hello
+  allowed_tools: [Bash, SlashCommand]
+graders:
+  - type: regex
+    name: g
+    pattern: hi
+YAML
+)
+rc=$(guard_rc "$UNGRANTABLE" --plugin demo --allow-tools Bash)
+if [ "$rc" -eq 7 ]; then
+  ok "an ungrantable gated tool aborts (exit 7)"
+else
+  bad "an ungrantable gated tool aborts (exit 7) (got rc=$rc)"
+fi
+
+# Granting it must NOT rescue the case — that is the whole difference between
+# this and the ungranted-tool guard above. If passing --allow-tools SlashCommand
+# makes the run proceed, the runner has handed the operator a workaround that
+# the CLI will then deny anyway, and the NO_GAP verdict comes back regardless.
+rc=$(guard_rc "$UNGRANTABLE" --plugin demo --allow-tools Bash,SlashCommand)
+if [ "$rc" -eq 7 ]; then
+  ok "granting an ungrantable tool does not rescue the case"
+else
+  bad "granting an ungrantable tool does not rescue the case (got rc=$rc)"
+fi
+
+# The diagnostic must name the tool and say it cannot be granted. rc alone
+# cannot distinguish this abort from the ordinary missing-grant one, and an
+# operator who reads "add it to --allow-tools" will burn a run finding out.
+err=$( (cd "$UNGRANTABLE" && /bin/bash "$SCRIPT" --plugin demo --allow-tools Bash --dry-run 2>&1 >/dev/null) || true )
+if printf '%s' "$err" | grep -q 'SlashCommand' \
+   && printf '%s' "$err" | grep -qi 'cannot be granted'; then
+  ok "the ungrantable diagnostic names the tool and why it cannot be granted"
+else
+  bad "the ungrantable diagnostic names the tool and why it cannot be granted (got: ${err:-<empty>})"
+fi
+
+# Control: the grantable set must still pass untouched. Without this, the
+# assertions above are satisfied by a guard that rejects every case.
+CONTROL=$(mk_case_tree grantable <<'YAML'
+schema_version: "1.1"
+name: grantable
+execution:
+  prompt: hello
+  allowed_tools: [Bash, Write, Edit, WebFetch]
+graders:
+  - type: regex
+    name: g
+    pattern: hi
+YAML
+)
+rc=$(guard_rc "$CONTROL" --plugin demo --allow-tools Bash,Write,Edit,WebFetch)
+if [ "$rc" -eq 0 ]; then
+  ok "the documented grantable set is not rejected as ungrantable"
+else
+  bad "the documented grantable set is not rejected as ungrantable (got rc=$rc)"
+fi
+
 # Block-style YAML must be caught too — it is the layout `eval init` writes,
 # so a flow-only guard is blind to precisely the cases it exists to protect.
 # Its OWN tree: with a flow-form case left on disk this assertion passes with

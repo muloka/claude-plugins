@@ -493,21 +493,53 @@ over-read them is real.
 
 Three defects in `.github/scripts/run-evals.sh` surfaced during the probes. All
 three were left unfixed at the time and are recorded here so they are not lost.
-**Gap C has since been closed** (see below); Gaps A and B remain open.
+**Gaps A and C are closed; Gap B remains open** (#102). The diagnoses are kept
+because the measurements behind them are what any fix must be anchored to.
 
 **Gap A — `SlashCommand` is missing from the exit-7 guard's gated list.**
-The guard (`.github/scripts/run-evals.sh:351`) matches
-`Bash|Write|Edit|WebFetch|mcp__*`. A case declaring `SlashCommand` in
-`allowed_tools` passes the guard clean while the CLI denies the tool at runtime:
+The guard matched `Bash|Write|Edit|WebFetch|mcp__*`. A case declaring
+`SlashCommand` in `allowed_tools` passed the guard clean while the CLI denied
+the tool at runtime:
 `cmd-describe: denied tools (pass --allow-tools to grant): SlashCommand`. The
 guard exists precisely to prevent an ungranted tool silently zeroing an arm, and
 it had a hole for the one tool Part A depended on.
 
+**Closed**, but not as originally framed. `claude plugin eval --help` (2.1.220)
+documents the operator grant as exactly "Bash, Write, Edit, WebFetch, mcp__*" —
+the guard's grantable list was already correct and complete. `SlashCommand` is
+gated by a *different* mechanism and is absent from that set, so **no
+`--allow-tools` value can ever satisfy it**. Adding it to the grantable list
+would have produced an abort telling the operator to pass a flag value the CLI
+rejects. It is instead a separate category — declared, gated, ungrantable,
+therefore unmeasurable by ablation — and the exit-7 diagnostic now says so.
+Granting it deliberately does *not* rescue the case.
+
 **Gap B — negative-only graders score vacuously on a 0-turn arm.**
 Dissected in §2.3. A dead arm banks free score, inflating the delta, and lands
 above the both-arms-zero floor so the runner's "broken, never no-gap" guard never
-fires. Candidate fixes: a `turns > 0` precondition on scored runs, or a hard
-requirement that every case carry at least one positive outcome grader.
+fires.
+
+**Still open.** A first attempt was withdrawn under review, and the reason is
+worth recording because it is the trap anyone fixing this will walk into.
+
+The `{"num_turns":0,...}` record quoted in §2.2 above is the CLI's **per-run
+result message**, not a field of `aggregate-result.json`. The aggregate is what
+`classify()` reads, and its per-run entries call the field **`turns`**:
+
+```
+.cases[].runs[]  keys = cost_usd, duration_seconds, error, graders,
+                        judge_cost_usd, score, started_at, trace_path, turns
+```
+
+Verified against two real captures from the 2026-07-26 probe. A tripwire keyed
+on `num_turns` therefore fires on every real run: the sweep pays its full
+budget, completes, and is then discarded with a schema-drift error. The fixtures
+asserting `num_turns` were hand-written, so the suite was green against a field
+the CLI never emits.
+
+Anyone fixing this should commit a real captured aggregate as a fixture first —
+the error class is unreachable once the tests run against captured output rather
+than an approximation of it.
 
 **Gap C — zero loadable cases kills the runner on `find` before `classify()`.**
 When the CLI loads 0 cases it writes no output directory, so

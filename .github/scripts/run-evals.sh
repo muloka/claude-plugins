@@ -155,6 +155,20 @@ fi
 # exists to prevent, manufactured by the runner itself.
 GRANTED=$(printf '%s' "$ALLOW_TOOLS" | tr ', ' '\n\n' | grep -v '^$' || true)
 
+# Tools that are gated but that `--allow-tools` cannot grant (#102 Gap A).
+# A `case` pattern, so members are separated by `|` and more can be added
+# without touching the guard. This is a CATEGORY, not one special tool: any
+# tool the CLI gates by a mechanism other than the operator grant belongs here,
+# because a case declaring one can never be measured by ablation.
+#
+# The membership test is a measured denial, never `--help`: --help enumerates
+# the GRANTABLE set (Bash, Write, Edit, WebFetch, mcp__*), and the two lists are
+# not complements — a tool absent from --help is not thereby ungrantable, it may
+# simply be ungated. SlashCommand earned its place by printing
+# `denied tools: SlashCommand` in a real run. Add to this list only on the same
+# evidence.
+UNGRANTABLE_TOOLS='SlashCommand'
+
 # Discover case directories. BOTH supported formats: `case.yaml` and the
 # `prompt.md` + graders/ layout that `claude plugin eval init --bare` writes.
 # A single-format glob would silently skip officially-scaffolded cases (#82).
@@ -361,6 +375,32 @@ while IFS= read -r case_dir; do
   while IFS= read -r tool; do
     [ -n "$tool" ] || continue
     case "$tool" in
+      # Gated but UNGRANTABLE (#102 Gap A). `claude plugin eval --help` (2.1.220)
+      # documents the operator grant as exactly "Bash, Write, Edit, WebFetch,
+      # mcp__*". SlashCommand is gated by a different mechanism and is absent
+      # from that set, so no --allow-tools value can satisfy it. Measured during
+      # the Part A probe: the guard passed clean and the CLI then printed
+      # `denied tools: SlashCommand`, denying it in BOTH arms — 0.00/0.00, read
+      # as NO_GAP, the case silently cut. That is this guard's own failure mode
+      # arriving through the one tool it did not know about.
+      #
+      # Deliberately NOT solved by adding SlashCommand to the grantable list
+      # below: that abort tells the operator to pass a flag value the CLI
+      # cannot accept, so they spend a run discovering the advice was wrong.
+      # This is a different category — declared, gated, ungrantable, therefore
+      # unmeasurable by this harness at all — and it must say so. Granting it
+      # must not rescue the case either, which is why this arm ignores $GRANTED.
+      $UNGRANTABLE_TOOLS)
+        printf 'ERROR: %s declares gated tool "%s", which cannot be granted.\n' \
+          "$case_dir" "$tool" >&2
+        # `%s\n`, not a bare format string: a format beginning with `--` is
+        # parsed by printf as an option and dies with "invalid option".
+        printf '%s\n' '--allow-tools grants only Bash, Write, Edit, WebFetch, mcp__*' >&2
+        printf 'The CLI denies "%s" in BOTH arms, so the case scores 0.00/0.00\n' "$tool" >&2
+        printf 'and reads as "no gap". It cannot be measured by ablation — drop\n' >&2
+        printf 'the tool from the case, or measure the behaviour another way.\n' >&2
+        exit 7
+        ;;
       Bash|Write|Edit|WebFetch|mcp__*)
         # Exact match against the grant list — an unanchored grep lets
         # `--allow-tools BashOutput` satisfy a requirement for `Bash`.
