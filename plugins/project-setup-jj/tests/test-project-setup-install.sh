@@ -131,6 +131,36 @@ if [ "$s_count2" -eq 1 ]; then
 else
   bad "claude_md 5e" "start markers after re-run: $s_count2 (want 1)"
 fi
+# 5f prose ABOVE the block that merely names the marker must not be mistaken
+# for it. The installer located markers by substring, so a sentence like
+# "never edit inside the jj-project-setup:start block" sitting above the real
+# marker became s_line, and everything from it down to the real end marker was
+# replaced — silently destroying the prose and any content between. A real
+# project (sususisu) documents the convention in exactly this way, just below
+# its block rather than above, so the reordering that triggers this is one edit
+# away.
+P=$(newproj); mkdir -p "$P"
+printf 'Docs: never edit inside the jj-project-setup:start block.\n# Top\n<!-- jj-project-setup:start hash:deadbeef -->\nOLD BODY\n<!-- jj-project-setup:end -->\n# Bottom\n' > "$P/CLAUDE.md"
+bash "$INSTALL" "$PLUG" "$P" >/dev/null
+if grep -q 'Docs: never edit inside' "$P/CLAUDE.md" && grep -q '# Top' "$P/CLAUDE.md" \
+   && grep -q '# Bottom' "$P/CLAUDE.md" && grep -q 'Use jj, not git.' "$P/CLAUDE.md" \
+   && ! grep -q 'OLD BODY' "$P/CLAUDE.md"; then
+  ok "claude_md 5f: prose above the block is not mistaken for the marker"
+else
+  bad "claude_md 5f" "prose/heading above the block was destroyed: $(head -3 "$P/CLAUDE.md" | tr '\n' '|')"
+fi
+# 5g prose BELOW the block (the shape a real project actually has) keeps
+# working. Regression guard — expected to pass before and after the fix.
+P=$(newproj); mkdir -p "$P"
+printf '<!-- jj-project-setup:start hash:deadbeef -->\nOLD BODY\n<!-- jj-project-setup:end -->\n# Notes\nThis file has a jj-project-setup:start/end managed block.\n' > "$P/CLAUDE.md"
+bash "$INSTALL" "$PLUG" "$P" >/dev/null
+if grep -q 'managed block' "$P/CLAUDE.md" && grep -q 'Use jj, not git.' "$P/CLAUDE.md" \
+   && ! grep -q 'OLD BODY' "$P/CLAUDE.md" \
+   && [ "$(grep -cE '^[[:space:]]*<!--[[:space:]]*jj-project-setup:start' "$P/CLAUDE.md")" -eq 1 ]; then
+  ok "claude_md 5g: prose below the block still updates cleanly"
+else
+  bad "claude_md 5g" "below-block prose case broke"
+fi
 
 # ---- Case 6: malformed existing settings -> abort, no clobber ----
 P=$(newproj); mkdir -p "$P/.claude"
