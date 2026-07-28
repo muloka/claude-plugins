@@ -16,9 +16,19 @@ PROJECT_ROOT="${2:?usage: project-setup-install.sh <plugin-root> <project-root>}
 SRC="$PLUGIN_ROOT/scripts"
 TEMPLATE="$PLUGIN_ROOT/templates/CLAUDE.md.template"
 CLAUDE_DIR="$PROJECT_ROOT/.claude"
-DST="$CLAUDE_DIR/scripts"
+# Project hook handlers live in .claude/hooks/ — the location every example in
+# the Claude Code hooks docs uses. Nothing auto-discovers it (hooks are always
+# registered in a settings file), so this is convention rather than mechanism,
+# but it is the convention every reader arrives with. LEGACY_DST is where this
+# installer used to put them; it is migrated from, never written to.
+DST="$CLAUDE_DIR/hooks"
+LEGACY_DST="$CLAUDE_DIR/scripts"
 SETTINGS="$CLAUDE_DIR/settings.local.json"
 CLAUDE_MD="$PROJECT_ROOT/CLAUDE.md"
+
+# The four handlers this installer owns. Named once: the copy loop, the settings
+# upsert identities, and the legacy cleanup must never disagree about the set.
+MANAGED_SCRIPTS="jj-session-start.sh require-jj-new.sh jj-workspace-create.sh jj-workspace-remove.sh"
 
 # --- 0. fail-safe: validate an existing settings file BEFORE any side effect ---
 # (must run before the copy loop so a malformed settings file aborts touching
@@ -37,7 +47,7 @@ fi
 
 # --- 1. dirs + copy the four consumer hook scripts ---
 mkdir -p "$DST"
-for s in jj-session-start.sh require-jj-new.sh jj-workspace-create.sh jj-workspace-remove.sh; do
+for s in $MANAGED_SCRIPTS; do
   cp "$SRC/$s" "$DST/$s"
   chmod +x "$DST/$s"
 done
@@ -54,7 +64,15 @@ echo "workspace_hooks=copied"
 # The endswith() upsert below matches on the shared suffix, so re-running the
 # installer over a pre-existing absolute-path entry replaces it in place instead of
 # leaving a duplicate (covered by the "stale" case in test-project-setup-install.sh).
-HOOK_DIR='$CLAUDE_PROJECT_DIR/.claude/scripts'
+#
+# The upsert strips a LIST of suffixes, not one. Handlers moved from
+# .claude/scripts/ to .claude/hooks/, and a project installed before that move
+# carries a registration under the OLD path. If identity were matched on the new
+# suffix alone, that old registration would not match, would survive untouched,
+# and the fresh entry would be appended beside it — leaving TWO registrations per
+# event, both of which fire. Listing the legacy suffix alongside the current one
+# makes a single run REPLACE the old registration instead of joining it.
+HOOK_DIR='$CLAUDE_PROJECT_DIR/.claude/hooks'
 SS="$HOOK_DIR/jj-session-start.sh"
 RJN="$HOOK_DIR/require-jj-new.sh"
 WSC="$HOOK_DIR/jj-workspace-create.sh"
@@ -62,12 +80,16 @@ WSR="$HOOK_DIR/jj-workspace-remove.sh"
 
 merged=$(printf '%s' "$base" | jq \
   --arg ss "$SS" --arg rjn "$RJN" --arg wsc "$WSC" --arg wsr "$WSR" '
-  # hook-granularity replace-by-identity: strip hooks whose command ends with
-  # $sfx from every entry of event $ev, drop emptied entries, append $new.
-  def upsert($ev; $sfx; $new):
+  # hook-granularity replace-by-identity: strip hooks whose command ends with ANY
+  # suffix in $sfxs from every entry of event $ev, drop emptied entries, append
+  # $new. $sfxs carries both the current .claude/hooks/ path and the legacy
+  # .claude/scripts/ one, so a project on either layout ends with exactly one
+  # registration rather than one per layout it has ever been installed under.
+  def upsert($ev; $sfxs; $new):
     .hooks[$ev] = (
       ((.hooks[$ev] // [])
-        | map(.hooks = ((.hooks // []) | map(select((.command // "") | endswith($sfx) | not))))
+        | map(.hooks = ((.hooks // []) | map(
+            . as $h | select($sfxs | any(. as $s | ($h.command // "") | endswith($s)) | not))))
         | map(select((.hooks // []) | length > 0)))
       + [$new]
     );
@@ -75,13 +97,17 @@ merged=$(printf '%s' "$base" | jq \
     .hooks[$ev] = (((.hooks[$ev] // []) | map(select(. != $new))) + [$new]);
 
   ( .hooks //= {} )
-  | upsert("SessionStart"; "/.claude/scripts/jj-session-start.sh";
+  | upsert("SessionStart";
+      ["/.claude/hooks/jj-session-start.sh", "/.claude/scripts/jj-session-start.sh"];
       {matcher:"startup|resume|clear|compact", hooks:[{type:"command", command:$ss, async:false}]})
-  | upsert("PreToolUse"; "/.claude/scripts/require-jj-new.sh";
+  | upsert("PreToolUse";
+      ["/.claude/hooks/require-jj-new.sh", "/.claude/scripts/require-jj-new.sh"];
       {matcher:"Edit|Write|NotebookEdit", hooks:[{type:"command", command:$rjn}]})
-  | upsert("WorktreeCreate"; "/.claude/scripts/jj-workspace-create.sh";
+  | upsert("WorktreeCreate";
+      ["/.claude/hooks/jj-workspace-create.sh", "/.claude/scripts/jj-workspace-create.sh"];
       {hooks:[{type:"command", command:$wsc}]})
-  | upsert("WorktreeRemove"; "/.claude/scripts/jj-workspace-remove.sh";
+  | upsert("WorktreeRemove";
+      ["/.claude/hooks/jj-workspace-remove.sh", "/.claude/scripts/jj-workspace-remove.sh"];
       {hooks:[{type:"command", command:$wsr}]})
   | upsert_value("PreCompact";
       {hooks:[{type:"command", command:"jj status >/dev/null 2>&1 || true"}]})
@@ -101,7 +127,35 @@ mkdir -p "$CLAUDE_DIR"
 printf '%s\n' "$merged" > "$SETTINGS"
 echo "settings=$settings_outcome"
 
-# --- 3. CLAUDE.md (4-case hash logic) ---
+# --- 3. legacy cleanup: retire .claude/scripts/ ---
+# Runs AFTER the settings write, deliberately. Until settings point at the new
+# location, the old files are still the live handlers; deleting them first would
+# leave a window where the registered command names a file that no longer exists.
+#
+# Only the four files this installer owns are removed, by name. `.claude/scripts/`
+# is NOT ours exclusively — /statusline-jj-setup installs statusline-jj.sh there,
+# and users may keep their own scripts alongside. A blanket `rm -rf` would delete
+# a file installed by a different command, silently breaking a statusline the
+# person never asked this command to touch.
+#
+# The directory itself goes only when it is empty, and `rmdir` is what enforces
+# that: it refuses on a non-empty directory, so the emptiness check and the
+# removal are the same atomic operation. A test-then-remove would race, and a
+# `-rf` would not check at all.
+legacy_outcome="absent"
+if [ -d "$LEGACY_DST" ]; then
+  for s in $MANAGED_SCRIPTS; do
+    rm -f "$LEGACY_DST/$s"
+  done
+  if rmdir "$LEGACY_DST" 2>/dev/null; then
+    legacy_outcome="removed"
+  else
+    legacy_outcome="kept_not_empty"
+  fi
+fi
+echo "legacy_scripts=$legacy_outcome"
+
+# --- 4. CLAUDE.md (4-case hash logic) ---
 md5hash() { if command -v md5 >/dev/null 2>&1; then md5 -q; else md5sum; fi | cut -c1-8; }
 tmpl_hash=$(sed -n '/jj-project-setup:start/,/jj-project-setup:end/p' "$TEMPLATE" | sed '1d;$d' | md5hash)
 

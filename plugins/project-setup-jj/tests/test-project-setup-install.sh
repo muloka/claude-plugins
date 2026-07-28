@@ -39,7 +39,7 @@ newproj() { mktemp -d; }   # fresh project root per case
 P=$(newproj)
 OUT=$(bash "$INSTALL" "$PLUG" "$P")
 for s in jj-session-start.sh require-jj-new.sh jj-workspace-create.sh jj-workspace-remove.sh; do
-  [ -x "$P/.claude/scripts/$s" ] && ok "fresh: $s copied +x" || bad "fresh" "$s not executable/copied"
+  [ -x "$P/.claude/hooks/$s" ] && ok "fresh: $s copied +x" || bad "fresh" "$s not executable/copied"
 done
 jq empty "$P/.claude/settings.local.json" 2>/dev/null && ok "fresh: settings valid JSON" || bad "fresh" "settings not valid JSON"
 for ev in SessionStart PreCompact PreToolUse WorktreeCreate WorktreeRemove; do
@@ -53,8 +53,11 @@ done
 allcmds=$(jq -r '[.hooks[][].hooks[].command] | .[]' "$P/.claude/settings.local.json")
 n_abs=$(printf '%s\n' "$allcmds" | grep -c '^/' || true)
 [ "$n_abs" -eq 0 ] && ok "fresh: no absolute hook paths" || bad "fresh" "$n_abs hook command(s) absolute: $allcmds"
-n_portable=$(printf '%s\n' "$allcmds" | grep -c '^\$CLAUDE_PROJECT_DIR/\.claude/scripts/' || true)
-[ "$n_portable" -eq 4 ] && ok "fresh: 4 hook paths use \$CLAUDE_PROJECT_DIR" || bad "fresh" "expected 4 portable hook paths, got $n_portable"
+n_portable=$(printf '%s\n' "$allcmds" | grep -c '^\$CLAUDE_PROJECT_DIR/\.claude/hooks/' || true)
+[ "$n_portable" -eq 4 ] && ok "fresh: 4 hook paths use \$CLAUDE_PROJECT_DIR/.claude/hooks" || bad "fresh" "expected 4 portable hook paths under .claude/hooks, got $n_portable"
+# Nothing may still point at the legacy .claude/scripts/ location.
+n_legacy=$(printf '%s\n' "$allcmds" | grep -c '/\.claude/scripts/' || true)
+[ "$n_legacy" -eq 0 ] && ok "fresh: no hook path points at legacy .claude/scripts/" || bad "fresh" "$n_legacy legacy hook path(s) remain"
 [ "$(jq '.permissions.allow | index("Bash(gh *)") != null' "$P/.claude/settings.local.json")" = true ] && ok "fresh: allow has gh" || bad "fresh" "allow missing gh"
 [ "$(jq '.permissions.deny | index("Bash(git *)") != null' "$P/.claude/settings.local.json")" = true ] && ok "fresh: deny has git" || bad "fresh" "deny missing git"
 [ -f "$P/CLAUDE.md" ] && grep -q 'jj-project-setup:start' "$P/CLAUDE.md" && ok "fresh: CLAUDE.md created w/ marker" || bad "fresh" "CLAUDE.md missing marker"
@@ -75,15 +78,17 @@ JSON
 bash "$INSTALL" "$PLUG" "$P" >/dev/null
 [ "$(jq '[.hooks.SessionStart[].hooks[].command] | index("/opt/mine/other.sh") != null' "$P/.claude/settings.local.json")" = true ] && ok "preserve: unrelated hook survives" || bad "preserve" "unrelated hook dropped"
 [ "$(jq '.permissions.allow | index("Bash(mytool:*)") != null' "$P/.claude/settings.local.json")" = true ] && ok "preserve: unrelated permission survives" || bad "preserve" "unrelated permission dropped"
-[ "$(jq '[.hooks.SessionStart[].hooks[].command] | map(select(endswith("/.claude/scripts/jj-session-start.sh"))) | length' "$P/.claude/settings.local.json")" = 1 ] && ok "preserve: our SessionStart added exactly once" || bad "preserve" "our hook count != 1"
+[ "$(jq '[.hooks.SessionStart[].hooks[].command] | map(select(endswith("jj-session-start.sh"))) | length' "$P/.claude/settings.local.json")" = 1 ] && ok "preserve: our SessionStart added exactly once" || bad "preserve" "our hook count != 1"
 
 # ---- Case 4: stale-version managed hook replaced, not duplicated ----
+# The seeded command uses the LEGACY .claude/scripts/ path, so this case doubles
+# as the narrowest migration proof: identity must be recognised across the move.
 P=$(newproj); mkdir -p "$P/.claude"
 cat > "$P/.claude/settings.local.json" <<JSON
 {"hooks":{"SessionStart":[{"matcher":"OLD","hooks":[{"type":"command","command":"$P/.claude/scripts/jj-session-start.sh"}]}]}}
 JSON
 bash "$INSTALL" "$PLUG" "$P" >/dev/null
-[ "$(jq '[.hooks.SessionStart[].hooks[].command] | map(select(endswith("/.claude/scripts/jj-session-start.sh"))) | length' "$P/.claude/settings.local.json")" = 1 ] && ok "stale: exactly one of our SessionStart" || bad "stale" "duplicate/zero after upgrade"
+[ "$(jq '[.hooks.SessionStart[].hooks[].command] | map(select(endswith("jj-session-start.sh"))) | length' "$P/.claude/settings.local.json")" = 1 ] && ok "stale: exactly one of our SessionStart" || bad "stale" "duplicate/zero after upgrade"
 [ "$(jq '[.hooks.SessionStart[] | select(.matcher=="OLD")] | length' "$P/.claude/settings.local.json")" = 0 ] && ok "stale: OLD matcher gone" || bad "stale" "OLD entry survived"
 
 # ---- Case 5: CLAUDE.md variants ----
@@ -168,7 +173,7 @@ printf '{not json' > "$P/.claude/settings.local.json"
 RAW_BEFORE=$(cat "$P/.claude/settings.local.json")
 if bash "$INSTALL" "$PLUG" "$P" >/dev/null 2>&1; then bad "malformed" "exited 0 on invalid JSON"; else ok "malformed: non-zero exit"; fi
 [ "$(cat "$P/.claude/settings.local.json")" = "$RAW_BEFORE" ] && ok "malformed: file untouched" || bad "malformed" "file was clobbered"
-[ ! -d "$P/.claude/scripts" ] && ok "malformed: no side effects (scripts/ not created)" || bad "malformed" ".claude/scripts created before abort"
+[ ! -d "$P/.claude/hooks" ] && ok "malformed: no side effects (hooks/ not created)" || bad "malformed" ".claude/hooks created before abort"
 
 # ---- Case 7: user hook co-located in same entry survives (hook granularity) ----
 P=$(newproj); mkdir -p "$P/.claude"
@@ -177,7 +182,96 @@ cat > "$P/.claude/settings.local.json" <<JSON
 JSON
 bash "$INSTALL" "$PLUG" "$P" >/dev/null
 [ "$(jq '[.hooks.SessionStart[].hooks[].command] | index("/opt/mine/user.sh") != null' "$P/.claude/settings.local.json")" = true ] && ok "colocated: user hook survives" || bad "colocated" "user hook dropped (entry-granularity bug)"
-[ "$(jq '[.hooks.SessionStart[].hooks[].command] | map(select(endswith("/.claude/scripts/jj-session-start.sh"))) | length' "$P/.claude/settings.local.json")" = 1 ] && ok "colocated: our hook present once" || bad "colocated" "our hook count != 1"
+[ "$(jq '[.hooks.SessionStart[].hooks[].command] | map(select(endswith("jj-session-start.sh"))) | length' "$P/.claude/settings.local.json")" = 1 ] && ok "colocated: our hook present once" || bad "colocated" "our hook count != 1"
+
+# ---- Case 8: a project on the OLD .claude/scripts/ layout migrates ----
+# Project hook handlers belong in .claude/hooks/ — the directory every example in
+# the hooks docs uses. The migration's whole risk is DUPLICATION: upsert strips a
+# managed hook by matching its command suffix, so if it only knew the new
+# .claude/hooks/ suffix the pre-existing .claude/scripts/ registration would
+# survive untouched and the fresh one would be appended beside it. The project
+# would then carry TWO registrations per event and BOTH would fire — the session
+# banner printed twice, require-jj-new evaluated twice, the workspace hooks
+# creating and removing a workspace twice. Hence every count assertion below
+# matches on BASENAME, not on the new path: matching the new path alone would
+# score a duplicate as a pass, which is the exact defect being guarded.
+oldlayout() {   # oldlayout <project> — seed a project as the previous installer left it
+  local p="$1"
+  mkdir -p "$p/.claude/scripts"
+  for s in jj-session-start.sh require-jj-new.sh jj-workspace-create.sh jj-workspace-remove.sh; do
+    printf '#!/usr/bin/env bash\n# OLD %s\n' "$s" > "$p/.claude/scripts/$s"
+    chmod +x "$p/.claude/scripts/$s"
+  done
+  cat > "$p/.claude/settings.local.json" <<JSON
+{"hooks":{
+  "SessionStart":[{"matcher":"startup|resume|clear|compact","hooks":[{"type":"command","command":"\$CLAUDE_PROJECT_DIR/.claude/scripts/jj-session-start.sh","async":false}]}],
+  "PreToolUse":[{"matcher":"Edit|Write|NotebookEdit","hooks":[{"type":"command","command":"\$CLAUDE_PROJECT_DIR/.claude/scripts/require-jj-new.sh"}]}],
+  "WorktreeCreate":[{"hooks":[{"type":"command","command":"\$CLAUDE_PROJECT_DIR/.claude/scripts/jj-workspace-create.sh"}]}],
+  "WorktreeRemove":[{"hooks":[{"type":"command","command":"\$CLAUDE_PROJECT_DIR/.claude/scripts/jj-workspace-remove.sh"}]}]
+}}
+JSON
+}
+
+P=$(newproj); oldlayout "$P"
+bash "$INSTALL" "$PLUG" "$P" >/dev/null
+# 8a scripts land in the new home
+for s in jj-session-start.sh require-jj-new.sh jj-workspace-create.sh jj-workspace-remove.sh; do
+  [ -x "$P/.claude/hooks/$s" ] && ok "migrate: $s now in .claude/hooks/ +x" || bad "migrate" "$s not in .claude/hooks/"
+done
+# 8b settings point at the new home, and nothing points at the old one
+mig_cmds=$(jq -r '[.hooks[][].hooks[].command] | .[]' "$P/.claude/settings.local.json")
+m_new=$(printf '%s\n' "$mig_cmds" | grep -c '^\$CLAUDE_PROJECT_DIR/\.claude/hooks/' || true)
+[ "$m_new" -eq 4 ] && ok "migrate: 4 hook commands point at .claude/hooks/" || bad "migrate" "expected 4 new-path commands, got $m_new"
+m_old=$(printf '%s\n' "$mig_cmds" | grep -c '/\.claude/scripts/' || true)
+[ "$m_old" -eq 0 ] && ok "migrate: zero commands still point at .claude/scripts/" || bad "migrate" "$m_old stale command(s) still registered"
+# 8c exactly ONE registration per hook — the duplicate-registration guard
+for pair in "SessionStart:jj-session-start.sh" "PreToolUse:require-jj-new.sh" \
+            "WorktreeCreate:jj-workspace-create.sh" "WorktreeRemove:jj-workspace-remove.sh"; do
+  ev="${pair%%:*}"; base="${pair##*:}"
+  n=$(jq --arg e "$ev" --arg b "$base" '[.hooks[$e][].hooks[].command] | map(select(endswith($b))) | length' "$P/.claude/settings.local.json")
+  [ "$n" = 1 ] && ok "migrate: exactly one $ev registration for $base" || bad "migrate" "$ev has $n registrations of $base (want 1 — both would fire)"
+done
+# 8d the four old files are gone
+leftover=0
+for s in jj-session-start.sh require-jj-new.sh jj-workspace-create.sh jj-workspace-remove.sh; do
+  [ -e "$P/.claude/scripts/$s" ] && leftover=$((leftover+1))
+done
+[ "$leftover" -eq 0 ] && ok "migrate: all four legacy scripts removed from .claude/scripts/" || bad "migrate" "$leftover legacy script(s) left behind"
+# 8e the legacy directory itself is gone once nothing else remains
+[ ! -d "$P/.claude/scripts" ] && ok "migrate: empty .claude/scripts/ removed" || bad "migrate" ".claude/scripts/ survived while empty"
+
+# ---- Case 9: a statusline installed by a DIFFERENT command must survive ----
+# .claude/scripts/ is not ours alone: /statusline-jj-setup puts statusline-jj.sh
+# there. A blanket `rm -rf .claude/scripts` during migration would silently break
+# that user's statusline — a command they never ran deleting a file it does not
+# own. The directory may only go when it is empty of everything else.
+P=$(newproj); oldlayout "$P"
+printf '#!/usr/bin/env bash\necho statusline\n' > "$P/.claude/scripts/statusline-jj.sh"
+chmod +x "$P/.claude/scripts/statusline-jj.sh"
+bash "$INSTALL" "$PLUG" "$P" >/dev/null
+[ -f "$P/.claude/scripts/statusline-jj.sh" ] && ok "coexist: statusline-jj.sh survives migration" || bad "coexist" "statusline-jj.sh was DELETED by /project-setup"
+[ -x "$P/.claude/scripts/statusline-jj.sh" ] && ok "coexist: statusline-jj.sh still executable" || bad "coexist" "statusline lost +x"
+[ -d "$P/.claude/scripts" ] && ok "coexist: .claude/scripts/ kept (not empty)" || bad "coexist" ".claude/scripts/ removed while statusline lived there"
+s_left=0
+for s in jj-session-start.sh require-jj-new.sh jj-workspace-create.sh jj-workspace-remove.sh; do
+  [ -e "$P/.claude/scripts/$s" ] && s_left=$((s_left+1))
+done
+[ "$s_left" -eq 0 ] && ok "coexist: our four legacy scripts still removed" || bad "coexist" "$s_left legacy script(s) left behind"
+[ -x "$P/.claude/hooks/jj-session-start.sh" ] && ok "coexist: hooks still installed to .claude/hooks/" || bad "coexist" "hooks not installed"
+
+# ---- Case 10: re-running after migration is idempotent ----
+P=$(newproj); oldlayout "$P"
+bash "$INSTALL" "$PLUG" "$P" >/dev/null
+MIG_BEFORE=$(cat "$P/.claude/settings.local.json")
+bash "$INSTALL" "$PLUG" "$P" >/dev/null
+[ "$(cat "$P/.claude/settings.local.json")" = "$MIG_BEFORE" ] && ok "migrate-rerun: settings byte-identical" || bad "migrate-rerun" "settings churned on re-run after migration"
+for pair in "SessionStart:jj-session-start.sh" "PreToolUse:require-jj-new.sh" \
+            "WorktreeCreate:jj-workspace-create.sh" "WorktreeRemove:jj-workspace-remove.sh"; do
+  ev="${pair%%:*}"; base="${pair##*:}"
+  n=$(jq --arg e "$ev" --arg b "$base" '[.hooks[$e][].hooks[].command] | map(select(endswith($b))) | length' "$P/.claude/settings.local.json")
+  [ "$n" = 1 ] && ok "migrate-rerun: $ev still has exactly one $base" || bad "migrate-rerun" "$ev grew to $n registrations of $base"
+done
+[ ! -d "$P/.claude/scripts" ] && ok "migrate-rerun: legacy dir stays gone" || bad "migrate-rerun" ".claude/scripts/ reappeared"
 
 echo ""
 echo "=== Results: $pass passed, $fail failed ==="

@@ -53,13 +53,13 @@ Enables Claude Code's `--worktree` flag and subagent `isolation: "worktree"` in 
 /plugin install workspace-jj@muloka-claude-plugins
 
 # 2. Run setup in your jj project (copies hook scripts, configures settings)
-/workspace-setup
+/project-setup
 
 # 3. Restart Claude Code, then use worktrees
 claude --worktree feature-auth
 ```
 
-Claude Code doesn't pick up `WorktreeCreate`/`WorktreeRemove` hooks from plugins — they must be in project settings. The `/workspace-setup` command handles this by copying scripts to `.claude/scripts/` and configuring `.claude/settings.local.json`.
+Claude Code doesn't pick up `WorktreeCreate`/`WorktreeRemove` hooks from plugins — they must be in project settings. `/project-setup` (from `project-setup-jj`) handles this: its installer copies the hook handlers to `.claude/hooks/` and registers them in `.claude/settings.local.json`. There is no separate `/workspace-setup` command — it was folded into `/project-setup` so one command installs every jj hook.
 
 **Requires:** [jj](https://martinvonz.github.io/jj/) and [jq](https://jqlang.github.io/jq/)
 
@@ -129,7 +129,7 @@ Or browse available plugins:
 /plugin
 ```
 
-**Note:** After installing workspace-jj, run `/workspace-setup` in your jj project and restart Claude Code.
+**Note:** After installing workspace-jj, run `/project-setup` in your jj project and restart Claude Code — that is what installs the `WorktreeCreate`/`WorktreeRemove` hooks into project settings.
 
 ## Evals
 
