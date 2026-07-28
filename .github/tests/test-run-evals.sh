@@ -110,6 +110,32 @@ verdict_of() { /bin/bash "$SCRIPT" --classify "$1" 2>/dev/null | awk -F'\t' 'NR=
 verdict_at() { /bin/bash "$SCRIPT" --classify "$1" 2>/dev/null | awk -F'\t' -v n="$2" 'NR==n{print $5}'; }
 row_count()  { /bin/bash "$SCRIPT" --classify "$1" 2>/dev/null | grep -c .; }
 
+# Captured CLI output, committed verbatim (fixtures/evals/real/README.md).
+# Every other fixture in this suite is hand-written, which means they can only
+# ever confirm the author's model of the schema. #102's first fix keyed on
+# `num_turns` and every hand-written fixture agreed with it, so the suite was
+# green against a field the CLI never emits; this file is the one input that
+# can disagree. It is a characterization test until the turn-detail tripwire
+# lands — the `num_turns` mutation is what proves it can fail.
+REALFIX="$(cd "$(dirname "$0")" && pwd)/fixtures/evals/real"
+REAL="$REALFIX/hook-allows-jj-git-and-gh-2026-07-26.json"
+#
+# `--gate report`, deliberately: this asserts the file CLASSIFIES, not that it
+# passes. The captured case scored 1.00 in both arms, so it is a genuine
+# NO_GAP, which the default strict gate fails with exit 4 — a correct verdict
+# that would mask the thing under test. Report mode treats NO_GAP as a finding,
+# so rc 0 here means "no schema error", which is the invariant that breaks when
+# the runner keys on a field the CLI does not emit.
+set +e
+out=$(/bin/bash "$SCRIPT" --classify "$REAL" --gate report 2>/dev/null)
+rc=$?
+set -e
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'NO_GAP'; then
+  ok "a real captured aggregate classifies without error"
+else
+  bad "a real captured aggregate classifies without error (got rc=$rc: ${out:-<empty>})"
+fi
+
 for pair in "discriminating:DISCRIMINATING" "nogap:NO_GAP" "broken:BROKEN" "regression:REGRESSION"; do
   f="${pair%%:*}"; want="${pair##*:}"
   got=$(verdict_of "$FIX/$f.json" || true)
