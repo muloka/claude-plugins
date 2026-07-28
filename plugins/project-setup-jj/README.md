@@ -32,10 +32,10 @@ This creates/updates the following in your project:
 
 | File | Purpose |
 |------|---------|
-| `.claude/scripts/jj-session-start.sh` | SessionStart hook showing jj context |
-| `.claude/scripts/require-jj-new.sh` | PreToolUse hook — advises Claude to run `jj new` before editing into a non-empty change (informational — does not block) |
-| `.claude/scripts/jj-workspace-create.sh` | WorktreeCreate hook — creates jj workspace for worktree isolation |
-| `.claude/scripts/jj-workspace-remove.sh` | WorktreeRemove hook — cleans up jj workspace |
+| `.claude/hooks/jj-session-start.sh` | SessionStart hook showing jj context |
+| `.claude/hooks/require-jj-new.sh` | PreToolUse hook — advises Claude to run `jj new` before editing into a non-empty change (informational — does not block) |
+| `.claude/hooks/jj-workspace-create.sh` | WorktreeCreate hook — creates jj workspace for worktree isolation |
+| `.claude/hooks/jj-workspace-remove.sh` | WorktreeRemove hook — cleans up jj workspace |
 | `.claude/settings.local.json` | Hook registration (SessionStart, PreToolUse, PreCompact, WorktreeCreate, WorktreeRemove) + jj permissions |
 | `CLAUDE.md` | jj VCS policy directive (created or updated) |
 
@@ -72,13 +72,13 @@ Two more commands manage a jj-aware statusline, independent of `/project-setup`:
 /statusline-jj-setup
 ```
 
-Copies `.claude/scripts/statusline-jj.sh` into the project and sets it as the `statusLine` command in `.claude/settings.local.json`. The statusline is a powerline-style bar showing the model, bookmark, change ID, change description, trunk-sync status, context-window percentage, and Anthropic service status.
+Copies `.claude/hooks/statusline-jj.sh` into the project and sets it as the `statusLine` command in `.claude/settings.local.json`. The statusline is a powerline-style bar showing the model, bookmark, change ID, change description, trunk-sync status, context-window percentage, and Anthropic service status.
 
 ```
 /statusline-jj-remove
 ```
 
-Removes `.claude/scripts/statusline-jj.sh` and deletes the `statusLine` key from `.claude/settings.local.json`.
+Removes `statusline-jj.sh` and deletes the `statusLine` key from `.claude/settings.local.json`. It clears both `.claude/hooks/` and the legacy `.claude/scripts/`, so a project set up before the move can still uninstall cleanly.
 
 ## Idempotent
 

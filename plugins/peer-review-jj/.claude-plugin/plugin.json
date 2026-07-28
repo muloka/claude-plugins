@@ -1,7 +1,7 @@
 {
   "name": "peer-review-jj",
   "description": "Unified change review for jj repos — generalist-first with emergent specialists, two-phase pipeline, structured findings",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "author": {
     "name": "muloka",
     "email": "muloka@users.noreply.github.com"
@@ -13,11 +13,11 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/block-raw-git.sh"
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/block-raw-git.sh\""
           },
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/block-review-markers.sh"
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/block-review-markers.sh\""
           }
         ]
       }
