@@ -241,6 +241,80 @@ else
   bad "the turn-detail diagnostic names the case by index and the field (got rc=$rc: ${err:-<empty>})"
 fi
 
+# A 0-turn arm banks free score (#102 Gap B). MEASURED, docs/eval-triage-2026-07.md
+# §2.2-2.3: a prompt the CLI could not resolve returned 0 turns with
+# subtype "success" and is_error false. Every negative grader (tool_used at
+# min 0/max 0) then passes VACUOUSLY — the arm did not call the forbidden tool
+# because it did nothing at all — so the arm scored 0.50 and manufactured a
+# delta of +0.50 DISCRIMINATING, above the ship threshold. The both-arms-zero
+# BROKEN detector cannot see it: the arm is not at zero, it is at half marks
+# for doing nothing.
+#
+# A per-case VERDICT, not a whole-file abort. .partial aborts because it is a
+# whole-run property; a dead arm belongs to one case, and aborting would
+# discard the other 15 verdicts of a paid 16-case sweep.
+got=$(verdict_of "$FIX/deadarm.json" || true)
+if [ "$got" = "DEAD_ARM(without)" ]; then
+  ok "a 0-turn without-arm is DEAD_ARM(without)"
+else
+  bad "a 0-turn without-arm is DEAD_ARM(without) (got: ${got:-<empty>})"
+fi
+
+# The fixture above has NO .name on purpose: a guard keyed on .name joins to ""
+# and silently skips the case, printing the manufactured verdict at rc 0.
+if [ -n "$got" ] && [ "$got" != "DISCRIMINATING" ]; then
+  ok "an unnamed dead case is not silently skipped"
+else
+  bad "an unnamed dead case is not silently skipped (got: ${got:-<empty>})"
+fi
+
+# Recursive descent plus max lets any nested counter mask a dead arm — the
+# check must read .turns at the fixed path only.
+got=$(verdict_of "$FIX/deadarmnested.json" || true)
+if [ "$got" = "DEAD_ARM(without)" ]; then
+  ok "a nested turn counter does not mask a dead arm"
+else
+  bad "a nested turn counter does not mask a dead arm (got: ${got:-<empty>})"
+fi
+
+# An arm with no run entries at all ran nothing. That is dead, not drift — the
+# turn-detail tripwire deliberately lets an empty array through to here.
+got=$(verdict_of "$FIX/deadarmempty.json" || true)
+if [ "$got" = "DEAD_ARM(with)" ]; then
+  ok "an arm with no runs at all is DEAD_ARM(with)"
+else
+  bad "an arm with no runs at all is DEAD_ARM(with) (got: ${got:-<empty>})"
+fi
+
+# One dead case must not suppress the others. The whole point of a verdict row
+# over an abort: a 16-case sweep is already paid for.
+TWO=$(new_tmp)
+jq -nc '{schema_version:"1.0",partial:false,cases:[
+  {name:"good",score:1,score_without:0,delta:1,runs:[{turns:5}],runs_without:[{turns:4}]},
+  {name:"bad", score:1,score_without:0.5,delta:0.5,runs:[{turns:2}],runs_without:[{turns:0}]}]}' \
+  > "$TWO/two.json"
+if [ "$(row_count "$TWO/two.json")" = "2" ] \
+   && [ "$(verdict_at "$TWO/two.json" 1)" = "DISCRIMINATING" ]; then
+  ok "a dead case does not suppress the other verdict rows"
+else
+  bad "a dead case does not suppress the other verdict rows (rows=$(row_count "$TWO/two.json"))"
+fi
+
+# The gate must agree with the table it printed, in BOTH modes. A dead arm is
+# never a "finding" — report mode tolerates NO_GAP and PARTIAL because they are
+# measurements; a dead arm is the absence of one.
+for mode in strict report; do
+  set +e
+  /bin/bash "$SCRIPT" --classify "$FIX/deadarm.json" --gate "$mode" >/dev/null 2>&1
+  rc=$?
+  set -e
+  if [ "$rc" -eq 4 ]; then
+    ok "the $mode gate fails a dead arm (exit 4)"
+  else
+    bad "the $mode gate fails a dead arm (exit 4) (got rc=$rc)"
+  fi
+done
+
 # A budget-breached run has partial scores; deltas must not be trusted.
 set +e
 /bin/bash "$SCRIPT" --classify "$FIX/partial.json" >/dev/null 2>&1

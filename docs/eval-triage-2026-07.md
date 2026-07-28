@@ -493,8 +493,8 @@ over-read them is real.
 
 Three defects in `.github/scripts/run-evals.sh` surfaced during the probes. All
 three were left unfixed at the time and are recorded here so they are not lost.
-**Gaps A and C are closed; Gap B remains open** (#102). The diagnoses are kept
-because the measurements behind them are what any fix must be anchored to.
+**All three are now closed** (#102). The diagnoses are kept because the
+measurements behind them are what the fixes are anchored to.
 
 **Gap A — `SlashCommand` is missing from the exit-7 guard's gated list.**
 The guard matched `Bash|Write|Edit|WebFetch|mcp__*`. A case declaring
@@ -519,8 +519,8 @@ Dissected in §2.3. A dead arm banks free score, inflating the delta, and lands
 above the both-arms-zero floor so the runner's "broken, never no-gap" guard never
 fires.
 
-**Still open.** A first attempt was withdrawn under review, and the reason is
-worth recording because it is the trap anyone fixing this will walk into.
+**Closed**, on the second attempt. The first was withdrawn under review, and
+the reason is worth keeping because it is the trap this whole section invites.
 
 The `{"num_turns":0,...}` record quoted in §2.2 above is the CLI's **per-run
 result message**, not a field of `aggregate-result.json`. The aggregate is what
@@ -531,15 +531,40 @@ result message**, not a field of `aggregate-result.json`. The aggregate is what
                         judge_cost_usd, score, started_at, trace_path, turns
 ```
 
-Verified against two real captures from the 2026-07-26 probe. A tripwire keyed
-on `num_turns` therefore fires on every real run: the sweep pays its full
-budget, completes, and is then discarded with a schema-drift error. The fixtures
-asserting `num_turns` were hand-written, so the suite was green against a field
-the CLI never emits.
+A tripwire keyed on `num_turns` fires on every real run: the sweep pays its
+full budget, completes, and is then discarded with a schema-drift error. Every
+fixture asserting `num_turns` was hand-written, so the suite was green against
+a field the CLI never emits.
 
-Anyone fixing this should commit a real captured aggregate as a fixture first —
-the error class is unreachable once the tests run against captured output rather
-than an approximation of it.
+What closed it:
+
+- A real captured aggregate is committed verbatim at
+  `.github/tests/fixtures/evals/real/`. Mutation-measured: with the runner
+  **and** every hand-written fixture renamed to `num_turns` — the withdrawn
+  attempt's exact world — 71 assertions pass and only the real-capture
+  assertion fails. It is the single input that can disagree with the author.
+- A dead arm is a **per-case verdict**, `DEAD_ARM(with|without|both)`, failing
+  the gate in strict and report mode like `BROKEN`. Not a whole-file abort:
+  `.partial` aborts because it is a whole-run property, whereas one dead case
+  must not discard the other 15 verdicts of a paid 16-case sweep.
+- `turns` is read at the fixed path. Recursive descent plus `max` lets any
+  nested counter mask a dead arm — the very drift such a search would exist to
+  survive.
+- Cases are identified by position, never by `.name`, which may be absent,
+  null or empty.
+
+Deliberately **not** covered: an arm where only *some* runs took zero turns. It
+still inflates the mean, but there is no measurement of legitimate run-to-run
+variance, and a threshold guessed now would abort real sweeps. Revisit with
+tranche-2 data.
+
+Also still an inference, and worth knowing: neither captured aggregate contains
+a dead arm — both are healthy (turns 3–9). The dead-arm fixtures are therefore
+hand-written, so the *shape* of a real 0-turn run entry is assumed, not
+measured. If a real dead arm carries no `turns` key at all, the turn-detail
+tripwire reports schema drift rather than `DEAD_ARM` — wrong diagnosis, but
+loud, and only on the case being detected rather than on every run. Capturing
+one real dead arm would close this.
 
 **Gap C — zero loadable cases kills the runner on `find` before `classify()`.**
 When the CLI loads 0 cases it writes no output directory, so

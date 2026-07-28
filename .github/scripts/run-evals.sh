@@ -150,12 +150,25 @@ classify() {
   # absorbs IEEE754 error and nothing else.
   jq -r '
     def eps: 1e-9;
+    # An arm is dead when it ran nothing, or when its BEST run took no turns.
+    # `.turns` at the FIXED path: a recursive `..` search combined with max
+    # lets any nested counter the CLI adds mask a genuinely 0-turn arm, which
+    # is the drift such a search was supposed to survive.
+    def dead(a): (a | length) == 0 or ([a[] | .turns] | max) == 0;
     .cases[]?
     | [ .name,
         (.score          | tostring),
         (.score_without  | tostring),
         (.delta          | tostring),
-        ( if   (.score == 0 and .score_without == 0) then "BROKEN"
+        # DEAD_ARM outranks BROKEN: both-arms-zero and both-arms-dead can
+        # co-occur, and "the arms never ran" is the actionable diagnosis.
+        # Named per arm — a dead with-arm is usually a broken prompt, a dead
+        # without-arm usually means the ablation removed something the prompt
+        # depended on, and those are different problems.
+        ( if   dead(.runs) and dead(.runs_without) then "DEAD_ARM(both)"
+          elif dead(.runs)                         then "DEAD_ARM(with)"
+          elif dead(.runs_without)                 then "DEAD_ARM(without)"
+          elif (.score == 0 and .score_without == 0) then "BROKEN"
           elif .delta <  -eps         then "REGRESSION"
           elif .delta <   eps         then "NO_GAP"
           elif .delta <  (0.5 - eps)  then "PARTIAL"
@@ -169,10 +182,18 @@ classify() {
   # BROKEN and REGRESSION always fail, in both modes.
   # Same tolerance as the TSV above: a gate that disagrees with the verdict it
   # printed fails a case the table calls DISCRIMINATING.
+  # A dead arm fails BOTH modes. report mode tolerates NO_GAP and PARTIAL
+  # because they are measurements; a dead arm is the absence of one.
   if [ "$GATE" = "strict" ]; then
-    bad_count=$(jq -r '[.cases[]? | select((.score == 0 and .score_without == 0) or .delta < (0.5 - 1e-9))] | length' "$file")
+    bad_count=$(jq -r 'def dead(a): (a | length) == 0 or ([a[] | .turns] | max) == 0;
+      [.cases[]? | select(dead(.runs) or dead(.runs_without)
+                       or (.score == 0 and .score_without == 0)
+                       or .delta < (0.5 - 1e-9))] | length' "$file")
   else
-    bad_count=$(jq -r '[.cases[]? | select((.score == 0 and .score_without == 0) or .delta < -1e-9)] | length' "$file")
+    bad_count=$(jq -r 'def dead(a): (a | length) == 0 or ([a[] | .turns] | max) == 0;
+      [.cases[]? | select(dead(.runs) or dead(.runs_without)
+                       or (.score == 0 and .score_without == 0)
+                       or .delta < -1e-9)] | length' "$file")
   fi
 
   if [ "$bad_count" != "0" ]; then
