@@ -1,2 +1,25 @@
-{"schema_version":"1.0","partial":false,"cost_usd":0.17,
- "cases":[{"name":"exactly-half","score":0.7,"score_without":0.2,"delta":0.49999999999999994,"pass_rate":0.7,"pass_rate_without":0.2}]}
+{
+  "schema_version": "1.0",
+  "partial": false,
+  "cost_usd": 0.17,
+  "cases": [
+    {
+      "name": "exactly-half",
+      "score": 0.7,
+      "score_without": 0.2,
+      "delta": 0.49999999999999994,
+      "pass_rate": 0.7,
+      "pass_rate_without": 0.2,
+      "runs": [
+        {
+          "turns": 3
+        }
+      ],
+      "runs_without": [
+        {
+          "turns": 2
+        }
+      ]
+    }
+  ]
+}

@@ -1,2 +1,25 @@
-{"schema_version":"1.0","partial":false,"cost_usd":0.15,
- "cases":[{"name":"hook-blocks-raw-git","score":1,"score_without":0,"delta":1,"pass_rate":1,"pass_rate_without":0}]}
+{
+  "schema_version": "1.0",
+  "partial": false,
+  "cost_usd": 0.15,
+  "cases": [
+    {
+      "name": "hook-blocks-raw-git",
+      "score": 1,
+      "score_without": 0,
+      "delta": 1,
+      "pass_rate": 1,
+      "pass_rate_without": 0,
+      "runs": [
+        {
+          "turns": 3
+        }
+      ],
+      "runs_without": [
+        {
+          "turns": 2
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,126 @@
+{
+  "schema_version": "1.0",
+  "claude_version": "2.1.220",
+  "started_at": "2026-07-26T16:19:10.815Z",
+  "duration_seconds": 145,
+  "cost_usd": 0.9956354999999999,
+  "partial": false,
+  "plugins": [
+    {
+      "name": "commit-commands-jj",
+      "path": "/Users/muloka/projects/sonder-hale/tools/claude-plugins/plugins/commit-commands-jj"
+    }
+  ],
+  "cases": [
+    {
+      "name": "hook-allows-jj-git-and-gh",
+      "dir": "evals/hook-allows-jj-git-and-gh",
+      "source": "case_yaml",
+      "score": 1,
+      "pass_rate": 1,
+      "runs": [
+        {
+          "score": 1,
+          "turns": 7,
+          "cost_usd": 0.252155,
+          "judge_cost_usd": 0,
+          "graders": [
+            {
+              "name": "jj-git-ran",
+              "passed": true,
+              "weight": 1,
+              "explanation": "Bash called 3x (expected 1..∞)"
+            },
+            {
+              "name": "not-blocked",
+              "passed": true,
+              "weight": 1,
+              "explanation": "pattern absent as expected"
+            }
+          ],
+          "trace_path": "/var/folders/bc/x1cqjcfx5cq1v24n2ddl21bm0000gn/T/claude-eval-oTozbx/out/trace.jsonl",
+          "error": "exit 1: (no stderr)",
+          "started_at": "2026-07-26T16:19:10.823Z",
+          "duration_seconds": 38
+        },
+        {
+          "score": 1,
+          "turns": 5,
+          "cost_usd": 0.18574799999999997,
+          "judge_cost_usd": 0,
+          "graders": [
+            {
+              "name": "jj-git-ran",
+              "passed": true,
+              "weight": 1,
+              "explanation": "Bash called 1x (expected 1..∞)"
+            },
+            {
+              "name": "not-blocked",
+              "passed": true,
+              "weight": 1,
+              "explanation": "pattern absent as expected"
+            }
+          ],
+          "trace_path": "/var/folders/bc/x1cqjcfx5cq1v24n2ddl21bm0000gn/T/claude-eval-Gyj2UV/out/trace.jsonl",
+          "error": null,
+          "started_at": "2026-07-26T16:19:48.906Z",
+          "duration_seconds": 23
+        }
+      ],
+      "pass_rate_without": 1,
+      "runs_without": [
+        {
+          "score": 1,
+          "turns": 9,
+          "cost_usd": 0.286081,
+          "judge_cost_usd": 0,
+          "graders": [
+            {
+              "name": "jj-git-ran",
+              "passed": true,
+              "weight": 1,
+              "explanation": "Bash called 2x (expected 1..∞)"
+            },
+            {
+              "name": "not-blocked",
+              "passed": true,
+              "weight": 1,
+              "explanation": "pattern absent as expected"
+            }
+          ],
+          "trace_path": "/var/folders/bc/x1cqjcfx5cq1v24n2ddl21bm0000gn/T/claude-eval-KcozkI/out/trace.jsonl",
+          "error": null,
+          "started_at": "2026-07-26T16:20:11.530Z",
+          "duration_seconds": 38
+        },
+        {
+          "score": 1,
+          "turns": 8,
+          "cost_usd": 0.27165150000000005,
+          "judge_cost_usd": 0,
+          "graders": [
+            {
+              "name": "jj-git-ran",
+              "passed": true,
+              "weight": 1,
+              "explanation": "Bash called 2x (expected 1..∞)"
+            },
+            {
+              "name": "not-blocked",
+              "passed": true,
+              "weight": 1,
+              "explanation": "pattern absent as expected"
+            }
+          ],
+          "trace_path": "/var/folders/bc/x1cqjcfx5cq1v24n2ddl21bm0000gn/T/claude-eval-UjXUvj/out/trace.jsonl",
+          "error": null,
+          "started_at": "2026-07-26T16:20:49.374Z",
+          "duration_seconds": 46
+        }
+      ],
+      "score_without": 1,
+      "delta": 0
+    }
+  ]
+}

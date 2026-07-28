@@ -1,2 +1,25 @@
-{"schema_version":"1.0","partial":false,"cost_usd":0.21,
- "cases":[{"name":"describe-noninteractive","score":1,"score_without":1,"delta":0,"pass_rate":1,"pass_rate_without":1}]}
+{
+  "schema_version": "1.0",
+  "partial": false,
+  "cost_usd": 0.21,
+  "cases": [
+    {
+      "name": "describe-noninteractive",
+      "score": 1,
+      "score_without": 1,
+      "delta": 0,
+      "pass_rate": 1,
+      "pass_rate_without": 1,
+      "runs": [
+        {
+          "turns": 3
+        }
+      ],
+      "runs_without": [
+        {
+          "turns": 2
+        }
+      ]
+    }
+  ]
+}
