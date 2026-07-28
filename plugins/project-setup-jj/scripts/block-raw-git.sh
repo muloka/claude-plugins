@@ -57,9 +57,70 @@ command_normalized=$(echo "$command" | tr '\n' ';')
 # inside quotes still starts a clause, and prose mentioning a git command
 # mid-clause (`jj describe -m 'replaces git status'`) is still not at command
 # position and still passes. bash 3.2-safe: no globstar, no associative arrays.
+#
+# #105 widened "command position" beyond `; & |`. Three shapes reached a real
+# git invocation without one of those characters immediately before it, and 20
+# of 21 measured cases were ALLOWED:
+#
+#   1. Substitution — `$(git …)`, `<(git …)`. The sed pass rewrites each opening
+#      sigil to `;` so the substituted command starts a clause.
+#   2. Grouping — `(git …)`, `{ git …; }`. A subshell or brace group can only
+#      open where a command may start, i.e. at the head of a clause, so this is
+#      a strippable clause prefix rather than a separator.
+#   3. Prefix words — a keyword (`if`, `then`, `do`, `!`, …), a zero-argument
+#      wrapper (`env`, `time`, `nice`, …), or an environment assignment before
+#      the command. Stripped by the `(…)*` repetition, so they stack:
+#      `then GIT_X=1 git reset` is caught by one pass.
+#
+# The jj-git exemption stays structural and survives all of this: strip the
+# prefixes off `( JJ_USER=ci jj git push )` and the clause still starts with
+# `jj`, so it can never match a command-position `git`.
+#
+# WHERE THE LINE IS, and why it is here. This matcher is quote-blind, so every
+# character it treats as a boundary also fires inside a quoted string. Two
+# rules in the first cut of this fix were withdrawn after review for exactly
+# that reason, having been shipped past a must-allow corpus written by the same
+# pass that wrote them:
+#
+#   - Rewriting every backtick to a separator denied `git` in a markdown code
+#     span. Opening and closing backticks are indistinguishable without pairing
+#     and pairing is impossible quote-blind, so this cannot be narrowed — it is
+#     the whole rule or none of it. None of it: /finish and /commit-push-pr both
+#     instruct writing a PR body inline, and a body naming a git command in
+#     backticks could not be submitted.
+#   - Rewriting every `) ` to a separator denied parenthesised prose followed by
+#     the word git (`-m 'per (#101) git is blocked'`). It bought only the
+#     case-statement pattern `a) git status`, the rarest shape in the set.
+#
+# The assignment prefix keeps quoted values whole for the same reason: stopping
+# at the first space left `git ` at the head of `MSG="a git b" jj describe`.
+# The unquoted alternative excludes quote characters so it cannot win by
+# matching a shorter prefix — grep needs only SOME alternative to match, so a
+# permissive branch defeats a stricter one sitting beside it.
+#
+# Known-open, documented in the READMEs and pinned by pass-through assertions
+# in test-block-raw-git.sh: backtick substitution, case patterns, an
+# interpreter handed git as data (`bash -c 'git status'`), wrappers carrying
+# their own options (`eval "git …"`, `sudo -u me git`, `timeout 5 git`), and
+# spellings other than the bare word (`/usr/bin/git`, `\git`). All need
+# argument parsing or quote tracking, i.e. a shell parser. The wall is a
+# guardrail against habit, not a sandbox — anyone who wants git can disable the
+# plugin. Reaching further with a regex is what produced the false positives.
+sq="'"
+dq='"'
+# VAR=value, VAR="value with spaces", VAR='…', and concatenations of those
+# (VAR="a"b is one word to the shell). The value is a SEQUENCE of runs, not a
+# choice between them: a single alternation stops after the first run and then
+# demands whitespace, so VAR="a"b git status slipped through.
+assign_re="[A-Za-z_][A-Za-z0-9_]*=(${dq}[^${dq}]*${dq}|${sq}[^${sq}]*${sq}|[^[:space:]${dq}${sq}])*"
+wrappers_re='if|then|elif|else|do|while|until|!|time|command|exec|env|eval|nohup|nice|sudo|xargs'
+prefix_re="(([({][[:space:]]*)|((${assign_re}|${wrappers_re})[[:space:]]+))*"
+
 has_raw_git=false
-if printf '%s\n' "$command_normalized" | tr ';&|' '\n\n\n' \
-   | grep -qE '^[[:space:]]*git[[:space:]]'; then
+if printf '%s\n' "$command_normalized" \
+   | sed -E -e 's/\$\(/;/g' -e 's/[<>]\(/;/g' \
+   | tr ';&|' '\n\n\n' \
+   | grep -qE "^[[:space:]]*${prefix_re}git[[:space:]]"; then
   has_raw_git=true
 fi
 

@@ -14,6 +14,15 @@ When starting a new Claude Code project that uses jj, there's no automated way t
 
 The plugin itself (independent of running `/project-setup`) also registers a `PreToolUse` hook on all `Bash` calls that blocks raw `git` commands and git internals access, backed by `scripts/block-raw-git.sh`. This is active as soon as the plugin is enabled.
 
+**Scope of the hook.** It denies `git` where the shell would start a command: on its own, after `;` `&&` `||` `|` or a newline, inside `$(…)` or `<(…)`, inside `(…)` or `{ …; }`, and after a keyword, wrapper or `VAR=value` prefix. A clause beginning `jj git …` is never denied.
+
+It matches text rather than parsing the shell, which cuts both ways.
+
+- **Not caught** (deliberately): backtick substitution, an interpreter handed git as data (`bash -c 'git status'`), wrappers carrying their own options (`eval "git …"`, `sudo -u me git`, `timeout 5 git`), and spellings other than the bare word (`/usr/bin/git`).
+- **Over-caught**: it is quote-blind, so a git command named after a separator *inside* a quoted string still reads as command position — `jj describe -m 'first; git status next'` is denied. Prose that merely mentions git is fine; prose that puts it right after a separator is not.
+
+The authoritative list is the comment block in `scripts/block-raw-git.sh`, which is byte-identical across all three plugins and pinned by pass-through assertions in `project-setup-jj/tests/test-block-raw-git.sh`. It is a guardrail against habit, not a sandbox — anyone who needs git can disable the plugin.
+
 ## Installation
 
 ```bash
