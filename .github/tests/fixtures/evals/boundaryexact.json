@@ -1,2 +1,25 @@
-{"schema_version":"1.0","partial":false,"cost_usd":0.17,
- "cases":[{"name":"literal-half","score":1,"score_without":0.5,"delta":0.5,"pass_rate":1,"pass_rate_without":0.5}]}
+{
+  "schema_version": "1.0",
+  "partial": false,
+  "cost_usd": 0.17,
+  "cases": [
+    {
+      "name": "literal-half",
+      "score": 1,
+      "score_without": 0.5,
+      "delta": 0.5,
+      "pass_rate": 1,
+      "pass_rate_without": 0.5,
+      "runs": [
+        {
+          "turns": 3
+        }
+      ],
+      "runs_without": [
+        {
+          "turns": 2
+        }
+      ]
+    }
+  ]
+}

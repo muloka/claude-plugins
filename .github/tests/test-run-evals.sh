@@ -160,27 +160,33 @@ fi
 # Null delta must abort. jq yields null for a missing path and null sorts BELOW
 # every number, so `null < 0` is true — an ungated null files every case as
 # REGRESSION while looking like it works.
+#
+# Anchored on the delta/score message, not on rc alone. A second tripwire below
+# also exits 5, and an assertion keyed only on the code cannot tell them apart —
+# that aliasing is what made this invariant untestable in #102's first attempt,
+# where deleting the delta/score tripwire outright left the suite green and a
+# string-typed delta gated through.
 set +e
-/bin/bash "$SCRIPT" --classify "$FIX/nulldelta.json" >/dev/null 2>&1
+err=$(/bin/bash "$SCRIPT" --classify "$FIX/nulldelta.json" 2>&1 >/dev/null)
 rc=$?
 set -e
-if [ "$rc" -eq 5 ]; then
+if [ "$rc" -eq 5 ] && printf '%s' "$err" | grep -q 'delta/score'; then
   ok "null delta trips the tripwire (exit 5)"
 else
-  bad "null delta trips the tripwire (exit 5) (got rc=$rc)"
+  bad "null delta trips the tripwire (exit 5) (got rc=$rc: ${err:-<empty>})"
 fi
 
 # A present-but-string delta is the same disease in the opposite direction:
 # jq sorts strings above every number, so "0.0" passes every comparison,
 # classifies DISCRIMINATING, and gates GREEN. The tripwire must key on type.
 set +e
-/bin/bash "$SCRIPT" --classify "$FIX/stringdelta.json" >/dev/null 2>&1
+err=$(/bin/bash "$SCRIPT" --classify "$FIX/stringdelta.json" 2>&1 >/dev/null)
 rc=$?
 set -e
-if [ "$rc" -eq 5 ]; then
+if [ "$rc" -eq 5 ] && printf '%s' "$err" | grep -q 'delta/score'; then
   ok "string-typed delta trips the tripwire (exit 5)"
 else
-  bad "string-typed delta trips the tripwire (exit 5) (got rc=$rc)"
+  bad "string-typed delta trips the tripwire (exit 5) (got rc=$rc: ${err:-<empty>})"
 fi
 
 # Drift in the SCORE field names, with .delta still numeric. `.score == 0 and
@@ -189,13 +195,50 @@ fi
 # the strict gate exits green on a result whose scores are literally null.
 # The tripwire must type-check the score fields, not just the delta.
 set +e
-/bin/bash "$SCRIPT" --classify "$FIX/driftedscores.json" --gate strict >/dev/null 2>&1
+err=$(/bin/bash "$SCRIPT" --classify "$FIX/driftedscores.json" --gate strict 2>&1 >/dev/null)
 rc=$?
 set -e
-if [ "$rc" -eq 5 ]; then
+if [ "$rc" -eq 5 ] && printf '%s' "$err" | grep -q 'delta/score'; then
   ok "renamed score fields trip the tripwire (exit 5)"
 else
-  bad "renamed score fields trip the tripwire (exit 5) (got rc=$rc)"
+  bad "renamed score fields trip the tripwire (exit 5) (got rc=$rc: ${err:-<empty>})"
+fi
+
+# Per-run turn detail is required (#102 Gap B). Absence is drift, NOT permission
+# to skip the dead-arm check — treating a missing field as "no dead arms found"
+# is how a tripwire fails open.
+#
+# Anchored on wording unique to THIS tripwire, for the reason given above the
+# nulldelta case.
+NORUNS=$(new_tmp)
+jq -nc '{schema_version:"1.0",partial:false,cases:[{name:"no-detail",score:1,score_without:0,delta:1}]}' \
+  > "$NORUNS/norundetail.json"
+set +e
+err=$(/bin/bash "$SCRIPT" --classify "$NORUNS/norundetail.json" 2>&1 >/dev/null)
+rc=$?
+set -e
+if [ "$rc" -eq 5 ] && printf '%s' "$err" | grep -q 'per-run turn detail'; then
+  ok "missing per-run turn detail trips its own tripwire (exit 5)"
+else
+  bad "missing per-run turn detail trips its own tripwire (exit 5) (got rc=$rc: ${err:-<empty>})"
+fi
+
+# The diagnostic must locate the case. Index, not name: .name may be absent,
+# null or empty, and an operator with 16 cases cannot act on "some case".
+BADRUNS=$(new_tmp)
+jq -nc '{schema_version:"1.0",partial:false,cases:[
+  {name:"fine",score:1,score_without:0,delta:1,runs:[{turns:3}],runs_without:[{turns:2}]},
+  {score:1,score_without:0,delta:1,runs:[{trace_path:"x"}],runs_without:[{turns:2}]}]}' \
+  > "$BADRUNS/badruns.json"
+set +e
+err=$(/bin/bash "$SCRIPT" --classify "$BADRUNS/badruns.json" 2>&1 >/dev/null)
+rc=$?
+set -e
+if [ "$rc" -eq 5 ] && printf '%s' "$err" | grep -q 'case #1' \
+   && printf '%s' "$err" | grep -q 'turns'; then
+  ok "the turn-detail diagnostic names the case by index and the field"
+else
+  bad "the turn-detail diagnostic names the case by index and the field (got rc=$rc: ${err:-<empty>})"
 fi
 
 # A budget-breached run has partial scores; deltas must not be trusted.
@@ -810,18 +853,18 @@ done
 case "${STUB_MODE:-ok}" in
   threshold)
     mkdir -p "$outdir"
-    printf '{"schema_version":"1.0","partial":false,"cases":[{"name":"c","score":0.5,"score_without":0,"delta":0.5}]}\n' > "$outdir/aggregate-result.json"
+    printf '{"schema_version":"1.0","partial":false,"cases":[{"name":"c","score":0.5,"score_without":0,"delta":0.5,"runs":[{"turns":3}],"runs_without":[{"turns":2}]}]}\n' > "$outdir/aggregate-result.json"
     exit 1 ;;
   maxcost)
     mkdir -p "$outdir"
-    printf '{"schema_version":"1.0","partial":true,"cases":[{"name":"c","score":1,"score_without":0,"delta":1}]}\n' > "$outdir/aggregate-result.json"
+    printf '{"schema_version":"1.0","partial":true,"cases":[{"name":"c","score":1,"score_without":0,"delta":1,"runs":[{"turns":3}],"runs_without":[{"turns":2}]}]}\n' > "$outdir/aggregate-result.json"
     exit 2 ;;
   nooutput)
     # Zero loadable cases: the CLI writes no result at all and exits 0.
     exit 0 ;;
   *)
     mkdir -p "$outdir"
-    printf '{"schema_version":"1.0","partial":false,"cases":[{"name":"c","score":1,"score_without":0,"delta":1}]}\n' > "$outdir/aggregate-result.json"
+    printf '{"schema_version":"1.0","partial":false,"cases":[{"name":"c","score":1,"score_without":0,"delta":1,"runs":[{"turns":3}],"runs_without":[{"turns":2}]}]}\n' > "$outdir/aggregate-result.json"
     exit 0 ;;
 esac
 STUBEOF

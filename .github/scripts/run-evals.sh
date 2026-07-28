@@ -102,6 +102,45 @@ classify() {
     exit 5
   fi
 
+  # Per-run turn detail must be present and numeric (#102 Gap B). The DEAD_ARM
+  # verdict below reads .cases[].runs[].turns; a missing field must never read
+  # as "no dead arms found".
+  #
+  # SEPARATE from the delta/score tripwire above, deliberately. Folding them
+  # gives both invariants one diagnostic, and an assertion could then no longer
+  # tell which fired. That aliasing is exactly what let a string-typed delta
+  # gate green while the suite stayed green too — the delta/score tripwire
+  # could be deleted outright without turning a single assertion red.
+  #
+  # `turns`, not `num_turns`. The aggregate's per-run keys are
+  # cost_usd, duration_seconds, error, graders, judge_cost_usd, score,
+  # started_at, trace_path, turns — verified against the captured fixture in
+  # tests/fixtures/evals/real/. `num_turns` is the CLI's per-run RESULT MESSAGE
+  # field, a different artifact; keying on it aborts every real sweep after the
+  # operator has already paid for it in full.
+  #
+  # An EMPTY runs array is not drift — it is an arm that ran nothing, which the
+  # DEAD_ARM verdict reports per case rather than aborting the whole file.
+  if [ "$(jq -r '[.cases[]?
+                  | select((.runs         | type) != "array"
+                        or (.runs_without | type) != "array"
+                        or ([(.runs + .runs_without)[] | .turns | numbers] | length)
+                           != ((.runs + .runs_without) | length))] | length' "$file")" != "0" ]; then
+    printf 'ERROR: a case is missing per-run turn detail — result schema drift.\n' >&2
+    # Located by INDEX. `.name` may be absent, null or empty, and a join over
+    # names yields "" for exactly the case a reader most needs to find.
+    jq -r '.cases | to_entries[]
+           | select((.value.runs         | type) != "array"
+                 or (.value.runs_without | type) != "array"
+                 or ([(.value.runs + .value.runs_without)[] | .turns | numbers] | length)
+                    != ((.value.runs + .value.runs_without) | length))
+           | "  case #\(.key) (\(.value.name // "<unnamed>")): expected numeric .runs[].turns"' \
+      "$file" >&2
+    printf 'Expected .cases[].runs[] and .runs_without[], each entry carrying a\n' >&2
+    printf 'numeric "turns". See .github/tests/fixtures/evals/real/README.md.\n' >&2
+    exit 5
+  fi
+
   # The 0.5 threshold is compared with a tolerance, and it is load-bearing.
   # The CLI computes .delta by floating-point subtraction, so a case scoring
   # 7/10 with and 2/10 without — a textbook shipping case exactly at the
