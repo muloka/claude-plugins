@@ -105,17 +105,32 @@ echo "settings=$settings_outcome"
 md5hash() { if command -v md5 >/dev/null 2>&1; then md5 -q; else md5sum; fi | cut -c1-8; }
 tmpl_hash=$(sed -n '/jj-project-setup:start/,/jj-project-setup:end/p' "$TEMPLATE" | sed '1d;$d' | md5hash)
 
+# Markers are matched by "this LINE is a marker", never by "this line mentions
+# the marker". A plain substring search treats prose such as
+#   never edit inside the jj-project-setup:start block
+# as the marker itself. When that sentence sits above the real block it becomes
+# s_line, and everything from it down to the real end marker is replaced —
+# silently destroying the prose and anything between. A real project documents
+# the convention in exactly this way (just below its block rather than above),
+# so the ordering that triggers it is one edit away.
+#
+# The template's own hash computation deliberately keeps the looser sed address
+# it shares with tests/test-template-hash.sh: the template is repo-controlled
+# and well-formed, and the two must agree byte-for-byte or the pin check breaks.
+START_RE='^[[:space:]]*<!--[[:space:]]*jj-project-setup:start'
+END_RE='^[[:space:]]*<!--[[:space:]]*jj-project-setup:end'
+
 claude_outcome=""
 if [ ! -f "$CLAUDE_MD" ]; then
   cp "$TEMPLATE" "$CLAUDE_MD"
   claude_outcome="created"
-elif grep -q 'jj-project-setup:start' "$CLAUDE_MD"; then
-  installed_hash=$(grep -o 'jj-project-setup:start hash:[0-9a-f]*' "$CLAUDE_MD" | head -1 | sed 's/.*hash://')
+elif grep -qE "$START_RE" "$CLAUDE_MD"; then
+  installed_hash=$(grep -E "$START_RE" "$CLAUDE_MD" | head -1 | grep -o 'hash:[0-9a-f]*' | sed 's/hash://')
   if [ -n "$installed_hash" ] && [ "$installed_hash" = "$tmpl_hash" ]; then
     claude_outcome="unchanged"
   else
-    s_line=$(grep -n 'jj-project-setup:start' "$CLAUDE_MD" | head -1 | cut -d: -f1)
-    e_line=$(grep -n 'jj-project-setup:end' "$CLAUDE_MD" | head -1 | cut -d: -f1)
+    s_line=$(grep -nE "$START_RE" "$CLAUDE_MD" | head -1 | cut -d: -f1)
+    e_line=$(grep -nE "$END_RE" "$CLAUDE_MD" | head -1 | cut -d: -f1)
     # The prefix slice must be skipped entirely when the marker is on line 1.
     # `sed -n "1,0p"` is an inverted range, and BSD sed prints line 1 for it
     # rather than nothing — which re-emitted the stale start marker above the
