@@ -15,10 +15,20 @@ pass=0
 fail=0
 
 # Run the hook with a command + cwd; capture stdout (hook never uses stderr).
+#
+# The payload is built with `jq --arg`, not string interpolation. Interpolation
+# cannot express a command containing a double quote — it produces malformed
+# JSON, the hook's `jq -r` yields an empty command, and the case then passes
+# for the wrong reason (nothing to block is not the same as nothing blocked).
+# The #105 must-allow corpus is full of such commands (`jq '… ["Bash(git *)"]'`,
+# `-T 'if(empty, "empty", …)'`), and those are exactly the cases most likely to
+# regress. Pass a real newline with $'…' where a multi-line command is meant.
 run_hook() {
   local cmd="$1"
   local cwd="$2"
-  local json='{"tool_input":{"command":"'"$cmd"'"},"tool_name":"Bash","hook_event_name":"PreToolUse","cwd":"'"$cwd"'"}'
+  local json
+  json=$(jq -nc --arg c "$cmd" --arg d "$cwd" \
+    '{tool_input:{command:$c}, tool_name:"Bash", hook_event_name:"PreToolUse", cwd:$d}')
   echo "$json" | bash "$HOOK" 2>/dev/null || true
 }
 
@@ -77,9 +87,61 @@ assert_blocked "no space after ; separator"       "jj git fetch;git status"     
 assert_blocked "no space after && separator"      "jj git fetch&&git status"                     "$JJ_DIR"
 assert_blocked "raw git in a third clause"        "echo hi && jj git fetch && git status"        "$JJ_DIR"
 # Newlines are folded to ';' before analysis, so a multi-line command must
-# split the same way. The \n below is a JSON escape: jq hands the hook a real
-# newline.
-assert_blocked "multi-line: newline is a separator" 'jj git fetch\ngit reset --hard origin/main' "$JJ_DIR"
+# split the same way. $'…' makes the newline real in the shell string; run_hook
+# encodes it for the hook.
+assert_blocked "multi-line: newline is a separator" $'jj git fetch\ngit reset --hard origin/main' "$JJ_DIR"
+
+# #105: three further shapes put git at a real command position without a
+# `; & |` immediately before it, so the per-clause anchor from #101 never saw
+# them. Measured against the pre-fix hook, 20 of the 21 cases below came back
+# ALLOWED. They are grouped by the family they belong to; each family is closed
+# by a different part of the fix, so a regression in one must not be masked by
+# the others.
+echo "=== jj repo: git at command position without a clause separator (#105) ==="
+
+# Family 1 — command substitution. The character before `git` is `(`, which was
+# not a separator. Process substitution is the same mechanism with a different
+# sigil. Backticks are deliberately NOT covered — see the boundary section.
+assert_blocked "substitution: \$( )"          'echo $(git status)'                  "$JJ_DIR"
+assert_blocked "substitution: assignment"     'x=$(git log --oneline)'              "$JJ_DIR"
+assert_blocked "substitution: in a for list"  'for f in $(git ls-files); do echo $f; done' "$JJ_DIR"
+assert_blocked "substitution: process <( )"   'diff <(git log) /dev/null'           "$JJ_DIR"
+
+# Family 2 — grouping. A subshell or brace group opens a new command position,
+# but `(` and `{` were not separators, so the clause began with the grouping
+# character instead of with git.
+assert_blocked "grouping: subshell"           '(git status)'                        "$JJ_DIR"
+assert_blocked "grouping: subshell, spaced"   '( git reset --hard origin/main )'    "$JJ_DIR"
+assert_blocked "grouping: brace group"        '{ git status; }'                     "$JJ_DIR"
+assert_blocked "grouping: brace after clause" 'true; { git log --oneline; }'        "$JJ_DIR"
+assert_blocked "grouping: nested in keyword"  'if true; then (git status); fi'      "$JJ_DIR"
+
+# Family 3 — prefix words. The clause genuinely starts with a shell keyword or
+# an environment assignment, so the anchor did not fire even though git runs.
+assert_blocked "prefix: if test position"     'if git diff --quiet; then echo clean; fi' "$JJ_DIR"
+assert_blocked "prefix: while test position"  'while git pull; do echo again; done' "$JJ_DIR"
+assert_blocked "prefix: do body"              'for f in a b; do git add $f; done'   "$JJ_DIR"
+assert_blocked "prefix: env assignment"       'GIT_AUTHOR_NAME=x git commit -m y'   "$JJ_DIR"
+assert_blocked "prefix: quoted assignment"    'GIT_MSG="a b" git commit -F -'       "$JJ_DIR"
+# A shell word may concatenate quoted and unquoted runs. Treating the value as
+# a single run stopped after the first and then demanded whitespace, so these
+# two slipped through the first version of the quoted-assignment fix.
+assert_blocked "prefix: quote-then-bare value" 'FOO="a"b git status'                "$JJ_DIR"
+assert_blocked "prefix: bare-then-quote value" 'FOO=a"b" git status'                "$JJ_DIR"
+assert_blocked "prefix: two assignments"       'A="x y" B=2 git reset --hard origin/main' "$JJ_DIR"
+assert_blocked "prefix: time"                 'time git status'                     "$JJ_DIR"
+assert_blocked "prefix: negation"             '! git diff --quiet'                  "$JJ_DIR"
+assert_blocked "prefix: env"                  'env git status'                      "$JJ_DIR"
+assert_blocked "prefix: sudo"                 'sudo git status'                     "$JJ_DIR"
+assert_blocked "prefix: nice"                 'nice git status'                     "$JJ_DIR"
+assert_blocked "prefix: stacked keyword+assign" 'if [ -d sub ]; then GIT_X=1 git reset --hard origin/main; fi' "$JJ_DIR"
+
+# Not a #105 family — a harness guard. run_hook builds its payload with jq
+# precisely so a command containing a double quote survives the trip. If it
+# ever goes back to string interpolation the JSON breaks, the hook reads an
+# empty command, and every must-allow case below passes vacuously. This case
+# fails loudly in that world, because an empty command is never denied.
+assert_blocked "double quotes survive the harness" 'git commit -m "wip"'            "$JJ_DIR"
 
 # These are regression guards, not fail-first cases: every one of them passed
 # before the #101 per-clause fix and must still pass after it. A false positive
@@ -102,6 +164,93 @@ assert_passthrough "gh with flags"          "gh pr create --title x --body y" "$
 assert_passthrough "git named inside a -m message" "jj describe -m 'replace git status with jj status'" "$JJ_DIR"
 assert_passthrough "quoted git string echoed"      "echo 'git status'" "$JJ_DIR"
 assert_passthrough "non-git command"        "ls -la"               "$JJ_DIR"
+
+# #105 must-allow corpus. Closing the three families above widened what counts
+# as a command position, and every character it now keys on — `(`, `{`, `)`,
+# backtick, `=` — is ordinary punctuation in jj's own revset and template
+# syntax, in shell parameter expansion, and in the permission strings this
+# repo's own installer writes. A false positive here is worse than the bypass
+# it prevents: these are the shapes the plugins' command prose instructs.
+# Every case below was measured ALLOWED against the pre-#105 hook and must
+# stay that way.
+echo "=== jj repo: #105 must-allow — parens and prefixes that are not git ==="
+# jj revset and template syntax is parenthesis-heavy, and `git_head()` puts the
+# literal string "git" directly before a paren.
+assert_passthrough "revset: trunk() range"  "jj log -r 'trunk()..@'"               "$JJ_DIR"
+assert_passthrough "revset: bare trunk()"   "jj diff --from trunk() --to @ --stat" "$JJ_DIR"
+assert_passthrough "revset: git_head()"     "jj log -r 'ancestors(git_head())'"    "$JJ_DIR"
+assert_passthrough "revset: grouped+funcs"  "jj log --ignore-working-copy -r '(trunk()..@) & ~empty()' --no-graph -T 'json(self)'" "$JJ_DIR"
+assert_passthrough "template: if() with strings" "jj log -r @ --no-graph -T 'if(empty, \"empty\", \"has-content\")'" "$JJ_DIR"
+# Substitution and grouping around a jj command — the exemption must stay
+# structural, i.e. survive being wrapped rather than depend on clause index.
+assert_passthrough "substitution around jj" 'echo $(jj root)'                      "$JJ_DIR"
+assert_passthrough "substitution then jj"   'cd $(jj root) && jj status'           "$JJ_DIR"
+assert_passthrough "substitution feeds jj git push" "BOOKMARK=\$(jj log -r @ --no-graph -T 'bookmarks') && jj git push --bookmark \"\$BOOKMARK\"" "$JJ_DIR"
+assert_passthrough "process substitution, jj" 'diff <(jj log) <(jj log -r @)'      "$JJ_DIR"
+assert_passthrough "subshell around jj git"  '( jj git push )'                     "$JJ_DIR"
+assert_passthrough "brace group around jj"   '{ jj status; jj log; }'              "$JJ_DIR"
+# Prefix words in front of jj must be stripped and then find `jj`, not `git`.
+assert_passthrough "assignment then jj git"  'JJ_USER=ci jj git push'              "$JJ_DIR"
+assert_passthrough "if test position, jj"    'if jj diff --quiet; then echo clean; fi' "$JJ_DIR"
+assert_passthrough "do body, jj"             'for r in a b; do jj show $r; done'   "$JJ_DIR"
+assert_passthrough "time, jj"                'time jj status'                      "$JJ_DIR"
+# Parameter expansion is `${`, not a command position — this exact string is
+# how every plugin.json references its hook.
+assert_passthrough "\${VAR} is not a group"  'bash "${CLAUDE_PLUGIN_ROOT}/scripts/block-raw-git.sh"' "$JJ_DIR"
+# The permission string project-setup-install.sh writes. `(` here is inside a
+# word, not at command position, so it must not open a clause.
+assert_passthrough "Bash(git *) permission string" "jq '.permissions.deny += [\"Bash(git *)\"]' .claude/settings.local.json" "$JJ_DIR"
+assert_passthrough "Bash(git *) echoed"      "echo 'deny: Bash(git *)'"            "$JJ_DIR"
+# Prose naming a git command. The hook is quote-blind, so this is the case most
+# at risk from the widened boundary — and the one this repo would hit first,
+# since its own commit messages and PR bodies talk about git constantly.
+#
+# The first two shapes below shipped in the original #105 fix and survived only
+# by accident: `(` precedes git, and `)` is followed by a non-space. Code review
+# found that both MIRROR IMAGES regressed — a review that generated its own
+# corpus instead of reusing the one written alongside the fix. `git` after a
+# backtick and `git` after `) ` were denied, which breaks /finish and
+# /commit-push-pr: both instruct writing a PR body inline, and a body naming a
+# git command in backticks could not be submitted. The two rules responsible
+# (rewriting every backtick, and every `) `, to a clause separator) were
+# dropped; these assertions pin that they stay dropped.
+assert_passthrough "parenthesised prose in -m"   "jj describe -m 'switch from (git status) to jj status'" "$JJ_DIR"
+assert_passthrough "parenthesised prose in body" "gh pr create --body 'closes #105 (git wall)'" "$JJ_DIR"
+assert_passthrough "backtick code span in -m"    'jj describe -m '"'"'replaces `git status` with jj status'"'"'' "$JJ_DIR"
+assert_passthrough "backtick code span in body"  'gh pr create --body '"'"'stop using `git log` here'"'"'' "$JJ_DIR"
+assert_passthrough "prose: ) then the word git"  "jj describe -m 'per (#101) git is blocked'" "$JJ_DIR"
+assert_passthrough "prose: ) then git in body"   "gh pr comment --body 'see (CONVENTIONS.md) git is denied'" "$JJ_DIR"
+# A quoted assignment value is one token to the shell. Stripping only up to the
+# first space left `git ` at clause head and denied an ordinary jj command.
+assert_passthrough "quoted assignment value naming git" 'MSG="a git b" jj describe -m x' "$JJ_DIR"
+# Other tools whose syntax uses the same punctuation.
+assert_passthrough "awk brace block"         "jj diff -r @ --summary | awk '{print \$2}'" "$JJ_DIR"
+assert_passthrough "find -exec naming git"   'find . -name "*.sh" -exec grep -l git {} \;' "$JJ_DIR"
+
+# Documented boundary. These are NOT desired behaviour — they are shapes the
+# wall does not catch, pinned so the READMEs cannot drift away from what the
+# hook does. The wall matches text at command position; it does not parse the
+# shell, and every attempt to reach further with a regex is what produced the
+# false positives above. Closing any of these means updating the scope note in
+# all three READMEs and CONVENTIONS.md in the same change.
+echo "=== jj repo: documented boundary — known-open shapes (#105) ==="
+# Backtick substitution. Dropped deliberately: opening and closing backticks are
+# indistinguishable without pairing, and pairing is impossible quote-blind, so
+# covering this necessarily denies every code span in prose.
+assert_passthrough "boundary: backtick substitution" 'echo `git status`'            "$JJ_DIR"
+# Case-statement pattern. Reached only by rewriting every `) ` to a separator,
+# which denies parenthesised prose — a much likelier command than this one.
+assert_passthrough "boundary: case pattern"  'case $x in a) git status;; esac'      "$JJ_DIR"
+# An interpreter handed git as data.
+assert_passthrough "boundary: bash -c"       "bash -c 'git status'"                 "$JJ_DIR"
+# Wrappers carrying their own options — the alternation strips a bare wrapper
+# word only. Matching option-bearing forms needs argument parsing.
+assert_passthrough "boundary: eval quoted"   'eval "git reset --hard origin/main"'  "$JJ_DIR"
+assert_passthrough "boundary: sudo -u"       'sudo -u me git status'                "$JJ_DIR"
+assert_passthrough "boundary: timeout"       'timeout 5 git status'                 "$JJ_DIR"
+# Spellings that are not the bare word `git`.
+assert_passthrough "boundary: absolute path" '/usr/bin/git status'                  "$JJ_DIR"
+assert_passthrough "boundary: escaped word"  '\git status'                          "$JJ_DIR"
 
 echo "=== non-jj repo: git is allowed ==="
 assert_passthrough "git status in git root"   "git status"          "$GIT_DIR"

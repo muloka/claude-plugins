@@ -10,6 +10,10 @@ The Commit Commands Plugin for jj automates common Jujutsu operations, reducing 
 
 The plugin itself (independent of any specific command above) also registers a `PreToolUse` hook on all `Bash` calls that blocks raw `git` commands, backed by `scripts/block-raw-git.sh`. This is active as soon as the plugin is enabled.
 
+**Scope of the hook.** It denies `git` where the shell would start a command: on its own, after `;` `&&` `||` `|` or a newline, inside `$(…)` or `<(…)`, inside `(…)` or `{ …; }`, and after a keyword, wrapper or `VAR=value` prefix. A clause beginning `jj git …` is never denied — `/commit-push-pr` and `/finish` rely on that.
+
+It matches text rather than parsing the shell, so some shapes are out of scope (backtick substitution, `bash -c 'git …'`, wrappers with their own options, `/usr/bin/git`), and because it is quote-blind it can over-catch: a git command named right after a separator *inside* a quoted message still reads as command position. Full scope note in the [project-setup-jj README](../project-setup-jj/README.md#overview); the authoritative list is the comment block in `scripts/block-raw-git.sh`, byte-identical across all three plugins.
+
 ## Setup
 
 ### Colocated repos (`.jj/` + `.git/`)

@@ -27,7 +27,7 @@ Optional directories: `agents/`, `templates/`.
 
 Three layers prevent raw git usage:
 
-1. **PreToolUse hook** — Every plugin that exposes Bash registers `scripts/block-raw-git.sh` as a `PreToolUse` hook on `Bash` in its `plugin.json`. The script allows `jj git *`, `gh *`, and all non-git commands; blocks bare `git *`.
+1. **PreToolUse hook** — Every plugin that exposes Bash registers `scripts/block-raw-git.sh` as a `PreToolUse` hook on `Bash` in its `plugin.json`. It blocks `git` at any position where the shell would start a command — compound clauses (#101) plus substitution, grouping and keyword/assignment prefixes (#105) — and never denies a clause beginning `jj git …`. It matches text rather than parsing the shell, so it both under- and over-catches at the edges. Do not restate the boundary here: the authoritative list is the comment block in the script itself, which is byte-identical across the three plugins and pinned by assertions in `project-setup-jj/tests/test-block-raw-git.sh`.
 
 2. **CRITICAL warning block** — Every command and agent `.md` file begins (after YAML frontmatter) with a bold paragraph:
 
