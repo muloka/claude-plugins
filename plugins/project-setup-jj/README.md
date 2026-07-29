@@ -21,7 +21,15 @@ It matches text rather than parsing the shell, which cuts both ways.
 - **Not caught** (deliberately): backtick substitution, an interpreter handed git as data (`bash -c 'git status'`), wrappers carrying their own options (`eval "git …"`, `sudo -u me git`, `timeout 5 git`), and spellings other than the bare word (`/usr/bin/git`).
 - **Over-caught**: it is quote-blind, so a git command named after a separator *inside* a quoted string still reads as command position — `jj describe -m 'first; git status next'` is denied. Prose that merely mentions git is fine; prose that puts it right after a separator is not.
 
-The authoritative list is the comment block in `scripts/block-raw-git.sh`, which is byte-identical across all three plugins and pinned by pass-through assertions in `project-setup-jj/tests/test-block-raw-git.sh`. It is a guardrail against habit, not a sandbox — anyone who needs git can disable the plugin.
+**Scope of the git-internals rule.** A second, separately-coded branch denies reading or writing the git directory. `.git` must appear as a *whole path component*: `ls .git`, `cat .git/HEAD` and `cat /repo/.git/HEAD` are denied.
+
+- **Not caught**: longer names that merely start with the same letters — `.gitignore`, `.gitattributes` and `.github/` all pass, which matters because this repo's own CI lives in `.github/`.
+- **Not caught**: a `.git` *suffix* on a URL or directory name. `jj git clone https://host/o/r.git dir`, `gh repo clone o/r.git dir` and `npm i https://host/o/r.git --save` all pass. An earlier unanchored version of this rule denied all three — including `jj git clone`, which this very hook recommends.
+- **Over-caught**: quote-blind here too, so prose naming the directory (`jj describe -m 'the .git directory'`) is denied.
+
+Git plumbing commands are *not* special-cased. `git config` and `git rev-parse` are denied by the raw-git rule above like any other subcommand, and get advice specific to them.
+
+The authoritative list is the comment block in `scripts/block-raw-git.sh`, which is byte-identical across all three plugins and pinned by assertions in `project-setup-jj/tests/test-block-raw-git.sh`. Every jj command the deny messages recommend is checked to exist *and* be runnable by `.github/tests/test-jj-recommendations.sh`. It is a guardrail against habit, not a sandbox — anyone who needs git can disable the plugin.
 
 ## Installation
 

@@ -54,6 +54,44 @@ assert_passthrough() {
   fi
 }
 
+# The deny text itself, decoded. #115 made it vary with the attempted
+# subcommand, so "was it denied" is no longer the whole assertion — a hook that
+# denies everything with the wrong advice still passes assert_blocked.
+deny_reason() {
+  run_hook "$1" "$2" | jq -r '.hookSpecificOutput.permissionDecisionReason // ""'
+}
+
+# grep -F throughout: the needles are literal command text full of regex
+# metacharacters (`jj log -r @ --no-graph -T commit_id`, `jj rebase -d main`),
+# and an unescaped one silently changes what is being asserted.
+assert_reason_has() {
+  local name="$1" cmd="$2" cwd="$3"; shift 3
+  local reason missing=""
+  reason=$(deny_reason "$cmd" "$cwd")
+  for needle in "$@"; do
+    printf '%s' "$reason" | grep -qF "$needle" || missing="$missing '$needle'"
+  done
+  if [ -z "$missing" ]; then
+    echo "  PASS: $name"; pass=$((pass + 1))
+  else
+    echo "  FAIL: $name — reason lacked$missing; got: $reason"; fail=$((fail + 1))
+  fi
+}
+
+assert_reason_lacks() {
+  local name="$1" cmd="$2" cwd="$3"; shift 3
+  local reason present=""
+  reason=$(deny_reason "$cmd" "$cwd")
+  for needle in "$@"; do
+    printf '%s' "$reason" | grep -qF "$needle" && present="$present '$needle'"
+  done
+  if [ -z "$present" ]; then
+    echo "  PASS: $name"; pass=$((pass + 1))
+  else
+    echo "  FAIL: $name — reason should not name$present; got: $reason"; fail=$((fail + 1))
+  fi
+}
+
 # Temp repos: one jj (with a subdir), one pure-git.
 JJ_DIR=$(mktemp -d); mkdir -p "$JJ_DIR/.jj" "$JJ_DIR/sub/deep"
 GIT_DIR=$(mktemp -d); mkdir -p "$GIT_DIR/.git" "$GIT_DIR/src"
@@ -251,6 +289,164 @@ assert_passthrough "boundary: timeout"       'timeout 5 git status'             
 # Spellings that are not the bare word `git`.
 assert_passthrough "boundary: absolute path" '/usr/bin/git status'                  "$JJ_DIR"
 assert_passthrough "boundary: escaped word"  '\git status'                          "$JJ_DIR"
+
+# #115. The deny text used to be a fixed heredoc, so `git stash` was answered
+# with a list about log/diff/status/blame/remote/push — six suggestions, none of
+# them relevant. The wall worked and the advice was noise.
+#
+# The assertions below are about WHICH advice comes back, so each one names the
+# text it expects. They are fail-first: every one of them failed against the
+# static heredoc on trunk 0d8dfea8.
+echo "=== jj repo: the suggestion is keyed on the attempted subcommand (#115) ==="
+
+# Exact — one jj answer exists, so emit it and nothing else.
+#
+# Each of these needs a paired `lacks`. The old generic list already named
+# jj status, jj log, jj file annotate and jj git push, so a bare `has` passes
+# against the static heredoc this section exists to replace — it would be green
+# on trunk and green after, measuring nothing. The `lacks` is what distinguishes
+# "answered specifically" from "handed the whole list".
+assert_reason_has  "exact: status"  "git status"           "$JJ_DIR" 'jj status'
+assert_reason_lacks "exact: status is not the generic list" \
+  "git status" "$JJ_DIR" 'jj file annotate' 'jj git remote list'
+assert_reason_has  "exact: log"     "git log --oneline"    "$JJ_DIR" 'jj log'
+assert_reason_lacks "exact: log is not the generic list" \
+  "git log --oneline" "$JJ_DIR" 'jj file annotate' 'jj git remote list'
+assert_reason_has  "exact: blame"   "git blame f.txt"      "$JJ_DIR" 'jj file annotate'
+assert_reason_lacks "exact: blame is not the generic list" \
+  "git blame f.txt" "$JJ_DIR" 'jj git remote list' 'jj status'
+# `git restore` had no case arm until the recommendations lint's independent
+# corpus was written against git's command set rather than against the hook's
+# own case labels, at which point it showed up as falling to the generic list.
+assert_reason_has  "exact: restore"  "git restore f.txt"   "$JJ_DIR" 'jj restore'
+assert_reason_lacks "exact: restore is not the generic list" \
+  "git restore f.txt" "$JJ_DIR" 'jj file annotate' 'jj git remote list'
+assert_reason_has  "exact: push"    "git push origin main" "$JJ_DIR" 'jj git push'
+assert_reason_lacks "exact: push is not the generic list" \
+  "git push origin main" "$JJ_DIR" 'jj file annotate' 'jj status'
+
+# Intent-dependent — the class that gets got wrong under pressure. Each of
+# these has several jj answers depending on what was meant, and the hook must
+# present them all. Asserting only "some suggestion came back" would pass
+# against a hook that confidently picked one, which is the failure mode: a
+# plausible single suggestion gets executed.
+assert_reason_has "intent: reset offers all three" \
+  "git reset --hard origin/main" "$JJ_DIR" 'jj abandon' 'jj restore' 'jj op restore'
+assert_reason_has "intent: checkout offers edit and new" \
+  "git checkout main" "$JJ_DIR" 'jj edit' 'jj new'
+assert_reason_has "intent: commit offers describe and commit" \
+  "git commit -m x" "$JJ_DIR" 'jj describe' 'jj commit'
+assert_reason_has "intent: pull is fetch then rebase" \
+  "git pull --rebase" "$JJ_DIR" 'jj git fetch' 'jj rebase'
+assert_reason_has "intent: branch offers the bookmark verbs" \
+  "git branch -d old" "$JJ_DIR" 'jj bookmark list' 'jj bookmark set' 'jj bookmark delete'
+
+# No equivalent — say so plainly rather than inventing one. `git add` and
+# `git stash` have no jj counterpart because the working copy is already a
+# tracked commit; a suggestion here would be a fabrication.
+assert_reason_has "none: add explains tracking"  "git add -A" "$JJ_DIR" 'automatically'
+assert_reason_has "none: stash explains why"     "git stash"  "$JJ_DIR" 'working copy'
+# The specific defect #115 was filed for: stash must not be handed the generic
+# six-item list. `jj file annotate` appears only in that list and in the blame
+# entry, so it is a clean witness for "the fallback answered".
+assert_reason_lacks "none: stash is not given the generic list" \
+  "git stash" "$JJ_DIR" 'jj file annotate' 'jj git remote list'
+
+# The subcommand is read from the clause that actually matched, so it must
+# survive every prefix shape #105 taught the matcher to strip.
+assert_reason_has "keyed through substitution"  'echo $(git stash)'      "$JJ_DIR" 'working copy'
+assert_reason_has "keyed through subshell"      '( git stash )'          "$JJ_DIR" 'working copy'
+assert_reason_has "keyed through assignment"    'GIT_X=1 git stash'      "$JJ_DIR" 'working copy'
+assert_reason_has "keyed through keyword"       'if git stash; then echo ok; fi' "$JJ_DIR" 'working copy'
+assert_reason_has "keyed in a later clause"     'jj git fetch && git stash' "$JJ_DIR" 'working copy'
+
+# Unmapped and unparseable subcommands fall back to the generic list rather
+# than guessing. `git -C dir status` puts a flag where the subcommand goes;
+# resolving it needs argument parsing, which is exactly what this file refuses
+# to do, so the fallback is the correct answer and not a bug.
+# Named against the whole generic list, not just one line of it: asserting only
+# `jj log` would also be satisfied by the keyed answer for `log`, so the
+# fallback would look reachable even if it had been deleted.
+assert_reason_has "fallback: unmapped subcommand" "git notes list" "$JJ_DIR" \
+  'jj log' 'jj diff' 'jj status' 'jj file annotate' 'jj git remote list' 'jj git push'
+assert_reason_has "fallback: leading flag"        "git -C /tmp status" "$JJ_DIR" \
+  'jj log' 'jj diff' 'jj status' 'jj file annotate' 'jj git remote list' 'jj git push'
+
+# The internals branch advertised `ls .git/ → not needed; use jj root` while
+# `ls .git` — the bare form, no trailing slash — passed straight through. The
+# rule was enforced for one spelling and advertised for both.
+#
+# Resolved by dropping the claim, not by widening the regex. The internals
+# pattern is neither clause-split nor anchored at command position, so matching
+# a bare trailing `.git` would also deny `gh repo clone …/y.git`; the wall is a
+# guardrail against habit, not a sandbox, and a false positive costs more here
+# than the gap does.
+echo "=== jj repo: the internals message claims only what it enforces (#115) ==="
+assert_reason_has "internals text still points at jj root" \
+  "cat .git/HEAD" "$JJ_DIR" 'jj root'
+
+# The internals pattern was UNANCHORED: `\.git[[:space:]]` fired on any command
+# containing a .git-suffixed token followed by another word, and `git config` /
+# `git rev-parse` fired on those names anywhere, including inside prose.
+#
+# That was not a theoretical cost. Code review found the hook denying
+# `jj git clone <url>.git <dir>` — the exact command this file recommends for
+# `git clone` — plus `gh repo clone`, which CLAUDE.md exempts by name. The first
+# fix here dropped the `ls .git` claim from the message on the theory that
+# enforcing it would deny clone URLs. That theory was wrong: it is the missing
+# ANCHOR that denies clone URLs, not the enforcement. Anchoring `.git` as a
+# whole path component does both — it stops denying URLs and starts catching the
+# bare form.
+#
+# The two corpora below are generated from the DOMAIN — real internals access on
+# one side, this repo's own daily commands on the other — never from the pattern.
+# A corpus read off the regex proves only that the regex matches itself.
+echo "=== jj repo: .git is matched as a path component, not a substring ==="
+assert_blocked "internals: dot-git slash"        "cat .git/HEAD"          "$JJ_DIR"
+assert_blocked "internals: bare dot-git"         "ls .git"                "$JJ_DIR"
+assert_blocked "internals: bare dot-git, slash"  "ls .git/"               "$JJ_DIR"
+assert_blocked "internals: nested path"          "cat /repo/.git/HEAD"    "$JJ_DIR"
+assert_blocked "internals: quoted path"          'cat ".git/HEAD"'        "$JJ_DIR"
+assert_blocked "internals: cd into it"           "cd .git && ls"          "$JJ_DIR"
+assert_blocked "internals: delete it"            "rm -rf .git"            "$JJ_DIR"
+assert_blocked "internals: separator after"      $'cat .git\nls'          "$JJ_DIR"
+
+# Must-allow. Every one of these was DENIED by the unanchored pattern except the
+# dotfiles; `.github/` is this repo's own CI directory and is used constantly.
+echo "=== jj repo: must-allow — .git as a suffix or a longer name ==="
+assert_passthrough "allow: jj git clone with .git URL" \
+  "jj git clone https://github.com/o/r.git mydir" "$JJ_DIR"
+assert_passthrough "allow: gh repo clone with .git URL" \
+  "gh repo clone o/r.git mydir"                   "$JJ_DIR"
+assert_passthrough "allow: package install from .git URL" \
+  "npm i https://h/o/r.git --save"                "$JJ_DIR"
+assert_passthrough "allow: cd into a .git-suffixed dir" "cd /tmp/foo.git && ls" "$JJ_DIR"
+assert_passthrough "allow: .github workflows path"  "ls .github/workflows"  "$JJ_DIR"
+assert_passthrough "allow: .github file read"       "cat .github/workflows/test.yml" "$JJ_DIR"
+assert_passthrough "allow: .github script"          "bash .github/scripts/run-evals.sh --dry-run" "$JJ_DIR"
+assert_passthrough "allow: .gitignore"              "cat .gitignore"        "$JJ_DIR"
+assert_passthrough "allow: .gitattributes"          "cat .gitattributes"    "$JJ_DIR"
+assert_passthrough "allow: .gitmodules"             "cat .gitmodules"       "$JJ_DIR"
+
+# The plumbing alternatives are gone from the internals pattern entirely. They
+# never added coverage — the raw-git branch returns first for any clause whose
+# command is a bare `git`, so `git config` and `git rev-parse` at command
+# position were always answered there (and now get keyed advice). All the
+# internals copy did was fire on the NAMES appearing in prose, which made
+# `-m 'replaces git rev-parse'` a deny while the byte-identical
+# `-m 'replaces git status'` passed. Same shape, opposite answers.
+echo "=== jj repo: plumbing names in prose behave like any other git name ==="
+assert_blocked     "plumbing at command position: config"    "git config user.name x" "$JJ_DIR"
+assert_blocked     "plumbing at command position: rev-parse" "git rev-parse HEAD"     "$JJ_DIR"
+assert_passthrough "prose naming rev-parse in a message" \
+  "jj describe -m 'replaces git rev-parse'"       "$JJ_DIR"
+assert_passthrough "prose naming config in a PR body" \
+  "gh pr create --body 'stop using git config here'" "$JJ_DIR"
+# The pre-existing quote-blind limit, unchanged: prose naming the DIRECTORY is
+# still denied, because `.git` there is a real path component as far as a
+# text matcher can tell. Pinned, not fixed — fixing it needs quote tracking.
+assert_blocked "boundary: prose naming the .git directory" \
+  "jj describe -m 'the .git directory is internal'" "$JJ_DIR"
 
 echo "=== non-jj repo: git is allowed ==="
 assert_passthrough "git status in git root"   "git status"          "$GIT_DIR"

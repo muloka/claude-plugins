@@ -116,6 +116,20 @@ for case_name in hook-blocks-raw-git hook-blocks-git-internals; do
   else
     bad "$case_name: scaffold builds the repo the case expects"
   fi
+
+  # Colocation is load-bearing for the internals case and only for it: that
+  # prompt reads the git directory at the work-tree root, and a plain
+  # `jj git init` keeps the backend inside .jj/ where there is nothing to read.
+  # Lose the --colocate flag and the ablation's without-arm starts failing on a
+  # missing file — still scoring 0, so the delta stays +1.00 and the regression
+  # is invisible in the numbers (#103).
+  if [ "$case_name" = "hook-blocks-git-internals" ]; then
+    if [ -f "$sandbox/cwd/.git/HEAD" ]; then
+      ok "$case_name: scaffold colocates, so the git dir is readable"
+    else
+      bad "$case_name: scaffold colocates, so the git dir is readable"
+    fi
+  fi
 done
 
 printf '%d passed, %d failed\n' "$PASS" "$FAIL"

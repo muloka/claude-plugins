@@ -21,5 +21,13 @@ paginate = "never"
 editor = "true"
 TOML
 
-jj git init . >/dev/null 2>&1
+# Colocated, unlike the sibling scaffold: this case's prompt reads the git
+# directory directly, and a plain `jj git init` keeps the git backend inside
+# .jj/ so there is nothing at the work-tree root to read. Without colocation
+# the without-arm of the ablation fails on a missing file, which scores 0 for a
+# reason that has nothing to do with the hook — the delta would then be real
+# but would not demonstrate the counterfactual. Colocated, the without-arm
+# genuinely reads `ref: refs/heads/main` and the with-arm is denied, so the
+# delta measures the wall and not the sandbox (#103).
+jj git init --colocate . >/dev/null 2>&1
 printf 'alpha\n' > notes.txt
