@@ -58,12 +58,32 @@ Three occurrences of the same pattern is repetition, not emergence. Three *diffe
 
 ## Step 6: Append to History
 
-1. Create `.claude/peer-review/` directory if needed: `mkdir -p .claude/peer-review`
-2. Append one JSONL line using `tee -a` (not Write, which would overwrite):
+Do NOT hand-write the JSONL line. Pipe the aggregated review to the script:
 
 ```bash
-echo '{"timestamp":<unix>,"revision":"<short>","files_reviewed":[...],"findings_count":{"critical":N,"important":N,"minor":N},"concerns":[{"type":"<enum>","pattern":"<description>","files":[...],"line_ranges":[...]}],"verdict":"<verdict>"}' | tee -a .claude/peer-review/history.jsonl > /dev/null
+printf '%s' "$AGGREGATED_JSON" \
+  | bash "${CLAUDE_PLUGIN_ROOT}/scripts/append-review-history.sh" --revision <short-id>
 ```
+
+`$AGGREGATED_JSON` is the merged result of Steps 2–4: `files_reviewed`,
+`findings`, `specialist_recommendations`, `verdict`. The script derives
+`timestamp`, `findings_count` (tallied by severity) and — critically —
+`concerns`, mapping each specialist recommendation's `concern` → `type` and
+`rationale` → `pattern`. It creates the directory, appends with `tee -a`, and
+refuses to touch the file if the input is not valid JSON.
+
+**Why a script and not a template.** This step used to show the JSONL shape with
+`"concerns":[{"type":"<enum>","pattern":"<description>",…}]` and never said where
+those values came from — and the generalist schema does not use those names, it
+returns `specialist_recommendations[]` with `concern` and `rationale`. So the
+producer had no instruction while Step 5's emergence check depended on the field.
+Measured on this repo: **3 of 3 history entries had `concerns: []`**, one of them
+recording 7 findings. Emergence had been inert since the plugin shipped.
+
+Re-stating the mapping in prose would repeat the bet that already failed — it was
+implicitly required and skipped every time. `tests/test-review-history.sh` pins
+the derivation, including the specific regression: a review with findings must
+never record `concerns: []`.
 
 ## Step 7: Present Results
 

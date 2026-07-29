@@ -51,10 +51,34 @@ Split changed files across generalists using these rules in priority order:
 Each generalist receives a prompt with:
 
 - **Scope**: which files are theirs and only theirs
-- **How to read**: `jj diff -r <rev>` scoped to their files, plus permission to read full files for surrounding context
+- **How to read**: `jj diff -r <rev>` scoped to their files, plus surrounding context — but see the warning below about WHERE that context comes from
 - **Guidelines**: relevant CLAUDE.md content inline (read CLAUDE.md files from the project root and any subdirectories containing changed files)
 - **Change context**: revision, description, change metadata from `jj log -r <rev> --no-graph -T 'json(self) ++ "\n"'`
 - **Output schema**: the generalist response JSON schema (from the change-reviewer agent spec)
+
+### Reviewing a revision that is not `@`
+
+The working copy holds ONE revision. If `<rev>` is not `@`, the files on disk are
+a **different** revision's content, and a reviewer that opens them with `Read` or
+`cat` silently reviews the wrong code — no error, plausible-looking output, line
+numbers that quietly do not correspond to the diff.
+
+Before dispatching, resolve whether the target is the working copy:
+
+```bash
+jj log -r '<rev> & @' --no-graph -T '"same"'
+```
+
+- **Empty output** (target is not `@`) — either move the working copy first with
+  `jj edit <rev>`, so disk and revision agree, or state explicitly in every agent
+  prompt that file contents must be read with `jj file show -r <rev> <path>` and
+  that `Read`/`cat` on the work tree is off-limits. Moving the working copy is
+  usually simpler and removes the hazard rather than documenting it.
+- **`same`** — `Read` is safe; disk is the revision under review.
+
+`--track` does not have this problem: it does `jj edit $DUPLICATE`, so the work
+tree always matches what is being reviewed. The hazard exists only on the plain
+non-`@` path.
 
 ## Step 5: If --track Enabled
 
