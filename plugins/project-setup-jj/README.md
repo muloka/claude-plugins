@@ -53,7 +53,8 @@ This creates/updates the following in your project:
 | `.claude/hooks/require-jj-new.sh` | PreToolUse hook — advises Claude to run `jj new` before editing into a non-empty change (informational — does not block) |
 | `.claude/hooks/jj-workspace-create.sh` | WorktreeCreate hook — creates jj workspace for worktree isolation |
 | `.claude/hooks/jj-workspace-remove.sh` | WorktreeRemove hook — cleans up jj workspace |
-| `.claude/settings.local.json` | Hook registration (SessionStart, PreToolUse, PreCompact, WorktreeCreate, WorktreeRemove) + jj permissions |
+| `.claude/settings.json` | Hooks (SessionStart, PreToolUse, PreCompact, WorktreeCreate, WorktreeRemove) + the `Bash(git *)` deny floor — **commit this**, it is what makes fresh clones and jj workspaces enforce the rules (#97) |
+| `.claude/settings.local.json` | Personal settings: jj/gh allow-list, and `statusLine` if `/statusline-jj-setup` is used |
 | `CLAUDE.md` | jj VCS policy directive (created or updated) |
 
 **Restart Claude Code** after running `/project-setup` for the SessionStart hook to take effect.

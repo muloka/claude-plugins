@@ -23,7 +23,24 @@ All install work is done by a deterministic script — do not hand-merge setting
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/project-setup-install.sh" "${CLAUDE_PLUGIN_ROOT}" "$(jj root)"
 ```
 
-The script copies the four hook handlers into `.claude/hooks/`, deep-merges the hooks and permissions into `.claude/settings.local.json` (idempotently — re-running never duplicates entries and never touches unrelated config), and creates/updates the CLAUDE.md `## VCS` section. It prints a `key=value` summary and exits non-zero without writing if an existing `.claude/settings.local.json` is not valid JSON (in which case, report the error and stop — do not attempt to repair it automatically).
+If the user passed `--local` to `/project-setup`, forward it as the first argument:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/project-setup-install.sh" --local "${CLAUDE_PLUGIN_ROOT}" "$(jj root)"
+```
+
+The script copies the four hook handlers into `.claude/hooks/` and creates/updates the CLAUDE.md `## VCS` section. Settings are split (#97):
+
+- **`.claude/settings.json`** — hooks and `permissions.deny`. Meant to be committed, so a fresh clone or `jj workspace add` checkout enforces the same rules. This is the default.
+- **`.claude/settings.local.json`** — `permissions.allow`, plus `statusLine` if `/statusline-jj-setup` is used. Personal, stays untracked.
+
+Both merges are idempotent — re-running never duplicates entries and never touches unrelated config. A tracked install also **removes** the managed hooks from `settings.local.json`: hooks merge additively across scopes, so a registration present in both files fires twice.
+
+`--local` writes everything to `settings.local.json` and touches no tracked path, which is the pre-#97 behaviour.
+
+It prints a `key=value` summary and exits non-zero without writing if an existing settings file is not valid JSON (report the error and stop — do not attempt to repair it automatically).
+
+**Exit 3 — `.gitignore` excludes `.claude/`.** Tracked mode aborts, having written nothing, because neither git nor jj can re-include a file under an excluded directory: a tracked `settings.json` there could never be committed, and adding `!.claude/settings.json` below the blanket rule has no effect. The script prints the replacement rules. Relay them, and offer the two options — narrow the ignore rule and re-run, or re-run with `--local`. Do not edit the user's `.gitignore` yourself.
 
 Earlier versions installed these handlers into `.claude/scripts/`. The script migrates such a project in one run: it re-points the registrations (replacing the old ones rather than adding a second copy beside them) and deletes the four files it owns from `.claude/scripts/`, removing that directory only if nothing else is left in it. Files it does not own — notably `statusline-jj.sh` from `/statusline-jj-setup` — are left alone.
 
@@ -32,7 +49,9 @@ Earlier versions installed these handlers into `.claude/scripts/`. The script mi
 Read the script's `key=value` summary and confirm to the user what was set up:
 
 - Hook handlers installed in `.claude/hooks/` (SessionStart, require-jj-new, workspace create/remove)
-- `.claude/settings.local.json` updated (SessionStart + PreCompact + PreToolUse + WorktreeCreate + WorktreeRemove hooks + jj permissions) — value from `settings=`
+- Which layout was used — value from `mode=` (`tracked` or `local`)
+- `.claude/settings.json` — hooks (SessionStart, PreCompact, PreToolUse, WorktreeCreate, WorktreeRemove) + the `Bash(git *)` deny floor — value from `settings_tracked=` (`created`, `merged`, or `skipped` in `--local` mode). **Tell the user to commit this file** — that is what makes fresh clones and jj workspaces enforce the rules.
+- `.claude/settings.local.json` — jj/gh allow-list, and in `--local` mode the hooks too — value from `settings=`
 - Legacy `.claude/scripts/` — per the `legacy_scripts=` value: `removed` (migrated and the empty directory cleaned up), `kept_not_empty` (our files removed, directory kept because other files such as `statusline-jj.sh` remain), or `absent` (nothing to migrate)
 - CLAUDE.md — `created`, `updated`, or `already up to date` per the `claude_md=` value
 
