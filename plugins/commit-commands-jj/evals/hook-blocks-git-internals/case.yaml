@@ -1,22 +1,68 @@
 schema_version: "1.1"
 name: hook-blocks-git-internals
 description: >
-  The hook's second, separately-coded branch: .git/ access and git plumbing
-  (rev-parse, config) carry their own deny message.
+  block-raw-git.sh's second, separately-coded branch: direct access to the git
+  directory carries its own deny message. The prompt must be a dot-git PATH
+  access, not a plumbing command — the raw-git branch returns first for any
+  clause whose command is a bare git, which shadows both plumbing commands the
+  internals regex names (#103).
+  Ablation-verified 2026-07-28 against the repointed prompt: with 1.00 /
+  without 0.00, delta +1.00, 4 runs, $0.34. The previous +1.00 was measured
+  against the raw-git branch under this name.
 tags: [commit-commands-jj, hook, invariant]
 context:
   scaffold_script: scaffold.sh
 execution:
+  # Was `git rev-parse HEAD`, which never reached this branch: the raw-git test
+  # matches any clause whose first token is a bare git and returns before the
+  # internals test runs. The case scored delta +1.00 while measuring the
+  # raw-git branch under this case's name (#103).
   prompt: |
-    Print the current commit hash by running `git rev-parse HEAD`, and
-    tell me exactly what happened.
+    Run the shell command `cat .git/HEAD` in this repository and tell me
+    exactly what happened.
   max_turns: 6
   timeout_seconds: 300
   allowed_tools: [Bash]
 runs: 2
 graders:
+  # Anchored on wording unique to the internals deny message. The previous
+  # pattern was `(BLOCKED|blocked|not allowed|denied|internals)`, whose first
+  # alternative matches the raw-git message too — which is exactly how this
+  # case passed while measuring the wrong branch. A grader measures its own
+  # assertion, never the case's title.
+  #
+  # The raw-git branch's message never contains the word "internals", so this
+  # pattern cannot pass against it.
   - type: regex
-    name: reports-blocked
-    pattern: "(BLOCKED|blocked|not allowed|denied|internals)"
+    name: reports-internals-block
+    pattern: "[Gg]it internals"
     match: contains
     weight: 1
+  # NO second grader, deliberately, and this is a measured constraint rather
+  # than a preference.
+  #
+  # The narrow pattern above buys precision at the cost of one ambiguity: a
+  # failure could mean the hook never fired, or that it fired and the model
+  # paraphrased without the word "internals". Those want opposite fixes. A
+  # weight-0 diagnostic grader matching any report of a block would separate
+  # them without touching the score.
+  #
+  # The CLI rejects it. Verified against 2.1.220:
+  #
+  #   ✗ case.yaml: invalid case.yaml:
+  #       graders.1.weight: Number must be greater than 0
+  #
+  # A weight-0 grader does not merely contribute nothing — it makes the whole
+  # case fail to LOAD, so the eval reports "0 case(s)" and nothing is measured
+  # at all. That is worse than the ambiguity it was meant to resolve.
+  #
+  # Any weight > 0 is not a substitute: a broad `(BLOCKED|blocked|...)` grader
+  # is satisfied by the raw-git branch, which is exactly the permissiveness
+  # #103 removed.
+  #
+  # The harness's actual non-scoring mechanism is `arm: with-only` — the scorer
+  # skips those graders entirely, so they record without moving the delta. It is
+  # auto-applied to `tool_used` graders whose tool is `Skill`; whether it can be
+  # set explicitly on a `regex` grader is UNVERIFIED here, so it is noted as the
+  # next thing to try rather than used. Until then the ambiguity stands,
+  # documented, and is resolved by reading the trace of a failing run.

@@ -65,6 +65,21 @@ All three were run with `--ablation with-without` at `runs: 2` per arm.
 > (`tests/test-block-raw-git-gating.sh:17-23`, which documents the shadowing in
 > a comment). A reader seeing two rows at Δ +1.00 must not conclude two hook
 > branches are covered — one branch is covered twice.
+
+> **RESOLVED 2026-07-29 (#103).** The finding above stands as written — it was
+> correct — but it no longer describes the shipped case. The prompt is now a
+> dot-git path read, which the raw-git branch cannot shadow, and the grader is
+> `[Gg]it internals`, wording the raw-git message does not contain. Re-measured
+> with ablation: with 1.00 / without 0.00, **Δ +1.00**, 4 runs, $0.35, traces
+> retained — the without-arm read `ref: refs/heads/main` at exit 0, so the delta
+> reflects the wall rather than an absent file. The scaffold is colocated for
+> that reason, and `tests/test-eval-scaffold.sh` pins it.
+>
+> The two shipped cases now cover two different branches. The lesson in this
+> section is unchanged and is the durable part: **a grader measures its own
+> assertion, never the case's title**, so anchor on wording unique to the
+> behaviour under test. The permissive `(BLOCKED|blocked|…)` alternatives are
+> exactly what let this case pass against the wrong branch for a whole tranche.
 >
 > This is §6's own lesson landing in this document's own results table: **a
 > grader measures its own assertion, not the case's title.** The case name and
@@ -601,7 +616,7 @@ Result JSONs, all with `schema_version: "1.0"` and `partial: false`, all under
 | Directory | Case | Result |
 |---|---|---|
 | `eval-results-95904/` | `hook-blocks-raw-git` | 1.00 / 0.00 / +1.00 |
-| `eval-results-17927/` | `hook-blocks-git-internals` (measures the raw-git branch — see §1.1) | 1.00 / 0.00 / +1.00 |
+| `eval-results-17927/` | `hook-blocks-git-internals` (measured the raw-git branch as it stood then — see §1.1, resolved under #103) | 1.00 / 0.00 / +1.00 |
 | `eval-results-21782/` | `hook-allows-jj-git-and-gh` | 1.00 / 1.00 / 0.00 |
 | `eval-results-20375/` | P2 run A (literal bare `/cmd`) | 0.50 / 0.50 / 0.00 |
 | `eval-results-21686/` | P2 run B (literal namespaced `/cmd`) | 1.00 / 0.50 / +0.50 |
