@@ -8,11 +8,13 @@ The Commit Commands Plugin for jj automates common Jujutsu operations, reducing 
 
 **Key difference from Git**: In jj, the working copy IS already a commit. There is no staging area. All changes are automatically tracked. The `/commit` command finalizes the current change with a description and starts a new empty change on top.
 
-The plugin itself (independent of any specific command above) also registers a `PreToolUse` hook on all `Bash` calls that blocks raw `git` commands, backed by `scripts/block-raw-git.sh`. This is active as soon as the plugin is enabled.
+**Requires [`project-setup-jj`](../project-setup-jj/).** Install it alongside this plugin. Claude Code plugin manifests have no dependency field, so this is stated rather than enforced — nothing will warn you.
+
+The dependency is the raw-`git` wall. Until #128 this plugin shipped and registered its own copy of `block-raw-git.sh` so it would stand alone; it now relies on `project-setup-jj`'s copy, which is the same hook and fires on every `Bash` call as soon as that plugin is enabled. Installed on its own, this plugin still works, but a reflexive `git commit` goes through unblocked — and these commands are written on the assumption that it cannot.
 
 **Scope of the hook.** It denies `git` where the shell would start a command: on its own, after `;` `&&` `||` `|` or a newline, inside `$(…)` or `<(…)`, inside `(…)` or `{ …; }`, and after a keyword, wrapper or `VAR=value` prefix. A clause beginning `jj git …` is never denied — `/commit-push-pr` and `/finish` rely on that.
 
-It matches text rather than parsing the shell, so some shapes are out of scope (backtick substitution, `bash -c 'git …'`, wrappers with their own options, `/usr/bin/git`), and because it is quote-blind it can over-catch: a git command named right after a separator *inside* a quoted message still reads as command position. Full scope note in the [project-setup-jj README](../project-setup-jj/README.md#overview); the authoritative list is the comment block in `scripts/block-raw-git.sh`, byte-identical across all three plugins.
+It matches text rather than parsing the shell, so some shapes are out of scope (backtick substitution, `bash -c 'git …'`, wrappers with their own options, `/usr/bin/git`), and because it is quote-blind it can over-catch: a git command named right after a separator *inside* a quoted message still reads as command position. Full scope note in the [project-setup-jj README](../project-setup-jj/README.md#overview); the authoritative list is the comment block in that plugin's `scripts/block-raw-git.sh`. The must-allow shapes `/commit-push-pr` and `/finish` write are pinned by assertions in `project-setup-jj/tests/test-block-raw-git.sh`.
 
 ## Setup
 

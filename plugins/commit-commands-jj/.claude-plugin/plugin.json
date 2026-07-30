@@ -1,22 +1,9 @@
 {
   "name": "commit-commands-jj",
-  "description": "Streamline your jj (Jujutsu) workflow with simple commands for committing, pushing, and creating pull requests",
-  "version": "0.11.1",
+  "description": "Streamline your jj (Jujutsu) workflow with simple commands for committing, pushing, and creating pull requests — requires project-setup-jj",
+  "version": "0.12.0",
   "author": {
     "name": "muloka",
     "email": "muloka@users.noreply.github.com"
-  },
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/block-raw-git.sh\""
-          }
-        ]
-      }
-    ]
   }
 }

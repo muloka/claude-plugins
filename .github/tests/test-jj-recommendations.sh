@@ -19,8 +19,8 @@
 # spellings an author reaches for from memory, and both are dead.
 #
 # This lives in .github/tests/ rather than under a plugin because it shells out
-# to jj and the hook it drives ships byte-identical in three plugins, so it
-# belongs to none of them.
+# to jj and the hook it drives ships byte-identical in two plugins, so it
+# belongs to neither of them.
 #
 # Mechanism: drive the hook as a black box and read what it actually emits,
 # rather than grepping the source. Source text would also pick up the comments,
