@@ -1,5 +1,12 @@
 *.DS_Store
-.claude/
+# Track the shareable half of .claude/, ignore the personal half. Must be
+# `.claude/*` and not `.claude/` or `.claude/**`: a negation cannot re-include a
+# file whose parent directory is excluded, so the blanket forms make every `!`
+# below inert and nothing gets tracked.
+.claude/*
+!.claude/settings.json
+!.claude/hooks/
+.claude/settings.local.json
 .jj/
 node_modules/
 *.log
