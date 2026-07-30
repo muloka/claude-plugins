@@ -118,7 +118,3 @@ Running `/project-setup` multiple times is safe. It will:
 ## Author
 
 [muloka](https://github.com/muloka)
-
-## Version
-
-1.0.0
