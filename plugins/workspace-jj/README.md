@@ -109,7 +109,3 @@ See [design spec](../../docs/specs/2026-07-15-kaisen-rename-and-collision-design
 ## Author
 
 [muloka](https://github.com/muloka)
-
-## Version
-
-1.0.0

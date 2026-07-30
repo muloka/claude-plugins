@@ -630,7 +630,3 @@ claude plugins add ./plugins/commit-commands-jj
 ## Author
 
 [muloka](https://github.com/muloka)
-
-## Version
-
-1.0.0
