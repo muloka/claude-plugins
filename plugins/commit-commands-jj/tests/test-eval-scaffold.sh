@@ -132,5 +132,70 @@ for case_name in hook-blocks-raw-git hook-blocks-git-internals; do
   fi
 done
 
+# #118 — the scaffold must not write into a HOME it does not own.
+#
+# Everything above runs each scaffold with HOME pointed at a fresh sandbox: the
+# SAFE case. The only write-location assertion is that no config lands *inside
+# the work tree*. Nothing asked what happens when HOME is real — which is
+# exactly what `--scaffold` produces, since the CLI runs the scaffold "as you".
+# The developer's own ~/.config/jj/config.toml was truncated that way, taking
+# identity, aliases and signing config with it, and the loss reached a pushed
+# PR authored eval@example.com before anyone noticed.
+#
+# A suite written against the intended environment cannot see a bug that only
+# appears in the actual one. This is the mirror assertion.
+#
+# Fail-first: both scaffolds destroyed this file before the guard was added.
+echo "--- #118: a real HOME's jj config must survive ---"
+for case_name in hook-blocks-raw-git hook-blocks-git-internals; do
+  scaffold="$PLUGIN_DIR/evals/$case_name/scaffold.sh"
+
+  # A home that is NOT under the TMPDIR the scaffold is told about. Both live
+  # under TMPROOT but are siblings, so $fake_home sits outside $other_tmp and
+  # the guard must classify it as a real home. Building it this way keeps the
+  # test inside mktemp territory while still exercising the unsafe path.
+  fake_home=$(mktemp -d "$TMPROOT/realhome.XXXXXX")
+  other_tmp=$(mktemp -d "$TMPROOT/othertmp.XXXXXX")
+  work=$(mktemp -d "$TMPROOT/work.XXXXXX")
+  mkdir -p "$fake_home/.config/jj"
+  # Identity plus an unrelated section: `cat >` truncates rather than merges, so
+  # the aliases are what prove the failure destroys more than the two keys the
+  # scaffold means to set.
+  printf '[user]\nname = "precious"\nemail = "precious@example.com"\n\n[aliases]\nl = ["log"]\n' \
+    > "$fake_home/.config/jj/config.toml"
+
+  (cd "$work" && env -i \
+    PATH="$PATH" HOME="$fake_home" USERPROFILE="$fake_home" \
+    TMPDIR="$other_tmp" TERM=dumb USER_TYPE=external NODE_ENV=production \
+    /bin/bash "$scaffold" >/dev/null 2>&1) || true
+
+  if grep -q 'precious' "$fake_home/.config/jj/config.toml" 2>/dev/null; then
+    ok "$case_name: leaves a real HOME's jj identity intact (#118)"
+  else
+    bad "$case_name: DESTROYED a real HOME's jj identity (#118)"
+  fi
+
+  if grep -q 'aliases' "$fake_home/.config/jj/config.toml" 2>/dev/null; then
+    ok "$case_name: preserves unrelated config sections (#118)"
+  else
+    bad "$case_name: dropped unrelated config sections — cat > truncates (#118)"
+  fi
+done
+
+# The safe path must still work, or the guard has simply disabled the hardening
+# everywhere. A sandbox HOME under the declared TMPDIR must still be written.
+sandbox_home=$(mktemp -d "$TMPROOT/sandboxhome.XXXXXX")
+sandbox_work=$(mktemp -d "$TMPROOT/sandboxwork.XXXXXX")
+(cd "$sandbox_work" && env -i \
+  PATH="$PATH" HOME="$sandbox_home" USERPROFILE="$sandbox_home" \
+  TMPDIR="$TMPROOT" TERM=dumb USER_TYPE=external NODE_ENV=production \
+  /bin/bash "$PLUGIN_DIR/evals/hook-blocks-raw-git/scaffold.sh" >/dev/null 2>&1) || true
+if [ -f "$sandbox_home/.config/jj/config.toml" ] \
+   && grep -q 'editor = "true"' "$sandbox_home/.config/jj/config.toml"; then
+  ok "a sandbox HOME under TMPDIR still receives the hardening (#118)"
+else
+  bad "the guard blocked a legitimate sandbox HOME — hardening disabled everywhere (#118)"
+fi
+
 printf '%d passed, %d failed\n' "$PASS" "$FAIL"
 test "$FAIL" -eq 0
