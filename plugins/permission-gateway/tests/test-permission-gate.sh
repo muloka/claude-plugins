@@ -516,6 +516,98 @@ assert_decision "dynamic source, literal target"     "echo \$VERSION > version.t
 # target means the target cannot be read", which is a property rather than a list.
 assert_decision "ansi-c quoted target"               "echo x > \$'\\056claude/settings.json'"             "ask"
 
+# ---- Fail closed instead of enumerating (#123) ----
+# Everything above enumerates a way to WRITE. That list cannot be completed:
+# globs mean the path is only known after expansion, and any binary at all can
+# be a write verb. Both classes below were still silent after four rounds of
+# adding shapes.
+#
+# So the burden is inverted. The set of READ commands is bounded and already
+# written down, so a command that mentions a protected path and is not purely a
+# read is treated as a possible write and loses Tier-1 auto-approval. That
+# closes both cases below without naming globs or `sponge`.
+echo "=== Fail closed rather than enumerate (#123) ==="
+# Glob: `.claude/set*.json` never contains the literal `.claude/settings`.
+assert_decision "glob in the directory"              "echo x > .clau*/settings.json"                      "ask"
+assert_decision "glob in the filename"               "echo x > .claude/set*.json"                         "ask"
+# The character class must break the LITERAL protected substring, or Route 1
+# catches it anyway and the assertion cannot tell this mechanism from that one.
+# `.claude/settings.js[o]n` was exactly that mistake: `.claude/settings` survives.
+assert_decision "glob via character class"           "echo x > .clau[d]e/settings.json"                   "ask"
+# `sponge` (moreutils) is a write verb that is not on any list and cannot be —
+# the command names the file in plain text, but no route fires, and the leading
+# `cat` then matches the Tier-1 safelist and approves the write outright.
+assert_decision "unknown write verb in a pipeline"   "cat .claude/hooks/x.sh | sed s/a/b/ | sponge .claude/hooks/x.sh" "ask"
+# NOT asserted: `frobnicate .claude/settings.json`. Any unrecognized verb already
+# falls to the Tier-2 catch-all regardless of the path — its paired control
+# ("unknown verb, no protected path") returns the same `ask`, so it cannot
+# isolate this mechanism. Vacuous in the same way as the round-1 `printf`/`mv`
+# cases.
+
+# ---- The read list IS the security boundary (#123, fourth review round) ----
+# The mechanism above is only as good as READONLY_VERBS_RE. Claiming "the read
+# set is bounded and written down" is not the same as auditing what each listed
+# verb can actually do, and the first version of that list was wrong eight times.
+#
+# `env` was the worst: its whole purpose is executing another program, so
+# `env <any-write-verb> <protected-path>` made the segment classify as a read.
+# One entry, and the entire mechanism had a generic escape hatch.
+#
+# The rest write files or run shell commands without any redirect, which is
+# exactly what the enclosing check scans for.
+echo "=== Read-verb list is the boundary (#123) ==="
+assert_decision "env wrapping a write verb"          "env cp /tmp/x .claude/settings.json"                "ask"
+assert_decision "env with an assignment"             "env FOO=1 tee .claude/settings.json < /dev/null"    "ask"
+assert_decision "sed w command writes a file"        "sed -n /x/w .claude/settings.json /dev/null"        "ask"
+assert_decision "awk system runs a shell"            "awk BEGIN{system(cp)} .claude/settings.json"        "ask"
+assert_decision "sort -o writes a file"              "sort -o .claude/settings.json /tmp/data"            "ask"
+assert_decision "uniq positional output file"        "uniq /tmp/data .claude/settings.json"               "ask"
+assert_decision "find -ok is not -exec"              "find .claude -ok rm {} ;"                           "ask"
+assert_decision "tree -o writes a file"              "tree -o .claude/settings.json"                      "ask"
+assert_decision "fd -x runs a command"               "fd -x cp {} .claude/settings.json"                  "ask"
+assert_decision "xxd -r takes an outfile"            "xxd -r /tmp/hex .claude/settings.json"              "ask"
+
+# A bare assignment prefix (no `env`) was already handled — kept as a control so
+# a future change cannot quietly make `env` the only guarded spelling.
+assert_decision "bare assignment prefix"             "FOO=1 cp /tmp/x .claude/settings.json"              "ask"
+# Found by auditing the TRIMMED list rather than by review — `file -C` compiles a
+# magic file and writes `<name>.mgc`, so `file` can create a file inside a
+# protected directory. It cannot overwrite a hook by name, which is why it is
+# easy to wave through; the audit rule is "any documented write", not "a write
+# that looks dangerous".
+assert_decision "file -C writes a magic file"        "file -C -m .claude/hooks/x"                         "ask"
+
+# ---- A read verb can carry a write inside its arguments (#123, fifth round) ----
+# The classifier reads the FIRST token of each `;|&`-split segment, so a write
+# nested in a command substitution — passed as a mere argument to an allowlisted
+# verb — is never looked at. `echo` and `cat` are genuinely safe on their own, so
+# no amount of auditing the verb list closes this: the gap is between the
+# mechanisms, not inside either one. It also smuggles verbs already excluded,
+# including `env`, which makes it strictly worse than any single list mistake.
+#
+# The rule mirrors Route 4's reasoning — a construct resolved at run time cannot
+# be classified — but applied to the whole segment instead of only to the
+# redirect and write-verb captures, which are both empty here.
+echo "=== A read verb carrying a write in its arguments (#123) ==="
+assert_decision "write nested in substitution"       "echo \$(cp /tmp/x .claude/settings.json)"           "ask"
+assert_decision "nested under cat"                   "cat \$(cp /tmp/x .claude/settings.json)"            "ask"
+assert_decision "nested in backticks"                "echo \`cp /tmp/x .claude/settings.json\`"           "ask"
+assert_decision "nested excluded verb (env)"         "echo \$(env cp /tmp/x .claude/settings.json)"       "ask"
+assert_decision "nested brace expansion"             "echo \${x} .claude/settings.json"                   "ask"
+# Substitution far from any protected path is ordinary work and stays silent.
+assert_decision "substitution, no protected path"    "echo \$(date) > build.log"                          "silent"
+
+# Reads of a protected path must STILL be silent — this is the property the
+# whole approach trades against, and the reason the read set is enumerated
+# rather than the write set.
+assert_decision "read a protected file"              "cat .claude/settings.json"                          "silent"
+assert_decision "grep a protected dir"               "grep -r foo .claude/hooks/"                         "silent"
+assert_decision "list a protected dir"               "ls -la .claude/"                                    "silent"
+assert_decision "read pipeline on protected file"    "cat .claude/settings.json | jq .hooks"              "silent"
+# ...and ordinary work far from any protected path is untouched.
+assert_decision "unknown verb, no protected path"    "frobnicate README.md"                               "ask"
+assert_decision "glob, no protected path"            "echo x > src/*.txt"                                 "silent"
+
 # ---- Summary ----
 echo ""
 echo "=== Results: $pass passed, $fail failed ==="
