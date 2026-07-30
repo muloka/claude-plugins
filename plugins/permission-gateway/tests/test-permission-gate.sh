@@ -10,9 +10,15 @@ fail=0
 # Helper: run gate with a command string, capture output and exit code
 run_gate() {
   local cmd="$1"
-  local json='{"tool_input":{"command":"'"$cmd"'"},"tool_name":"Bash","hook_event_name":"PreToolUse"}'
+  # Build the payload with jq, never by string interpolation. Interpolating a
+  # command containing a double quote produced INVALID JSON, which the gate's
+  # ERR trap turns into `ask` — so any assertion expecting `ask` passed for the
+  # wrong reason, and no assertion could express a double-quoted command at all.
+  # That is a vacuous-test generator sitting under every case in this file.
+  local json
+  json=$(printf '%s' "$cmd" | jq -Rc '{tool_input:{command:.},tool_name:"Bash",hook_event_name:"PreToolUse"}')
   local output
-  output=$(echo "$json" | bash "$GATE" 2>/dev/null) || true
+  output=$(printf '%s' "$json" | bash "$GATE" 2>/dev/null) || true
   echo "$output"
 }
 
@@ -387,6 +393,128 @@ assert_decision "no-misfire: deny path"    "rm -rf /"      "deny"
 assert_decision "no-misfire: ask path"     "git push origin main" "ask"
 assert_decision "no-misfire: approve path" "ls -la"        "silent"
 assert_decision "no-misfire: tier2 clean"  "htop"          "ask"
+
+# ---- Protected config paths reached via Bash (#123) ----
+# gate-config-writes.sh is registered on Write/Edit only. Everything below
+# arrives as a Bash tool call, so it never reaches that gate — and the redirect
+# check above deliberately ignores relative targets ("./relative and bare
+# filenames are fine"), which is correct for ordinary work and wrong for the
+# handful of paths that decide what the gate itself enforces.
+#
+# Measured before the fix: every one of these returned NO decision at all —
+# not ask, not deny — so the write proceeded under the ambient permission mode.
+echo "=== Protected config paths via Bash (#123) ==="
+assert_decision "clobber settings.json (relative)"   "echo pwned > .claude/settings.json"                 "ask"
+assert_decision "clobber settings.json (leading ./)" "echo x > ./.claude/settings.json"                   "ask"
+assert_decision "append to settings.json"            "echo pwned >> .claude/settings.json"                "ask"
+assert_decision "truncate a hook script"             "cat /dev/null > .claude/hooks/require-jj-new.sh"    "ask"
+assert_decision "clobber legacy scripts dir"         "echo x > .claude/scripts/block-raw-git.sh"          "ask"
+assert_decision "clobber the gate itself"            "echo x > plugins/permission-gateway/scripts/permission-gate.sh" "ask"
+assert_decision "tee into settings.json"             "tee .claude/settings.json < /dev/null"              "ask"
+assert_decision "cp over a hook script"              "cp /dev/null .claude/hooks/require-jj-new.sh"       "ask"
+# Deliberately NOT asserted here: `mv` and `rm` at a protected path. Both already
+# ask via generic rules that ignore the target entirely, so an assertion on them
+# would pass with or without this fix — coverage that measures nothing. Same
+# reason `printf` is avoided above: it is not Tier-1, so it asks about every
+# target and would hide whether the protected-path check ran at all.
+
+# Ordinary work must stay ungated — a fix that asks about every relative
+# redirect, or about merely NAMING a protected path, is worse than the gap.
+assert_decision "ordinary relative redirect"         "echo hi > notes.txt"                                "silent"
+assert_decision "ordinary nested redirect"           "echo test > ./src/fixture.txt"                      "silent"
+assert_decision "reading a protected file"           "cat .claude/settings.json"                          "silent"
+assert_decision "grepping a protected dir"           "grep -r foo .claude/hooks/"                         "silent"
+
+# A literal substring test sees only the path as WRITTEN. These three shapes all
+# reach the same file and were all silent when first implemented — found in
+# review, not by the tests above, which is the point: the cases you think of are
+# the ones your matcher already handles.
+echo "=== Protected paths reached by a path the matcher does not read literally (#123) ==="
+# 1. cd first, then a bare filename. Utterly ordinary shell, and after the cd the
+#    protected substring never appears in the command at all.
+assert_decision "cd then clobber"                    "cd .claude && echo pwned > settings.json"           "ask"
+assert_decision "cd then tee"                        "cd .claude; tee settings.json < /dev/null"          "ask"
+assert_decision "cd into hooks then clobber"         "cd .claude/hooks && echo x > require-jj-new.sh"     "ask"
+# 2. Redundant separators — same file, non-literal spelling, no cd required.
+assert_decision "double slash"                       "echo x > .claude//settings.json"                    "ask"
+assert_decision "dot segment"                        "echo x > .claude/./settings.json"                   "ask"
+
+# The cd rule must not swallow ordinary work: cd somewhere harmless, or cd into
+# a protected directory and only READ.
+assert_decision "cd elsewhere then write"            "cd src && echo x > foo.txt"                         "silent"
+assert_decision "cd into protected then read"        "cd .claude && cat settings.json"                    "silent"
+
+# A grep whose SEARCH TERM happens to be a write verb must stay silent — this
+# fired `ask` when the verb check matched at any command position.
+assert_decision "grep for the word tee"              "grep -rn tee .claude/hooks/"                        "silent"
+
+# DELIBERATE REVERSAL, second review round. This asserted "silent" when the
+# destination was taken to be cp's last argument, so that reading OUT of a
+# protected directory stayed quiet. That precision was not safely reachable:
+# `cp -t .claude/hooks/ f` puts the destination first and `cp a b -v` puts a flag
+# last, and BOTH were silent — worse than ordinary silence, because `cp` is on
+# the Tier-1 safelist (`^(mkdir|cp|touch|ln)\b`), so a miss reaches an explicit
+# approve rather than merely no opinion.
+#
+# Flag parsing is an open-ended surface (`-t`, `--target-directory=`, `-T`,
+# combined shorts like `-vt`) where every form not handled is another silent
+# approve. So cp/install now treat ANY argument as a candidate destination, the
+# same tradeoff already made for tee/truncate/dd: over-ask rather than
+# under-ask. The cost is this one prompt on an uncommon operation.
+assert_decision "backup out of a protected dir"      "cp .claude/hooks/require-jj-new.sh /tmp/backup.sh"  "ask"
+# ...while writing INTO one still asks.
+assert_decision "restore into a protected dir"       "cp /tmp/backup.sh .claude/hooks/require-jj-new.sh"  "ask"
+
+# ---- Quoting and flag placement (#123, second review round) ----
+# Both classes below were silent bypasses in the first redesign. They share a
+# root cause: the matcher reasons about the shape of the command text, so every
+# equivalent spelling of the same write is a separate hole. Enumerating those
+# spellings is what keeps failing — see #123 for the argument-resolution fix.
+echo "=== Quoting and flag placement (#123) ==="
+# The boundary in PROTECTED_DIRS_RE wanted `/` or end-of-line straight after
+# `.claude`; a closing quote sat there instead. Quoting a short bare directory
+# name is the single most natural thing to type.
+assert_decision "cd single-quoted target"            "cd '.claude' && echo pwned > settings.json"         "ask"
+assert_decision "cd double-quoted target"            'cd ".claude" && echo pwned > settings.json'         "ask"
+assert_decision "cd quoted plugin dir"               "cd '.claude-plugin' && echo x > plugin.json"        "ask"
+# NOT asserted: `echo x > '.claude/settings.json'`. It passes with quote-stripping
+# ablated, because redirect matching already tolerated surrounding quotes — so it
+# cannot tell "feature present" from "feature absent". Same vacuous shape as the
+# `printf`/`mv` cases dropped in the first round. The `cd` cases above are what
+# actually exercise quote-stripping.
+# Destination not last, and destination followed by a flag.
+assert_decision "cp -t with destination first"       "cp -t .claude/hooks/ require-jj-new.sh"             "ask"
+assert_decision "cp with trailing flag"              "cp require-jj-new.sh .claude/hooks/require-jj-new.sh -v" "ask"
+# Quoting must not turn ordinary work noisy.
+assert_decision "quoted ordinary redirect"           "echo x > 'notes.txt'"                               "silent"
+assert_decision "cd quoted ordinary dir"             "cd 'src' && echo x > foo.txt"                       "silent"
+
+# ---- Targets the gate cannot read statically (#123, third review round) ----
+# Routes 1 and 3 captured a single whitespace-delimited token, so the space
+# inside `$(echo .claude)` truncated the capture before the protected substring
+# was ever reached. Route 2 was immune purely by accident — the previous round's
+# "any argument counts" change made it capture the whole segment instead.
+#
+# These are not merely missed: `echo` and `cd` are on the Tier-1 safelist below,
+# so a miss stops being "no opinion" and becomes an explicit approve. That
+# amplifier is what turned each of these rounds' gaps into a full bypass.
+echo "=== Targets the gate cannot read statically (#123) ==="
+assert_decision "command substitution in cd"         "cd \$(echo .claude) && echo pwned > settings.json"  "ask"
+assert_decision "command substitution in redirect"   "echo pwned > \$(echo .claude/settings.json)"        "ask"
+assert_decision "backticks in redirect"              "echo pwned > \`echo .claude/settings.json\`"        "ask"
+# A write whose target is only known at runtime cannot be checked at all, so it
+# must not be auto-approved on the strength of its leading verb.
+assert_decision "variable redirect target"           "echo x > \$OUT"                                     "ask"
+assert_decision "variable write-verb target"         "tee \$LOGFILE"                                      "ask"
+# ...but a dynamic value on the SOURCE side, written to a literal target, is
+# ordinary work and must stay quiet.
+assert_decision "dynamic source, literal target"     "echo \$VERSION > version.txt"                       "silent"
+# ANSI-C quoting spells `.` as \056, so the protected substring never appears and
+# no expansion keyword does either. Found while sweeping AFTER the third review
+# round fixed command substitution — i.e. the enumeration had already failed
+# again. The rule is therefore not "these expansion forms" but "any \$ in a write
+# target means the target cannot be read", which is a property rather than a list.
+assert_decision "ansi-c quoted target"               "echo x > \$'\\056claude/settings.json'"             "ask"
 
 # ---- Summary ----
 echo ""

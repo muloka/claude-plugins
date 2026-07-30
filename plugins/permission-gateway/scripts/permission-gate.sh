@@ -459,6 +459,184 @@ if echo "$command_normalized" | grep -qE '(^|[;&|]\s*)find\s.*(-exec|-delete)'; 
   ask "find with -exec/-delete can be destructive — requires human confirmation."
 fi
 
+# Protected config paths reached via Bash (#123)
+#
+# gate-config-writes.sh guards these same paths, but it is registered on Write
+# and Edit only, so a Bash write never reaches it. The redirect check below
+# deliberately exempts relative targets — right for ordinary work, wrong for the
+# handful of paths that decide what this gate itself enforces. Measured before
+# this existed: `echo x > .claude/settings.json` produced NO decision at all,
+# not ask and not deny, so the write proceeded under the ambient permission
+# mode. #97 sharpened it by tracking .claude/, making those files the
+# enforcement surface for every fresh clone and every jj workspace.
+#
+# The path set is duplicated from gate-config-writes.sh rather than sourced: a
+# shared file would itself become a bypass target, and one more thing needing a
+# gate. Change one, change the other.
+PROTECTED_PATHS_RE='(permission-gate|\.claude/settings|\.claude/hooks/|\.claude/scripts/|\.claude-plugin/)'
+
+# Directory forms, for the `cd` route below. A bare `.claude` does not match
+# PROTECTED_PATHS_RE (which wants `.claude/settings`, `.claude/hooks/`, ...), but
+# `cd`-ing into it leaves the working directory one bare filename away from every
+# protected file.
+PROTECTED_DIRS_RE='(\.claude([^[:alnum:]_-]|$)|\.claude-plugin([^[:alnum:]_-]|$)|permission-gate)'
+
+# Only WRITES count. Naming a protected path is not writing to one — `cat
+# .claude/settings.json` and `grep -r x .claude/hooks/` must stay silent, or the
+# gate becomes noise on ordinary inspection and gets tuned out.
+#
+# Matching runs on a quote-stripped, separator-normalized copy. A literal
+# substring test reads only the path as WRITTEN, so every equivalent spelling of
+# the same file is a separate hole:
+#
+#   * `.claude//settings.json` and `.claude/./settings.json` reach the same file
+#     while matching nothing.
+#   * `cd '.claude'` defeated a boundary that wanted `/` or end-of-line right
+#     after `.claude`, because the closing quote sat there instead — and quoting
+#     a short bare directory name is the most natural thing to type.
+#
+# Quotes are stripped first, then separators collapsed. The `/./` substitution
+# runs twice because a global substitution resumes after each replacement and so
+# skips the overlap in `/././`. Stripping quotes can make a quoted `>` inside a
+# string look like a redirect; that direction costs a prompt, never a bypass.
+cmd_paths=$(printf '%s' "$command_normalized" \
+  | sed -e "s/['\"]//g" -e 's|/\./|/|g' -e 's|/\./|/|g' -e 's|//*|/|g')
+
+# Fails closed on a matcher error, mirroring gate-config-writes.sh: grep's
+# contract is 0 = match, 1 = no match, anything else = broken, and a broken
+# matcher must never read as "no match". Always called as an `if` condition,
+# where the ERR trap and `set -e` are both exempt, so a benign exit 1 stays quiet.
+contains_protected() {
+  local rc=0
+  printf '%s' "$1" | grep -qiE "$PROTECTED_PATHS_RE" || rc=$?
+  if [ "$rc" -gt 1 ]; then
+    ask "Permission gateway: could not evaluate a write target (matcher error) and is failing closed. Human approval required."
+  fi
+  return "$rc"
+}
+
+protected_route=""
+
+# Route 1 — redirect targets, `>` and `>>` alike. Appending a permissive rule
+# loosens a settings file as effectively as clobbering it, and the existing
+# check below matches only `>`. Relative targets are NOT exempt here; that
+# exemption is precisely the bug.
+# Capture from the `>` to the next command separator, NOT the next whitespace.
+# A single-token capture stopped at the space inside `$(echo .claude/...)`, so
+# the protected substring was truncated away before it could be matched. Route 2
+# was immune only by accident, having been changed to whole-segment capture for
+# an unrelated reason last round.
+redirect_rc=0
+redirect_targets=$(printf '%s' "$cmd_paths" \
+  | grep -oE '>>?[^;&|]*') || redirect_rc=$?
+if [ "$redirect_rc" -gt 1 ]; then
+  ask "Permission gateway: could not scan redirect targets (matcher error) and is failing closed. Human approval required."
+fi
+if [ -n "$redirect_targets" ] && contains_protected "$redirect_targets"; then
+  protected_route="redirect"
+fi
+
+# Route 2 — verbs that write a file named as a plain argument, with no redirect
+# to catch. The verb must be at COMMAND POSITION: matching it anywhere made
+# `grep -rn tee .claude/hooks/` — searching for the word "tee" — ask.
+#
+# ANY argument of such a verb counts as a candidate destination. An earlier
+# version took cp's and install's destination to be the last argument, so that an
+# ordinary backup reading *out* of a protected directory stayed quiet. That
+# precision is not safely reachable: `cp -t .claude/hooks/ f` puts the
+# destination first and `cp a b -v` puts a flag last, and both were silent.
+# Silent is especially bad here — `cp` is on the Tier-1 safelist below
+# (`^(mkdir|cp|touch|ln)\b`), so a miss reaches an explicit approve rather than
+# merely no opinion. Flag parsing is an open-ended surface (`-t`,
+# `--target-directory=`, `-T`, combined shorts like `-vt`) on which every
+# unhandled form is another silent approve, so this over-asks instead: the cost
+# is a prompt when copying a protected file elsewhere.
+#
+# `mv`, `rm` and `sed -i` are absent deliberately: each already asks via a rule
+# above that ignores its target entirely, so listing them adds nothing. Verb
+# enumeration is not airtight and is not claimed to be — the general fix is
+# resolving every argument against the protected set, tracked in #123.
+if [ -z "$protected_route" ]; then
+  seg_rc=0
+  write_segments=$(printf '%s' "$cmd_paths" \
+    | grep -oE '(^|[;&|][[:space:]]*)(tee|cp|dd|install|truncate)[[:space:]][^;&|]*') || seg_rc=$?
+  if [ "$seg_rc" -gt 1 ]; then
+    ask "Permission gateway: could not scan for write verbs (matcher error) and is failing closed. Human approval required."
+  fi
+  if [ -n "$write_segments" ] && contains_protected "$write_segments"; then
+    protected_route="write verb"
+  fi
+fi
+
+# Route 3 — `cd` into a protected directory, then write to a bare filename.
+# `cd .claude && echo x > settings.json` is ordinary shell, and after the cd the
+# protected substring never appears in the command at all: routes 1 and 2 both
+# see only `settings.json`. Resolving that properly means tracking the working
+# directory across a command chain, which this gate does not do, so it asks
+# whenever a protected `cd` and any write route appear together. Reading after
+# such a cd stays silent — `cd .claude && cat settings.json` is inspection.
+if [ -z "$protected_route" ]; then
+  cd_rc=0
+  cd_targets=$(printf '%s' "$cmd_paths" \
+    | grep -oE '(^|[;&|][[:space:]]*)cd[[:space:]]+[^;&|]*') || cd_rc=$?
+  if [ "$cd_rc" -gt 1 ]; then
+    ask "Permission gateway: could not scan cd targets (matcher error) and is failing closed. Human approval required."
+  fi
+  if [ -n "$cd_targets" ]; then
+    cd_match_rc=0
+    printf '%s' "$cd_targets" | grep -qiE "$PROTECTED_DIRS_RE" || cd_match_rc=$?
+    if [ "$cd_match_rc" -gt 1 ]; then
+      ask "Permission gateway: could not evaluate a cd target (matcher error) and is failing closed. Human approval required."
+    fi
+    if [ "$cd_match_rc" -eq 0 ]; then
+      write_rc=0
+      printf '%s' "$cmd_paths" \
+        | grep -qE '(>|(^|[;&|][[:space:]]*)(tee|cp|dd|install|truncate)[[:space:]])' || write_rc=$?
+      if [ "$write_rc" -gt 1 ]; then
+        ask "Permission gateway: could not scan for a write after cd (matcher error) and is failing closed. Human approval required."
+      fi
+      if [ "$write_rc" -eq 0 ]; then
+        protected_route="cd into a protected directory, then write"
+      fi
+    fi
+  fi
+fi
+
+# Route 4 — a write whose TARGET cannot be read statically. Command
+# substitution, backticks and parameter expansion all produce their value at run
+# time, so no amount of matching on the command text can say whether the target
+# is protected.
+#
+# This exists because of the amplifier, not the gap. The Tier-1 safelist below
+# approves on the LEADING VERB alone, and `echo`, `cat` and `cp` are all on it —
+# so a target this block cannot read does not degrade to "no opinion", it
+# degrades to an explicit approve. Every bypass found across three review rounds
+# reached the filesystem that way. An unreadable target must therefore cost a
+# prompt.
+#
+# Deliberately restricted to the TARGET side: `echo $VERSION > version.txt` is
+# ordinary work and stays silent, because the dynamic value is on the source.
+if [ -z "$protected_route" ]; then
+  dyn_rc=0
+# ANY `$`, not an enumerated list of expansion forms. Listing `$(`, `${` and
+# `$NAME` left `$'\056claude/...'` — ANSI-C quoting, which spells `.` as an octal
+# escape — silent, found by sweeping right after the previous enumeration was
+# fixed. The question the gate can actually answer is "does this target contain
+# something resolved at run time", and any `$` or backtick answers it.
+  printf '%s' "$redirect_targets$write_segments" \
+    | grep -qE '[$`]' || dyn_rc=$?
+  if [ "$dyn_rc" -gt 1 ]; then
+    ask "Permission gateway: could not scan a write target for dynamic expansion (matcher error) and is failing closed. Human approval required."
+  fi
+  if [ "$dyn_rc" -eq 0 ]; then
+    protected_route="write to a target this gate cannot read statically"
+  fi
+fi
+
+if [ -n "$protected_route" ]; then
+  ask "Writing to permission-gateway or hook configuration via Bash ($protected_route) — requires human confirmation. This file controls which commands are auto-approved, blocked, or which hooks are active."
+fi
+
 # Redirect clobber — > (not >>) to paths outside project working directory
 # ./relative and bare filenames are fine; absolute paths and ~/ deserve confirmation
 if echo "$command_normalized" | grep -qE '[^>]>\s*[^>]'; then

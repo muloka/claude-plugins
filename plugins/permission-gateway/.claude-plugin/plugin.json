@@ -1,7 +1,7 @@
 {
   "name": "permission-gateway",
   "description": "Tiered permission gateway — auto-approves safe commands, blocks dangerous ones, escalates edge cases to human",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "author": {
     "name": "muloka",
     "email": "muloka@users.noreply.github.com"
