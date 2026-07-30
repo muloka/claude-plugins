@@ -38,7 +38,23 @@ Only writes are gated — reading or grepping a protected path stays silent, or 
 
 The Tier-1 safelist approves on the **leading verb alone**, and `echo`, `cat`, `cd` and `cp` are all on it. That means a protected-path check that fails to recognise a spelling does not degrade to "no opinion" — it degrades to an explicit approve, several dozen lines later. Every bypass found during review reached the filesystem through that amplifier rather than through the gap itself. Treating an unreadable target as a prompt is what stops an unrecognised shell construct from becoming an approval.
 
-**Known limit — this is shape matching, not argument resolution.** It reasons about the text of a command rather than the files that command would touch, and it cannot be proved exhaustive. Three review rounds each found a new class that slipped through: relative and `cd` path forms, then quoted directory names and `cp -t DEST src`, then command substitution — and a sweep immediately after the third fix found ANSI-C quoting (`$'\056claude/...'`) still open. Constructs it does not recognise specifically (`pushd`, a subshell, a `cd` via variable) fall through to the Tier-2 catch-all, which still asks: weaker wording, not a bypass. #123 remains open for resolving arguments properly.
+### The backstop: enumerate reads, not writes
+
+The routes above enumerate ways to **write**, and that list cannot be completed. Four rounds of adding shapes did not converge — relative and `cd` forms, then quoted directory names and `cp -t DEST src`, then command substitution, then ANSI-C quoting — and two classes were immune to the whole approach on principle. A glob means the path is only known after expansion, so `.claude/set*.json` never contains the literal `.claude/settings`. And *any* binary can be a write verb: `sponge` names its target in plain text, matches no route, and then `cat` satisfies the safelist.
+
+So the burden is inverted. The set of write commands is unbounded, but a **read allowlist** is finite and, crucially, fails in the safe direction: a verb nobody thought of is not on it, so it blocks. A command that names a protected path and is not purely a read loses Tier-1 auto-approval and falls through to Tier 2 for a prompt. A redirect counts as a write whatever the verb, since `echo` is a read command and `echo x > .claude/settings.json` is not a read.
+
+**The allowlist is therefore the security boundary, and each member needs auditing in its own right.** "Bounded and written down" is a claim about the set; it says nothing about whether the members are actually read-only. The first version of the list admitted a long tail of verbs that were not: `env` runs another program, so `env cp x .claude/settings.json` classified as a read and defeated the mechanism generically; `sed`'s `w` and `e` commands write and execute without `-i` or a redirect; `awk` has `system()`; `sort -o`, `uniq OUT`, `tree -o`, `xxd -r in out` and `file -C` all write a named file; `find -ok` is not the literal `-exec` an older rule matched; `fd -x` and `rg --pre` run programs.
+
+The admission rule is **any documented write or exec, not one that looks dangerous**. `file -C` compiles a magic file to `<name>.mgc` and cannot overwrite a hook by name, which is precisely why it is easy to wave through — it was caught by auditing the trimmed list, after review had already been round it. Every exclusion carries its reason beside the list in the script, so none gets helpfully added back.
+
+What the shape does buy is that the failure direction is right. Wrappers nobody enumerated — `nice`, `timeout`, `nohup`, `stdbuf`, `command`, `exec`, `busybox` — all prompt, because they were never on the allowlist. Only a wrongly-admitted member is dangerous.
+
+Nothing has to be named for this to hold, which is the point — the next unenumerated construct will not be named either. It closes shapes never written down anywhere: `ln -sf /evil .claude/settings.json` and `touch .claude/hooks/evil.sh` were both **silently auto-approved** before it existed, since `ln` and `touch` sit on the safelist.
+
+Reads stay silent: `cat .claude/settings.json`, `ls -la .claude/` and `grep -r x .claude/hooks/` are all untouched. That is the property the read-set is enumerated to preserve.
+
+**Remaining limit.** The route matching is still shape-based and still cannot be proved exhaustive; what changed is that a miss now degrades to a prompt rather than to an approval. The backstop governs the Tier-1 safelist specifically — the `.local.md` approve path runs earlier and is not covered, though those files are themselves protected, so reaching it needs a hand-written rule rather than a planted one. #123 tracks full argument resolution.
 
 The two copies of the protected-path set are held identical by `tests/test-protected-paths-parity.sh`; drift between them would silently reopen the gap on whichever tool the stale copy handles, with every other suite still green.
 

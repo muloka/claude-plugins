@@ -80,6 +80,15 @@ log_decision() {
 # Each helper logs, then exits the script immediately with the decision.
 
 approve() {
+  # #123: the safelist below approves on the LEADING VERB alone, which is what
+  # turned every protected-path gap found in review into an explicit approve
+  # rather than merely "no opinion". If the command names a protected path and
+  # is not a pure read, withhold auto-approval and let it fall to a prompt.
+  # `auto_approve_blocked` is unset for callers that run before it is computed
+  # (the .local.md path), which leaves their behaviour unchanged.
+  if [ "${auto_approve_blocked:-}" = "1" ]; then
+    ask "Command names permission-gateway or hook configuration and is not a pure read — auto-approval withheld, human confirmation required."
+  fi
   log_decision "APPROVE"
   exit 0
 }
@@ -635,6 +644,113 @@ fi
 
 if [ -n "$protected_route" ]; then
   ask "Writing to permission-gateway or hook configuration via Bash ($protected_route) — requires human confirmation. This file controls which commands are auto-approved, blocked, or which hooks are active."
+fi
+
+# --- Fail closed rather than enumerate (#123) ---
+#
+# Everything above enumerates a way to WRITE, and that list cannot be completed.
+# Two classes proved it after four rounds of adding shapes: a glob means the path
+# is only known after expansion (`.claude/set*.json` never contains the literal
+# `.claude/settings`), and ANY binary can be a write verb — `sponge` names its
+# target in plain text, matches no route, and then `cat` satisfies the Tier-1
+# safelist below and the write is approved outright.
+#
+# So the burden is inverted here. The set of READ commands is bounded and
+# already written down; the set of write commands is not and never will be. A
+# command that names a protected path and is not purely a read is therefore
+# treated as a possible write and loses Tier-1 auto-approval, falling through to
+# Tier 2 for a prompt. Neither globs nor `sponge` have to be named for that to
+# hold — which is the whole point, since the next one will not be named either.
+#
+# A redirect counts as a write regardless of verb: `echo` is on the read list and
+# `echo x > .claude/settings.json` is still a write.
+#
+# Scope: this governs the Tier-1 safelist, which is where every bypass found in
+# review actually landed. The `.local.md` approve path runs earlier and is not
+# covered by it; those files are themselves protected (they match
+# PROTECTED_PATHS_RE), so reaching that path requires a rule the user wrote by
+# hand rather than one an injection could plant.
+PROTECTED_FRAGMENTS_RE='(\.claude|\.claude-plugin|permission-gate|settings\.json|settings\.local\.json)'
+
+# THIS LIST IS THE SECURITY BOUNDARY. A verb belongs here only if it can neither
+# write a file nor execute another program in ANY documented invocation — not
+# merely in its common one. "Bounded and written down" is a claim about the set;
+# it is worthless without an audit of each member, and the first version of this
+# list was wrong eight times over.
+#
+# Excluded, with the reason, so nobody helpfully adds one back:
+#   env      runs another program — `env cp x .claude/settings.json` classified
+#            as a read and defeated this entire mechanism generically
+#   sed      `w`/`W` write a file; GNU `e` executes a shell command (no -i, no >)
+#   awk      system(), `print > file`, and piping to "sh"
+#   sort     -o FILE
+#   uniq     takes an OUTPUT file as its second positional operand
+#   find     -exec/-execdir/-ok/-okdir/-delete/-fprintf/-fls  (the pre-existing
+#            rule matches only the literal -exec and -delete, so -ok slipped past)
+#   fd       -x/--exec
+#   tree     -o FILE
+#   rg       --pre runs a preprocessor program
+#   less     `!cmd` shell escape, and LESSOPEN
+#   more     same shell escape
+#   xxd      accepts an optional OUTFILE operand, so `xxd -r in out` writes
+#   jj       a VCS: `jj restore` rewrites working-copy files in place
+#   file     -C/--compile writes a <name>.mgc file. It cannot overwrite a hook
+#            by name, which is exactly why it is easy to wave through — the rule
+#            is "any documented write", not "a write that looks dangerous"
+#
+# Everything remaining reads its operands and writes only to stdout, so it can
+# reach a file solely through a redirect — which the caller checks separately.
+READONLY_VERBS_RE='^(ls|cat|head|tail|wc|grep|jq|echo|printf|pwd|which|whoami|date|stat|diff|tr|cut|basename|dirname|realpath|type|printenv|od|hexdump|column|cd)$'
+
+auto_approve_blocked=""
+frag_rc=0
+printf '%s' "$cmd_paths" | grep -qiE "$PROTECTED_FRAGMENTS_RE" || frag_rc=$?
+if [ "$frag_rc" -gt 1 ]; then
+  ask "Permission gateway: could not evaluate the command for protected paths (matcher error) and is failing closed. Human approval required."
+fi
+if [ "$frag_rc" -eq 0 ]; then
+  redir_rc=0
+  printf '%s' "$cmd_paths" | grep -qE '>' || redir_rc=$?
+  if [ "$redir_rc" -gt 1 ]; then
+    ask "Permission gateway: could not scan for a redirect (matcher error) and is failing closed. Human approval required."
+  fi
+  # A construct resolved at run time cannot be classified, and the classifier
+  # only ever reads the FIRST token of a segment — so a write nested in a command
+  # substitution, passed as a mere argument to an allowlisted verb, is never
+  # looked at. `echo $(cp x .claude/settings.json)` was silent, and so was the
+  # same trick wrapping `env`, a verb already excluded from the allowlist. No
+  # amount of auditing the verb list closes that: `echo` and `cat` are genuinely
+  # safe on their own, so the gap sits between the two mechanisms rather than
+  # inside either. This is Route 4's reasoning applied to the whole segment
+  # instead of only to the redirect and write-verb captures, which are both empty
+  # in that shape.
+  subst_rc=0
+  printf '%s' "$cmd_paths" | grep -qE '\$\(|`|\$\{' || subst_rc=$?
+  if [ "$subst_rc" -gt 1 ]; then
+    ask "Permission gateway: could not scan for command substitution (matcher error) and is failing closed. Human approval required."
+  fi
+  if [ "$redir_rc" -eq 0 ] || [ "$subst_rc" -eq 0 ]; then
+    auto_approve_blocked=1
+  else
+    # Leading verb of every pipeline/chain segment. If even one is not a known
+    # read, the command as a whole is not a pure read.
+    segment_verbs=$(printf '%s' "$cmd_paths" | tr ';|&' '\n' \
+      | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]].*$//' | grep -v '^$') || true
+    while IFS= read -r verb; do
+      [ -n "$verb" ] || continue
+      verb_rc=0
+      printf '%s' "$verb" | grep -qE "$READONLY_VERBS_RE" || verb_rc=$?
+      if [ "$verb_rc" -gt 1 ]; then
+        ask "Permission gateway: could not classify a command verb (matcher error) and is failing closed. Human approval required."
+      fi
+      if [ "$verb_rc" -ne 0 ]; then
+        auto_approve_blocked=1
+        break
+      fi
+    done <<EOF
+$segment_verbs
+EOF
+  fi
 fi
 
 # Redirect clobber — > (not >>) to paths outside project working directory
