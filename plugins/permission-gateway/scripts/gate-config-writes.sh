@@ -42,6 +42,23 @@ set -euo pipefail
 input=$(cat)
 file_path=$(echo "$input" | jq -r '.tool_input.file_path // ""')
 
+# Normalize before matching, exactly as permission-gate.sh does (#123). A literal
+# substring test reads only the path as WRITTEN, so `.claude//settings.json` and
+# `.claude/./settings.json` name the same file while matching nothing. That was
+# fixed on the Bash side and never propagated here, leaving this gate — the
+# original "gate the gate" — bypassable through the Write tool.
+#
+# The parity lint did not catch it, because the two copies of the regex are
+# genuinely identical; only one side normalized its input. Textual parity is not
+# behavioural parity, which is why that lint now feeds paths to both gates and
+# compares decisions instead of diffing regex strings.
+#
+# Quotes first, then separators. The `/./` substitution runs twice because a
+# global substitution resumes after each replacement and so skips the overlap in
+# `/././`.
+file_path=$(printf '%s' "$file_path" \
+  | sed -e "s/['\"]//g" -e 's|/\./|/|g' -e 's|/\./|/|g' -e 's|//*|/|g')
+
 # Check if the write target is a protected file.
 #
 # The match is run OUTSIDE an `if` condition, and its three outcomes are handled

@@ -75,6 +75,26 @@ assert_ask "gateway local rules"             ".claude/permission-gateway.local.m
 # The evaluation engine itself, and this guard, whose path contains
 # "permission-gateway" and therefore matches "permission-gate".
 assert_ask "the evaluation engine"           "plugins/permission-gateway/scripts/permission-gate.sh"
+
+# --- Path spellings (#123) ---
+# A literal substring test reads only the path as WRITTEN. `permission-gate.sh`
+# learned this over four review rounds and normalizes before matching; this gate
+# holds a byte-identical copy of the regex and did NOT, so the same file reached
+# the filesystem ungated through the Write tool.
+#
+# The parity lint did not catch it: it compares the two regexes as strings, and
+# they ARE identical. Textual parity is not behavioural parity when only one side
+# normalizes its input — which is why that lint is now behavioural too.
+assert_ask "double slash"                    ".claude//settings.json"
+assert_ask "dot segment"                     ".claude/./settings.json"
+assert_ask "double slash in hooks"           ".claude//hooks//require-jj-new.sh"
+assert_ask "dot segment in hooks"            ".claude/./hooks/require-jj-new.sh"
+assert_ask "repeated dot segments"           ".claude/././settings.json"
+assert_ask "quoted path"                     "'.claude/settings.json'"
+assert_ask "absolute with double slash"      "/Users/me/proj/.claude//settings.json"
+# Normalizing must not start gating unrelated files.
+assert_passthrough "unprotected double slash" "src//app.js"
+assert_passthrough "unprotected dot segment"  "src/./app.js"
 assert_ask "this guard itself"               "plugins/permission-gateway/scripts/gate-config-writes.sh"
 # Matching is case-insensitive (grep -qi); a case-shifted path must not slip by.
 assert_ask "case-insensitive match"          "/Users/me/.CLAUDE/Settings.json"
