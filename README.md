@@ -20,7 +20,7 @@ All jj output commands (`jj log`, `jj diff`, `jj bookmark list`, `jj op log`, `j
 |--------|-------------|:--------:|:------:|
 | **project-setup-jj** | Bootstrap jj workflow enforcement with `/project-setup` | 1 | — |
 | **workspace-jj** | Worktree isolation for jj repos via `jj workspace` hooks | 2 | — |
-| **commit-commands-jj** | jj commit workflows — commit, push, PR creation, and more | 14 | — |
+| **commit-commands-jj** | jj commit workflows — commit, push, PR creation, and more | 16 | — |
 | **peer-review-jj** | Unified change review — generalist-first with emergent specialists | 1 | 1 |
 
 ## project-setup-jj

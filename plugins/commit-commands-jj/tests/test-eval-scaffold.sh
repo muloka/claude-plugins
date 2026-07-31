@@ -32,8 +32,19 @@ fi
 TMPROOT=$(mktemp -d)
 trap 'rm -rf "$TMPROOT"' EXIT
 
-for case_name in hook-blocks-raw-git hook-blocks-git-internals; do
-  scaffold="$PLUGIN_DIR/evals/$case_name/scaffold.sh"
+# Discover scaffolds by glob, not from a hardcoded list. The list silently
+# excluded every case added after it was written — a new scaffold would ship
+# with none of these assertions ever having run against it, which is the failure
+# a coverage suite can least afford. SCAFFOLD_FLOOR guards the other direction:
+# a glob matching nothing iterates zero times and reports a cheerful "0 failed".
+# bash 3.2, so no globstar.
+SCAFFOLD_FLOOR=2
+scaffold_count=0
+
+for scaffold in "$PLUGIN_DIR"/evals/*/scaffold.sh; do
+  [ -f "$scaffold" ] || continue
+  scaffold_count=$((scaffold_count+1))
+  case_name=$(basename "$(dirname "$scaffold")")
   sandbox=$(mktemp -d "$TMPROOT/sb.XXXXXX")
   mkdir -p "$sandbox/home" "$sandbox/cwd"
 
@@ -111,15 +122,32 @@ for case_name in hook-blocks-raw-git hook-blocks-git-internals; do
     bad "$case_name: scaffold leaves no config inside the work tree"
   fi
 
-  if [ -d "$sandbox/cwd/.jj" ] && [ -f "$sandbox/cwd/notes.txt" ]; then
-    ok "$case_name: scaffold builds the repo the case expects"
+  # A jj repo with at least one ordinary file in the work tree.
+  #
+  # This used to require `notes.txt` specifically, which was fine while the loop
+  # was a hardcoded pair that both happened to create it. Under the glob it
+  # failed two scaffolds that build `spike.txt` and `feature.txt` instead — a
+  # false alarm, but the right kind: the assertion was case-specific and only
+  # looked general. Per-case expectations belong in a per-case guard, the way
+  # the colocation check below is written; what every scaffold genuinely owes
+  # is a repo that is not empty.
+  tracked=$(find "$sandbox/cwd" -maxdepth 1 -type f -not -name '.*' 2>/dev/null | wc -l | tr -d ' ')
+  if [ -d "$sandbox/cwd/.jj" ] && [ "$tracked" -ge 1 ]; then
+    ok "$case_name: scaffold builds a jj repo with a non-empty work tree"
   else
-    bad "$case_name: scaffold builds the repo the case expects"
+    bad "$case_name: scaffold builds a jj repo with a non-empty work tree (.jj=$([ -d "$sandbox/cwd/.jj" ] && echo yes || echo no), files=$tracked)"
   fi
 
-  # Colocation is load-bearing for the internals case and only for it: that
-  # prompt reads the git directory at the work-tree root, and a plain
-  # `jj git init` keeps the backend inside .jj/ where there is nothing to read.
+  # Colocation is load-bearing for the internals case: its prompt reads the git
+  # directory at the work-tree root.
+  #
+  # NOTE (#104, jj 0.43.0): the original reasoning here — "a plain `jj git init`
+  # keeps the backend inside .jj/ where there is nothing to read" — is now
+  # FALSE. `jj git init` colocates BY DEFAULT (`--colocate`'s help says "This is
+  # the default"; `git.colocate` ships `true`). So `--colocate` in that scaffold
+  # is redundant rather than load-bearing, and the sibling case is colocated too
+  # whether or not it wants to be. Isolation now requires `--no-colocate`.
+  # Pinned by tests/test-command-prose-claims.sh.
   # Lose the --colocate flag and the ablation's without-arm starts failing on a
   # missing file — still scoring 0, so the delta stays +1.00 and the regression
   # is invisible in the numbers (#103).
@@ -147,8 +175,9 @@ done
 #
 # Fail-first: both scaffolds destroyed this file before the guard was added.
 echo "--- #118: a real HOME's jj config must survive ---"
-for case_name in hook-blocks-raw-git hook-blocks-git-internals; do
-  scaffold="$PLUGIN_DIR/evals/$case_name/scaffold.sh"
+for scaffold in "$PLUGIN_DIR"/evals/*/scaffold.sh; do
+  [ -f "$scaffold" ] || continue
+  case_name=$(basename "$(dirname "$scaffold")")
 
   # A home that is NOT under the TMPDIR the scaffold is told about. Both live
   # under TMPROOT but are siblings, so $fake_home sits outside $other_tmp and
@@ -195,6 +224,15 @@ if [ -f "$sandbox_home/.config/jj/config.toml" ] \
   ok "a sandbox HOME under TMPDIR still receives the hardening (#118)"
 else
   bad "the guard blocked a legitimate sandbox HOME — hardening disabled everywhere (#118)"
+fi
+
+# Floor. Without this, a glob that matches nothing runs zero assertions and the
+# suite reports a confident "0 failed" — the same shape of lie the hardcoded
+# list told, arrived at from the opposite direction.
+if [ "$scaffold_count" -ge "$SCAFFOLD_FLOOR" ]; then
+  ok "discovered $scaffold_count scaffolds (floor $SCAFFOLD_FLOOR)"
+else
+  bad "discovered only $scaffold_count scaffolds, expected at least $SCAFFOLD_FLOOR"
 fi
 
 printf '%d passed, %d failed\n' "$PASS" "$FAIL"
