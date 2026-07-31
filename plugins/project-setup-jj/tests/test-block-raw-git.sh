@@ -4,11 +4,16 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 # project-setup-jj is the canonical superset copy; behaviour is tested against
-# it, and the drift-guard proves the other two are byte-identical.
+# it, and the drift-guard proves the remaining copy is byte-identical.
 HOOK="$REPO_ROOT/plugins/project-setup-jj/scripts/block-raw-git.sh"
 
-COPIES="plugins/commit-commands-jj/scripts/block-raw-git.sh
-plugins/peer-review-jj/scripts/block-raw-git.sh
+# commit-commands-jj shipped a third copy until #128. It now depends on
+# project-setup-jj rather than standing alone, so this suite became the only
+# guard for the must-allow shapes /finish and /commit-push-pr write — see the
+# #105 block below, which already names both commands. That plugin's own
+# tests/test-block-raw-git-gating.sh was deleted alongside its copy; all 20 of
+# its assertions were already duplicated here, verified case by case first.
+COPIES="plugins/peer-review-jj/scripts/block-raw-git.sh
 plugins/project-setup-jj/scripts/block-raw-git.sh"
 
 pass=0
@@ -185,7 +190,8 @@ assert_blocked "double quotes survive the harness" 'git commit -m "wip"'        
 # before the #101 per-clause fix and must still pass after it. A false positive
 # in this hook is as bad as a bypass — `jj git push` is instructed in the
 # command prose of /commit-push-pr and /finish, so a hook that blocks it breaks
-# the documented workflow of three plugins.
+# the documented workflow of commit-commands-jj, which since #128 depends on
+# this copy rather than shipping its own.
 echo "=== jj repo: interop seams and non-git pass through ==="
 assert_passthrough "jj git push allowed"    "jj git push"           "$JJ_DIR"
 assert_passthrough "jj git push with bookmark" "jj git push --bookmark feature-x" "$JJ_DIR"
@@ -454,7 +460,7 @@ assert_passthrough "git status in git subdir" "git status"          "$GIT_DIR/sr
 assert_passthrough "git commit in non-jj"     "git commit -m x"     "$GIT_DIR"
 assert_passthrough "git config in non-jj"     "git config user.name x" "$GIT_DIR"
 
-echo "=== drift-guard: all three copies are byte-identical ==="
+echo "=== drift-guard: both copies are byte-identical ==="
 uniq_hashes=$( (cd "$REPO_ROOT" && shasum -a 256 $COPIES) | awk '{print $1}' | sort -u | grep -c . )
 if [ "$uniq_hashes" = "1" ]; then
   echo "  PASS: block-raw-git.sh copies share one sha256"; pass=$((pass + 1))

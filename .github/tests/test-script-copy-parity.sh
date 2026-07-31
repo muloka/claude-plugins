@@ -2,16 +2,27 @@
 # Drift guard for scripts that are deliberately duplicated across plugins.
 #
 # Several plugins ship byte-identical copies of the same script so each plugin
-# stands alone (block-raw-git.sh in three, jj-workspace-create.sh and
-# jj-workspace-remove.sh in two). A fix applied to one copy and not the others
-# is silent: the tests exercise one copy, pass, and the stale copies keep
-# shipping the old behaviour to whoever installed that plugin. #101 was exactly
-# this shape — a security fix that had to land in three places at once.
+# stands alone (block-raw-git.sh in two, since #128). A fix applied to one copy
+# and not the others is silent: the tests exercise one copy, pass, and the stale
+# copies keep shipping the old behaviour to whoever installed that plugin. #101
+# was exactly this shape — a security fix that had to land in three places at
+# once.
 #
 # block-raw-git.sh already had a guard inside its own behaviour test. The other
-# two sets had none, so this sweep covers every duplicate by discovery rather
+# sets had none, so this sweep covers every duplicate by discovery rather
 # than by a hand-maintained list: any basename appearing under more than one
 # plugin's scripts/ must be byte-identical everywhere it appears.
+#
+# Discovery cannot tell a decision from an accident. It reports whatever it
+# finds as deliberately duplicated, because that is the only story it can
+# tell — but a leftover copy nobody registers looks identical to a copy every
+# plugin depends on, and this guard then enforces byte-identity on it and
+# launders it into apparent intent. That is exactly what happened to
+# workspace-jj's jj-workspace-{create,remove}.sh: registered by nothing, kept in
+# lockstep here for months, removed in #128. Before treating a set listed above
+# as load-bearing, check that each copy is actually registered in its plugin's
+# manifest. The trade-off is deliberate — discovery catches drift nobody would
+# have enumerated, at the cost of never questioning what it swept up.
 #
 # Intentional divergence is allowed but must be declared in DIVERGENT below, so
 # a fork is a visible decision rather than an unnoticed drift. A stale entry

@@ -1,7 +1,7 @@
 {
   "name": "workspace-jj",
   "description": "Wave-based parallel orchestration with spec review gates for jj (Jujutsu) repositories",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "author": {
     "name": "muloka",
     "email": "muloka@users.noreply.github.com"

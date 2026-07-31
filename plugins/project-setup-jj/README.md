@@ -29,7 +29,7 @@ It matches text rather than parsing the shell, which cuts both ways.
 
 Git plumbing commands are *not* special-cased. `git config` and `git rev-parse` are denied by the raw-git rule above like any other subcommand, and get advice specific to them.
 
-The authoritative list is the comment block in `scripts/block-raw-git.sh`, which is byte-identical across all three plugins and pinned by assertions in `project-setup-jj/tests/test-block-raw-git.sh`. Every jj command the deny messages recommend is checked to exist *and* be runnable by `.github/tests/test-jj-recommendations.sh`. It is a guardrail against habit, not a sandbox — anyone who needs git can disable the plugin.
+The authoritative list is the comment block in `scripts/block-raw-git.sh`, which is byte-identical across this plugin and `peer-review-jj` and pinned by assertions in `project-setup-jj/tests/test-block-raw-git.sh`. `commit-commands-jj` depends on this plugin for the wall rather than shipping its own copy (#128), so those assertions guard its commands too. Every jj command the deny messages recommend is checked to exist *and* be runnable by `.github/tests/test-jj-recommendations.sh`. It is a guardrail against habit, not a sandbox — anyone who needs git can disable the plugin.
 
 ## Installation
 

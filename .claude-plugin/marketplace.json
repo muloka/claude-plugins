@@ -20,7 +20,7 @@
     },
     {
       "name": "commit-commands-jj",
-      "description": "Commands for jj (Jujutsu) commit workflows including commit, push, and PR creation",
+      "description": "Commands for jj (Jujutsu) commit workflows including commit, push, and PR creation — requires project-setup-jj, which supplies the raw-git wall these commands assume",
       "author": {
         "name": "muloka",
         "email": "muloka@users.noreply.github.com"
