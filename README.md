@@ -1,6 +1,6 @@
 # Claude Code Plugins for jj (Jujutsu)
 
-Claude Code plugins for **jj (Jujutsu)** workflows — project setup, workspace isolation, commit management, peer review, and autonomous permission gating.
+Claude Code plugins for **jj (Jujutsu)** workflows — project setup, workspace isolation, commit management, peer review, and a hard wall against raw `git`.
 
 ## Who this is for
 
@@ -10,7 +10,7 @@ These plugins are for people who have chosen **jj (Jujutsu)** and want their cod
 
 LLM agents have a strong reflex toward git. It dominates their training data, so `git add` / `git commit` / `git status` are what they reach for automatically — often mid-task, **even when the project explicitly specifies jj, and even when the agent agrees jj is the better choice.** A written rule like "use jj, not git" is a suggestion the model can rationalize past a moment later.
 
-So enforcement sits below the level the model can argue with. A `PreToolUse` hook (`block-raw-git.sh`) registered by `project-setup-jj` and `peer-review-jj` intercepts every Bash call, blocks raw `git`, and hands back the jj equivalent — turning a reflexive `git commit` into a redirect the agent recovers from. The two deliberate exceptions are `jj git` subcommands (e.g. `jj git push`) and the `gh` CLI, the legitimate git-interop seams. Permission-gateway is standalone and works in any repo, jj or git.
+So enforcement sits below the level the model can argue with. A `PreToolUse` hook (`block-raw-git.sh`) registered by `project-setup-jj` and `peer-review-jj` intercepts every Bash call, blocks raw `git`, and hands back the jj equivalent — turning a reflexive `git commit` into a redirect the agent recovers from. The two deliberate exceptions are `jj git` subcommands (e.g. `jj git push`) and the `gh` CLI, the legitimate git-interop seams.
 
 All jj output commands (`jj log`, `jj diff`, `jj bookmark list`, `jj op log`, `jj workspace list`, `jj show`, `jj evolog`, `jj op show`, `jj config list`, `jj tag list`) use JSON templates (`-T 'json(self)'`) by default, giving Claude Code structured, machine-parseable output instead of human-readable text. Requires jj >= 0.31.0.
 
@@ -22,7 +22,6 @@ All jj output commands (`jj log`, `jj diff`, `jj bookmark list`, `jj op log`, `j
 | **workspace-jj** | Worktree isolation for jj repos via `jj workspace` hooks | 2 | — |
 | **commit-commands-jj** | jj commit workflows — commit, push, PR creation, and more | 14 | — |
 | **peer-review-jj** | Unified change review — generalist-first with emergent specialists | 1 | 1 |
-| **permission-gateway** | Tiered permission gating — zero-config, self-tuning | 1 | — |
 
 ## project-setup-jj
 
@@ -89,30 +88,6 @@ Unified change review for jj repos. Two-phase pipeline (requesting → receiving
 **Specialist emergence:** After 3+ reviews flag distinct patterns for a concern type, the plugin prompts to create a project-specific specialist at `.claude/peer-review/specialists/`.
 
 Replaces the deprecated `code-review-jj`, `pr-review-toolkit-jj`, and `feature-dev-jj` plugins. See [design doc](docs/peer-review-jj/2026-03-16-peer-review-jj-design.md) for full details.
-
-## permission-gateway
-
-Tiered permission gateway for autonomous subagent workflows. When running multiple subagents in parallel, each making dozens of tool calls, you either pre-approve everything (dangerous) or get 60+ confirmation prompts (kills parallelism). Permission gateway is the middle ground.
-
-**Evaluation order:** Gate-the-Gate → Deny (immutable floor) → `.local.md` rules → Confirm → Approve → Tier 2 (LLM eval)
-
-```
-Tool call fires
-     │
-     ▼
- Gate → Deny → .local.md → Confirm → Approve → Tier 2 LLM
-  │      │         │          │          │          │
-  ▼      ▼         ▼          ▼          ▼          ▼
-PROMPT BLOCK    per rule    PROMPT    SILENT     LLM+PROMPT
-```
-
-**Security:** One-way ratchet — hardcoded deny is an immutable floor that `.local.md` cannot override. Writes to permission-gateway config files require human confirmation (gate-the-gate). Dangerous patterns are scanned in the full command string to prevent bypass via `find -exec`, `xargs`, or redirect clobbers.
-
-**Self-tuning:** All decisions logged to `.claude/permission-gateway.log`. Review the log to promote frequently-confirmed commands to `.local.md` approve rules.
-
-**Commands:** `/tune` — scan decision log and propose `.local.md` rule promotions
-
-**Requires:** [jq](https://jqlang.github.io/jq/). Tier 2 uses Claude Code's built-in prompt hook evaluation — no separate API key or CLI needed.
 
 ## Installation
 
@@ -201,12 +176,12 @@ This repo started as a fork of Anthropic's [claude-plugins-official](https://git
 | **Commits** | `commit-commands-jj` — jj-native with revsets, bookmarks, operation log | `commit-commands` — git add/commit/push |
 | **Code review** | `peer-review-jj` — generalist-first, emergent specialists, structured findings | `code-review` — single-pass review |
 | **Workspace isolation** | `workspace-jj` — jj workspaces via WorktreeCreate/Remove hooks | Not provided (git worktrees are built-in) |
-| **Permission gating** | `permission-gateway` — tiered evaluation, one-way ratchet, self-tuning | Not provided |
+| **Raw-git enforcement** | `block-raw-git.sh` — `PreToolUse` wall denying `git` at any shell command position | Not provided |
 | **Project setup** | `project-setup-jj` — jj workflow enforcement, statusline, SessionStart hooks | Not provided |
 
 **Removed from original:** `code-review`, `commit-commands`, `feature-dev`, `pr-review-toolkit` — replaced by jj-native equivalents above.
 
-**Net new (no upstream equivalent):** `permission-gateway`, `workspace-jj`, `project-setup-jj`, fan-flames skill.
+**Net new (no upstream equivalent):** `workspace-jj`, `project-setup-jj`, the raw-git wall, kaisen skill.
 
 ## License
 
