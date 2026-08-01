@@ -1,51 +1,59 @@
 ---
-description: Cleans up stale bookmarks and workspaces in a jj repository by fetching latest remote state and removing bookmarks deleted on the remote.
-allowed-tools: Bash(jj bookmark:*), Bash(jj workspace:*), Bash(jj git fetch:*)
+description: Cleans up a jj repository by fetching remote state — which prunes bookmarks deleted on the remote — and forgetting stale workspaces.
+allowed-tools: Bash(jj bookmark list:*), Bash(jj workspace:*), Bash(jj git fetch:*)
 ---
 
 **CRITICAL: This is a jj (Jujutsu) plugin. You MUST NOT use ANY raw git commands — not even for context discovery. This includes git checkout, git commit, git diff, git log, git status, git add, git branch, git remote, git rev-parse, git config, git show, git fetch, git pull, git push, git merge, git rebase, git stash, git reset, git tag, or any other `git` invocation. Do not run `ls .git`, `git log`, `git remote -v` or similar to detect repo state. Always use jj equivalents (jj log, jj status, jj diff, etc.). The only exceptions are `jj git` subcommands (e.g. `jj git push`, `jj git fetch`) and `gh` CLI for GitHub operations.**
 
 ## Context
 
-- Current bookmarks (JSON): !`jj bookmark list --all -T 'json(self) ++ "\n"'`
+- Bookmarks **before** the fetch (JSON): !`jj bookmark list --all -T 'json(self) ++ "\n"'`
 - Current workspaces: !`jj workspace list`
 
 ## Your Task
 
-You need to execute the following commands to clean up stale local bookmarks and workspaces in a jj repository.
+Clean up a jj repository. There are two halves and they are not symmetric: **the
+bookmark half is one command, and the workspace half is the only part that needs
+you to find anything.**
 
 ## Commands to Execute
 
-1. **First, fetch the latest remote state**
-   Execute this command:
+1. **Fetch the latest remote state — this *is* the bookmark cleanup**
    ```bash
    jj git fetch
    ```
 
-   Note: jj automatically prunes deleted remote tracking refs during fetch — no `--prune` flag needed.
+   `jj git fetch` prunes deleted remote-tracking refs *and* drops the local
+   bookmark that tracked them. There is no `--prune` flag because there is
+   nothing to opt into, and there is **no follow-up `jj bookmark delete`** —
+   after this step no stale bookmark remains to find.
 
-2. **List all bookmarks to find stale ones**
-   Execute this command:
-   ```bash
-   jj bookmark list --all -T 'json(self) ++ "\n"'
+   Its output names what went, so read it rather than re-deriving it:
+   ```
+   bookmark: feature-gone@origin [deleted] untracked
    ```
 
-   Look for local bookmarks whose remote counterpart has been deleted. These appear as bookmarks that exist locally but have no corresponding remote tracking bookmark, or bookmarks marked as deleted on remote.
+   **Do not go hunting for "local bookmarks whose remote was deleted."** That is
+   the `git fetch --prune` + `git branch -d` habit, and jj does not need it.
+   Running `jj bookmark delete <name>` on a bookmark fetch already removed just
+   prints `Warning: No matching bookmarks for names: <name>` and exits 0 —
+   a no-op that reads like a successful cleanup.
 
-3. **List workspaces to find stale ones**
-   Execute this command:
+   If fetch also reports `Abandoned N commits that are no longer reachable`,
+   that is jj dropping commits the deleted bookmark was the only path to. Work
+   that was merged into trunk stays reachable and is **not** abandoned.
+
+2. **List workspaces to find stale ones**
    ```bash
    jj workspace list
    ```
 
-4. **Delete stale bookmarks**
-   For each stale bookmark found in step 2, execute:
-   ```bash
-   jj bookmark delete <bookmark-name>
-   ```
+   This half is real work. A workspace whose directory has been deleted stays
+   registered indefinitely — no ordinary jj command clears it, and nothing in
+   step 1 touches it.
 
-5. **Forget stale workspaces**
-   For each stale workspace found in step 3 (other than the default workspace), execute:
+3. **Forget stale workspaces**
+   For each stale workspace found in step 2 (other than the default workspace):
    ```bash
    jj workspace forget <workspace-name>
    ```
@@ -54,9 +62,11 @@ You need to execute the following commands to clean up stale local bookmarks and
 
 After executing these commands, you will:
 
-- Have the latest remote state fetched
-- Identify and remove local bookmarks that were deleted on the remote
-- Identify and forget any stale workspaces
-- Provide feedback on which bookmarks and workspaces were cleaned up
+- Have the latest remote state fetched, with bookmarks deleted on the remote
+  already pruned as part of that fetch
+- Have identified and forgotten any stale workspaces
+- Report what was cleaned up — for bookmarks, that is whatever the fetch output
+  named (compare against the pre-fetch list in Context if you want the delta)
 
-If no stale bookmarks or workspaces are found, report that no cleanup was needed.
+If the fetch pruned nothing and no stale workspaces are found, report that no
+cleanup was needed.
