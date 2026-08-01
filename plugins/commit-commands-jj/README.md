@@ -372,9 +372,10 @@ Undoes the last jj operation by restoring the repository to its previous state.
 Discards a jj change entirely, rebasing descendants onto its parent.
 
 **What it does:**
-1. Warns if the change has modifications that will be lost
-2. Runs `jj abandon` to discard the change
-3. Shows the result and reminds you about `/undo`
+1. Records a restore point from the op log before touching anything
+2. Warns if the change has modifications that will be lost
+3. Runs `jj abandon` to discard the change
+4. Shows the result and hands back the exact `jj op restore <id>` that reverses it
 
 **Usage:**
 ```bash
@@ -572,7 +573,7 @@ claude plugins add ./plugins/commit-commands-jj
 
 ### Using `/abandon`
 - Always check the diff before abandoning — modifications will be lost
-- Use `/undo` immediately if you abandoned by mistake
+- Recover with the `jj op restore <id>` it hands you, not with bare `jj undo` — `jj undo` reverses whatever the *latest* operation is, so once any other command has run it silently reverses that instead and reports success while the abandoned work stays gone
 - Descendants are rebased onto the parent, not deleted
 
 ### Using `/show`

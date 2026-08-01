@@ -247,5 +247,68 @@ for mode in bare what-repo; do
   fi
 done
 
+# --- abandon.md (#138): bare `jj undo` is SEQUENTIAL, so it is only a valid
+# recovery for an abandon if nothing else has run since. Measured 2026-08-01:
+# immediately after the abandon it works; let a single ordinary command run in
+# between and it reverses THAT instead — leaving the abandoned work gone while
+# printing "Undid operation ... / Restored to operation ... abandon commit",
+# which reads like success. The captured op id works either way.
+#
+# abandon.md used to say "it can be recovered with `jj undo`" while undo.md
+# warned against exactly that; the prose now names the id. Two arms, because
+# the claim IS the difference between them.
+for mode in immediate after-one-op; do
+  ar=$(new_repo)
+  R "$ar" jj git init . --no-colocate >/dev/null 2>&1
+  printf 'base\n' > "$ar/cwd/README.md"
+  R "$ar" jj describe -m "Initial" >/dev/null 2>&1
+  R "$ar" jj bookmark create main -r @ >/dev/null 2>&1
+  R "$ar" jj new main >/dev/null 2>&1
+  printf 'spike\n' > "$ar/cwd/spike.txt"
+  R "$ar" jj describe -m "Spike" >/dev/null 2>&1
+
+  a_op=$(R "$ar" jj op log -n 1 --no-graph -T 'id.short()')
+  a_t=$(R "$ar" jj log -r @ --no-graph -T 'change_id.short()')
+  R "$ar" jj abandon "$a_t" >/dev/null 2>&1
+  # TWO intervening ops, not one. With a single op, a second bare `jj undo`
+  # also recovers the abandon (undo is sequential), so the "captured id works"
+  # arm below would pass even if the id were replaced by an undo — proven by
+  # mutation. Two ops put the abandon out of reach of any single undo, which
+  # makes that arm actually discriminating.
+  if [ "$mode" = after-one-op ]; then
+    R "$ar" jj describe -m "unrelated" >/dev/null 2>&1
+    R "$ar" jj new >/dev/null 2>&1
+  fi
+  R "$ar" jj undo >/dev/null 2>&1
+
+  if [ "$mode" = immediate ]; then
+    if [ -e "$ar/cwd/spike.txt" ]; then
+      ok "bare 'jj undo' straight after an abandon does recover it"
+    else
+      bad "bare 'jj undo' no longer recovers an immediate abandon — abandon.md's note is wrong (#138)"
+    fi
+  else
+    if [ -e "$ar/cwd/spike.txt" ]; then
+      bad "bare 'jj undo' now survives an intervening command — abandon.md's sequential warning has gone stale (#138)"
+    else
+      ok "bare 'jj undo' after one intervening command recovers the WRONG op (abandon.md's warning holds)"
+    fi
+    # ...and the captured id still works, which is what the prose hands back.
+    R "$ar" jj op restore "$a_op" >/dev/null 2>&1
+    if [ -e "$ar/cwd/spike.txt" ]; then
+      ok "the op id captured before abandoning restores it regardless (abandon.md step 1)"
+    else
+      bad "jj op restore <captured id> failed to recover the abandon — abandon.md step 5 is wrong (#138)"
+    fi
+  fi
+done
+
+# --- undo.md recommends `jj op revert <op-id>`; it must still exist.
+if jj op revert --help >/dev/null 2>&1; then
+  ok "jj op revert exists (undo.md recommends it over bare jj undo)"
+else
+  bad "jj op revert is gone — undo.md recommends a command that no longer exists"
+fi
+
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 test "$FAIL" -eq 0
