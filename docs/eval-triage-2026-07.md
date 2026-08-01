@@ -10,6 +10,23 @@ final verification) still open
 **This is a map, not a prune list. No command is proposed for deletion.**
 See §5 before reading any number here as a recommendation.
 
+> **SUPERSEDED IN PART, 2026-07-31 (#104).** §3's hand-off recipe is sound in
+> every respect but its load-bearing premise. That premise — that a
+> model-initiated command invocation goes through the `Skill` tool and is
+> observable, measured at 3/3 on `describe` — **does not reproduce**.
+> `commit-commands-jj` ships `commands/` and no `skills/`, so in
+> `claude plugin eval` its 16 commands register as **slash commands and
+> contribute zero skills**; `SlashCommand` is ungrantable (§7, Gap A), so the
+> model has no mechanism to invoke them and the command prose never enters
+> context. Re-measured: `Skill called 0x` on 3/3 with-arm runs.
+>
+> Consequence: **Part A cannot be run on this harness**, and every command would
+> report `NO_GAP` by construction — a different thing from "the prose adds
+> nothing", and it must not be reported as one. Full record, plus findings on
+> `jj git init` colocating by default, `jj git fetch` already pruning stale
+> bookmarks, and `file_exists` being unable to observe the sandbox:
+> **[docs/eval-command-triage-2026-07.md](eval-command-triage-2026-07.md)**.
+
 ---
 
 ## What this document is
