@@ -203,21 +203,59 @@ Keeping change <change-id>. No cleanup performed.
 
 ### Option 4: Discard
 
-**Confirm first:**
-```
-This will permanently discard:
-- Change <change-id>: <description>
-- <N> files changed
+`jj abandon` is **not** the destructive act it is in git. The operation log holds
+the pre-abandon state, and `jj op restore` returns to it exactly — including
+files that were never committed. Your job is to preserve that property and hand
+it to the user, not to gate the discard behind a typed keyword.
 
-Type 'discard' to confirm. (Recoverable via /undo)
-```
+1. **Capture the restore point before touching anything:**
+   ```bash
+   jj op log -n 1 --no-graph -T 'id.short()'
+   ```
+   `jj op log` snapshots the working copy before it reports, so the id it
+   returns already covers the current state. **Do not add
+   `--ignore-working-copy`** — it skips that snapshot and hands back a restore
+   point that predates the most recent edits, which is exactly the work about to
+   be discarded.
 
-Wait for exact confirmation.
+2. **State what is going, and whether a copy survives anywhere.** Read the
+   target's bookmarks from Context — do not assert either line below without
+   having looked:
+   ```
+   Discarding <change-id>: <description> — <N> files changed.
+   Not pushed; this is the only copy.        # no bookmark, or bookmark never pushed
+   Pushed as <bookmark>; the remote still has it.   # a pushed bookmark exists
+   ```
 
-If confirmed:
-```bash
-jj abandon <target>
-```
+3. **Abandon:**
+   ```bash
+   jj abandon <target>
+   ```
+   This also drops the local bookmark. **Pushing that deletion is a second,
+   separate act of destruction** — `jj git push --deleted` (or pushing the
+   deleted bookmark) removes the remote's copy, which for pushed work was the
+   only surviving one. Do it only if the user asked for the branch to be gone
+   from the remote too, and say plainly that you did.
+
+4. **Hand back the exact recovery command**, with the id from step 1 — not a
+   bare pointer to `/undo`, which only reaches the *last* operation and is wrong
+   as soon as anything else runs.
+
+   Work that was never pushed:
+   ```
+   If you want it back: jj op restore <id>
+   ```
+
+   **If you deleted a pushed bookmark, `--what repo` is not optional.** A bare
+   `jj op restore` also restores remote-tracking refs, so jj starts believing
+   the remote still holds the branch. The next `jj git push` then answers
+   `Nothing changed.` while the remote stays empty — silent loss behind a
+   success message. `jj op restore --help` says it outright: *"Do not restore
+   these if you'd like to push after the undo."*
+   ```
+   If you want it back: jj op restore <id> --what repo
+   then re-publish:     jj git push --bookmark <name>
+   ```
 
 Then: Workspace cleanup (Step 4).
 
@@ -255,7 +293,8 @@ If in the default workspace, no cleanup needed.
 
 - **Never use raw git commands.** Always jj equivalents.
 - **Never force-push.** Use `jj git push` only.
-- **Get typed confirmation for discard.** Always remind that `/undo` can recover.
+- **Make discard recoverable; don't gate it.** Capture `jj op log -n 1 --no-graph -T 'id.short()'` before abandoning, then hand back `jj op restore <id>`. A typed-confirmation prompt is a git habit — in jj the op log is the safety net, and it works whether or not anyone was asked.
+- **If the discard removed a pushed bookmark from the remote, the recovery command is `jj op restore <id> --what repo`.** The bare form restores remote-tracking refs too, and the following `jj git push` reports `Nothing changed.` over a remote that is still empty.
 - **Don't auto-remove worktree directories.** Let the WorktreeRemove hook handle it.
 - **Keep it focused.** This skill finishes work. It does not run tests or do reviews — those are the caller's responsibility.
 

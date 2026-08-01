@@ -119,7 +119,7 @@ Finishes development work by presenting a menu of completion options and executi
    - **Push and create PR:** warns about non-target ancestor changes that would be swept into the PR, creates a bookmark if needed (or uses `jj git push --change <target>` for a quick anonymous push), pushes with `jj git push --bookmark`, and opens the PR with `gh pr create`
    - **Squash into trunk:** fetches, rebases the change onto trunk, and folds it in with `jj squash --into trunk()`
    - **Keep as-is:** reports the change ID and stops — no cleanup
-   - **Discard:** requires typed confirmation, then runs `jj abandon`
+   - **Discard:** records a restore point from the op log, runs `jj abandon`, and hands back the exact `jj op restore <id>` that undoes it
 4. For push, squash, and discard, cleans up the jj workspace if running in a non-default one (`jj workspace forget`)
 
 **Usage:**
@@ -141,7 +141,7 @@ Finishes development work by presenting a menu of completion options and executi
 
 **Features:**
 - Never force-pushes — uses `jj git push` only
-- Requires typed confirmation before discarding work (recoverable via `/undo`)
+- Makes discarding recoverable rather than gating it — captures an op id first, then reports `jj op restore <id>`
 - Detects and warns about ancestor changes not part of the target work before pushing
 - After a PR merges, abandons the now-landed local ancestor changes as part of cleanup
 - Does not run tests or reviews — finishing work is its own concern
@@ -482,11 +482,9 @@ Lists all tags in the repository with JSON-structured output.
 Cleans up stale local bookmarks and workspaces (replaces `/clean_gone` from the Git plugin).
 
 **What it does:**
-1. Fetches latest remote state with `jj git fetch`
-2. Lists all bookmarks to find those deleted on the remote
-3. Lists workspaces to find stale ones
-4. Deletes stale bookmarks with `jj bookmark delete`
-5. Forgets stale workspaces with `jj workspace forget`
+1. Fetches latest remote state with `jj git fetch` — which is also the entire bookmark cleanup, since fetch drops the local bookmark whose remote counterpart was deleted
+2. Lists workspaces to find stale ones
+3. Forgets stale workspaces with `jj workspace forget`
 
 **Usage:**
 ```bash
@@ -499,15 +497,14 @@ Cleans up stale local bookmarks and workspaces (replaces `/clean_gone` from the 
 /clean_stale
 
 # Claude will:
-# - Fetch latest remote state
-# - Find bookmarks deleted on remote
-# - Remove stale bookmarks and workspaces
+# - Fetch latest remote state (bookmarks deleted on the remote go with it)
+# - Find and forget stale workspaces
 # - Report what was cleaned up
 ```
 
 **Features:**
-- jj auto-prunes remote tracking refs during fetch (no `--prune` needed)
-- Handles both bookmarks and workspaces
+- jj auto-prunes remote tracking refs during fetch (no `--prune` needed, and no follow-up `jj bookmark delete` — there is nothing left to delete)
+- Handles the half jj does *not* do for you: workspaces registered to directories that no longer exist
 - Reports if no cleanup was needed
 
 **When to use:**
@@ -540,7 +537,7 @@ claude plugins add ./plugins/commit-commands-jj
 
 ### Using `/finish`
 - Use when work is complete and tested — it presents the completion options rather than assuming one
-- Get typed confirmation before discarding; `/undo` can still recover it immediately after
+- Discarding is recoverable: it records an op id before abandoning and gives you `jj op restore <id>`, which stays correct even after later operations
 - Prefer this over `/commit-push-pr` when you also want the squash-into-trunk, keep, or discard paths
 
 ### Using `/new`
@@ -598,9 +595,9 @@ claude plugins add ./plugins/commit-commands-jj
 - For tag details, follow up with `/show <tag-name>`
 
 ### Using `/clean_stale`
-- Run periodically to keep your bookmark list clean
-- Especially useful after merging multiple PRs
-- Safe to run — only removes bookmarks already deleted remotely
+- Mostly worth running for the workspace half — the bookmark half is what `jj git fetch` already does on its own
+- Especially useful after deleting workspace directories by hand
+- Safe to run — it prunes only what the remote already deleted, and forgets only workspaces you point it at
 
 ## jj Concepts for Git Users
 

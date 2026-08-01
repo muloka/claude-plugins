@@ -43,11 +43,13 @@ R() { r_root="$1"; shift; ( cd "$r_root/cwd" && env -i PATH="$PATH" \
     XDG_CONFIG_HOME="$r_root/home/.config" TMPDIR="${TMPDIR:-/tmp}" \
     TERM=dumb "$@" ); }
 
-# --- clean_stale.md:25 — "jj automatically prunes ... no --prune flag needed"
+# --- clean_stale.md — "There is no --prune flag because there is nothing to opt
+# into". No line number: the claim has already moved once (it was :25), and a
+# stale pointer in a failure message costs more than it saves.
 if jj git fetch --help 2>&1 | grep -q -- '--prune'; then
-  bad "clean_stale.md:25 says no --prune is needed, but jj git fetch now HAS --prune"
+  bad "clean_stale.md says no --prune is needed, but jj git fetch now HAS --prune"
 else
-  ok "jj git fetch has no --prune flag (clean_stale.md:25 is accurate)"
+  ok "jj git fetch has no --prune flag (clean_stale.md is accurate)"
 fi
 
 # --- No command may recommend `jj git push --allow-new`; it was removed.
@@ -90,6 +92,75 @@ else
   ok "jj git fetch auto-removes a stale tracked bookmark (clean_stale.md steps 2/4 remain vestigial, #132)"
 fi
 
+# --- ...and the prose must keep saying so (#132). The assertion above proves jj
+# does the work; this one proves clean_stale.md has not grown the redundant step
+# back. Only *executable* instructions count — the file legitimately names
+# `jj bookmark delete` in prose to warn the model off it, so this looks solely
+# inside fenced code blocks.
+CMDS="$(cd "$(dirname "$0")/.." && pwd)/commands"
+fenced() { awk '/^[[:space:]]*```/{inb=!inb; next} inb' "$1"; }
+if fenced "$CMDS/clean_stale.md" | grep -q 'jj bookmark delete'; then
+  bad "clean_stale.md executes 'jj bookmark delete' again — jj git fetch already removed it (#132)"
+else
+  ok "clean_stale.md prescribes no redundant 'jj bookmark delete' (#132)"
+fi
+
+# --- finish.md Option 4 (#135). The gate that demanded a typed 'discard' fired
+# 2 of 13 measured runs; the prose now promises the thing that fired 3/3 —
+# capture an op id, abandon, hand back `jj op restore <id>`. Two claims ride on
+# that, and both are asserted here:
+#
+#   default   an id captured with `jj op log -n 1 --no-graph -T 'id.short()'`
+#             restores the abandoned change, INCLUDING an edit jj had not yet
+#             snapshotted (op log snapshots before it reports).
+#   ignore-wc adding --ignore-working-copy skips that snapshot and yields a
+#             restore point predating the last edits — the trap the prose warns
+#             about.
+#
+# Run as a two-arm comparison on purpose: a lone "restore works" check would
+# still pass if the flag stopped mattering, and finish.md's warning would rot
+# unnoticed. Arms must disagree.
+for mode in default ignore-wc; do
+  fr=$(new_repo)
+  R "$fr" jj git init . >/dev/null 2>&1
+  printf 'base\n' > "$fr/cwd/README.md"
+  R "$fr" jj describe -m "Initial commit" >/dev/null 2>&1
+  R "$fr" jj bookmark create main -r @ >/dev/null 2>&1
+  R "$fr" jj new main >/dev/null 2>&1
+  R "$fr" jj describe -m "Experimental spike" >/dev/null 2>&1
+  R "$fr" jj log -r @ >/dev/null 2>&1          # settle the op log...
+  printf 'late\n' > "$fr/cwd/late.txt"         # ...then edit, unsnapshotted
+
+  if [ "$mode" = ignore-wc ]; then
+    cp_id=$(R "$fr" jj op log -n 1 --no-graph --ignore-working-copy -T 'id.short()')
+  else
+    cp_id=$(R "$fr" jj op log -n 1 --no-graph -T 'id.short()')
+  fi
+
+  if [ -z "$cp_id" ]; then
+    bad "jj op log -n 1 --no-graph -T 'id.short()' rendered nothing — finish.md Option 4 step 1 is broken ($mode)"
+    continue
+  fi
+
+  tgt=$(R "$fr" jj log -r @ --no-graph --ignore-working-copy -T 'change_id.short()')
+  R "$fr" jj abandon "$tgt" >/dev/null 2>&1
+  R "$fr" jj op restore "$cp_id" >/dev/null 2>&1
+
+  if [ "$mode" = default ]; then
+    if [ -e "$fr/cwd/late.txt" ]; then
+      ok "jj op restore recovers an abandoned change incl. unsnapshotted edits (finish.md Option 4)"
+    else
+      bad "jj op restore did NOT recover the abandoned work — finish.md Option 4 promises it does (#135)"
+    fi
+  else
+    if [ -e "$fr/cwd/late.txt" ]; then
+      bad "--ignore-working-copy no longer costs the latest edits — finish.md's step-1 warning is now wrong (#135)"
+    else
+      ok "capturing with --ignore-working-copy loses the latest edits (finish.md's warning holds)"
+    fi
+  fi
+done
+
 # --- `jj git init` COLOCATES BY DEFAULT on 0.43. Any future eval scaffold or
 # tooling that relies on git being unusable in the work tree must pass
 # --no-colocate; a plain init does NOT hide the git dir. Pinned because a
@@ -108,6 +179,73 @@ if [ -e "$c2/cwd/$dg" ]; then
 else
   ok "'jj git init --no-colocate' produces a non-colocated repo"
 fi
+
+# --- finish.md Option 4, PUSHED case. Measured 2026-08-01: given a pushed
+# spike and "get rid of this work", 3 of 3 agents abandoned locally AND pushed
+# the bookmark deletion, destroying the remote's copy — then offered a bare
+# `jj op restore <id>` as the recovery path. That bare form is WRONG here: it
+# restores remote-tracking refs as well, so jj believes the remote still holds
+# the bookmark and the next push answers "Nothing changed." over an empty
+# remote. Silent loss behind a success message. `--what repo` is the fix, and
+# jj's own help says so ("Do not restore these if you'd like to push after the
+# undo").
+#
+# Two arms, because the whole point is that they differ: if a future jj made
+# the bare form safe, a one-armed check would keep passing and the prose would
+# rot in the harmful direction.
+# The bare remote MUST live outside the work tree. With origin.git inside it,
+# jj tracks the remote's own files as content and `jj op restore` restores the
+# remote itself — both arms then "succeed" and the assertion silently inverts.
+# Measured: that scaffold reports LANDED/LANDED, the correct one EMPTY/LANDED.
+for mode in bare what-repo; do
+  pr=$(new_repo)
+  R "$pr" jj git init . --no-colocate >/dev/null 2>&1
+  ( cd "$pr" && env -i PATH="$PATH" HOME="$pr/home" TERM=dumb git init --bare --quiet origin.git )
+  R "$pr" jj git remote add origin "$pr/origin.git" >/dev/null 2>&1
+  printf 'base\n' > "$pr/cwd/README.md"
+  R "$pr" jj describe -m "Initial commit" >/dev/null 2>&1
+  R "$pr" jj bookmark create main -r @ >/dev/null 2>&1
+  R "$pr" jj git push --bookmark main >/dev/null 2>&1
+  R "$pr" jj new main >/dev/null 2>&1
+  printf 'spike\n' > "$pr/cwd/spike.txt"
+  R "$pr" jj describe -m "Pushed spike" >/dev/null 2>&1
+  R "$pr" jj bookmark create pushed-spike -r @ >/dev/null 2>&1
+  R "$pr" jj git push --bookmark pushed-spike >/dev/null 2>&1
+
+  op=$(R "$pr" jj op log -n 1 --no-graph -T 'id.short()')
+  t=$(R "$pr" jj log -r @ --no-graph -T 'change_id.short()')
+  R "$pr" jj abandon "$t" >/dev/null 2>&1
+  R "$pr" jj git push --deleted >/dev/null 2>&1   # destroy the remote copy
+
+  if [ "$mode" = what-repo ]; then
+    R "$pr" jj op restore "$op" --what repo >/dev/null 2>&1
+  else
+    R "$pr" jj op restore "$op" >/dev/null 2>&1
+  fi
+  R "$pr" jj git push --bookmark pushed-spike >/dev/null 2>&1
+
+  # Ground truth is the REMOTE, not jj's belief about it.
+  if ( env -i PATH="$PATH" HOME="$pr/home" TERM=dumb \
+       git --git-dir="$pr/origin.git" show-ref --quiet refs/heads/pushed-spike ); then
+    landed=yes
+  else
+    landed=no
+  fi
+
+  if [ "$mode" = what-repo ]; then
+    if [ "$landed" = yes ]; then
+      ok "jj op restore --what repo lets a deleted pushed bookmark be re-pushed (finish.md Option 4)"
+    else
+      bad "jj op restore --what repo no longer restores a pushed bookmark — finish.md's recovery command is wrong (#135)"
+    fi
+  else
+    if [ "$landed" = yes ]; then
+      bad "a BARE jj op restore now re-publishes fine — finish.md's --what repo warning has become wrong (#135)"
+    else
+      ok "a bare jj op restore leaves the remote empty and the re-push a no-op (finish.md's warning holds)"
+    fi
+  fi
+done
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 test "$FAIL" -eq 0
