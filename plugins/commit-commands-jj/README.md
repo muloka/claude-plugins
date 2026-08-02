@@ -602,6 +602,11 @@ claude plugins add ./plugins/commit-commands-jj
 
 ## jj Concepts for Git Users
 
+The table below is a short orientation for the concepts these commands rely on. For a **command-by-command** mapping, use jj's own [git command table](https://docs.jj-vcs.dev/latest/git-command-table/) — it is more complete, carries a Notes column, and tracks jj releases. Two things it does not cover that matter here:
+
+- **`jj undo` is sequential.** It reverses whatever the *latest* operation happens to be, so once any other command has run it reverses that instead — silently, while reporting success. Prefer `jj op revert <op-id>`, or an op id captured before the change. See `/undo` and `/abandon`.
+- **Deleting a pushed bookmark is recoverable only with care.** A bare `jj op restore` also restores remote-tracking refs, leaving jj convinced the remote still has the branch; the next push answers `Nothing changed.` over an empty remote. Use `jj op restore <id> --what repo`, then re-push. See `/finish`.
+
 | Git | jj |
 |---|---|
 | staging area | No equivalent — working copy IS a commit |

@@ -96,50 +96,83 @@ if [ "$inj_total" -eq 0 ]; then
   bad "no !-injected commands found — the extractor broke, so this half is vacuous"
 fi
 
+# -------------------------------------------- shared check for static sources
+# Validates one `jj ...` string: the subcommand resolves, and every LONG flag is
+# accepted. Short flags are skipped — ambiguous to attribute without a real
+# parser; the injected half covers them by execution.
+#
+# Always emits a row for the subcommand itself, even when there are no flags.
+# Most table cells are bare (`jj abandon`, `jj status`), so without that they
+# would be silently checked-but-unrecorded and the vacuity guards below could
+# not tell "nothing to check" from "extractor broke".
+#
+# Shared by both static extractors so they cannot drift apart. Appends
+# tab-separated rows to $3; never sets counters, because callers run it inside
+# pipelines where a subshell would lose them.
+check_invocation() {   # $1 = label   $2 = command string   $3 = outfile
+  ci_label="$1"; ci_out="$3"
+  ci_line=${2%%#*}                          # drop trailing comments
+  # shellcheck disable=SC2086
+  set -- $ci_line
+  [ "${1:-}" = jj ] || return 0
+  shift
+  [ $# -gt 0 ] || return 0
+
+  # Derive the subcommand split rather than hardcoding a list: prefer the
+  # two-word form when jj actually accepts it.
+  ci_sub="$1"
+  if [ $# -ge 2 ]; then
+    case "$2" in
+      -*) : ;;
+      *) if jj "$1" "$2" --help >/dev/null 2>&1; then ci_sub="$1 $2"; shift; fi ;;
+    esac
+  fi
+  shift
+
+  # shellcheck disable=SC2086
+  if ! ci_help=$(jj $ci_sub --help 2>&1); then
+    printf 'FAIL\t%s: `jj %s` is not a jj subcommand\n' "$ci_label" "$ci_sub" >> "$ci_out"
+    return 0
+  fi
+  printf 'ok\t%s: jj %s exists\n' "$ci_label" "$ci_sub" >> "$ci_out"
+
+  for tok in "$@"; do
+    case "$tok" in
+      --) break ;;
+      --*)
+        ci_flag=${tok%%=*}
+        if printf '%s' "$ci_help" | grep -q -- "$ci_flag"; then
+          printf 'ok\t%s: jj %s accepts %s\n' "$ci_label" "$ci_sub" "$ci_flag" >> "$ci_out"
+        else
+          printf 'FAIL\t%s: jj %s does NOT accept %s\n' "$ci_label" "$ci_sub" "$ci_flag" >> "$ci_out"
+        fi ;;
+    esac
+  done
+}
+
 # ------------------------------------------------------ 2. fenced example flags
-# Long flags only; short flags are ambiguous to attribute without a full parser.
-# Write results to a file: the loop is fed by a pipeline, so counters set inside
-# it would be lost in the subshell.
 : > "$TMPROOT/fenced"
 for f in "$CMDS"/*.md; do
   fname=$(basename "$f")
   awk '/^[[:space:]]*```/{i=!i;next} i' "$f" | grep -E '^[[:space:]]*jj ' | sed 's/^[[:space:]]*//' |
   while IFS= read -r line; do
-    line=${line%%#*}                       # drop trailing comments
-    # shellcheck disable=SC2086
-    set -- $line
-    shift                                   # drop "jj"
-    [ $# -gt 0 ] || continue
+    check_invocation "$fname fenced" "$line" "$TMPROOT/fenced"
+  done
+done
 
-    # Derive the subcommand split rather than hardcoding a list: prefer the
-    # two-word form when jj actually accepts it.
-    sub="$1"
-    if [ $# -ge 2 ]; then
-      case "$2" in
-        -*) : ;;
-        *) if jj "$1" "$2" --help >/dev/null 2>&1; then sub="$1 $2"; shift; fi ;;
-      esac
-    fi
-    shift
-
-    # shellcheck disable=SC2086
-    if ! help=$(jj $sub --help 2>&1); then
-      printf 'FAIL\t%s: `jj %s` is not a jj subcommand\n' "$fname" "$sub" >> "$TMPROOT/fenced"
-      continue
-    fi
-
-    for tok in "$@"; do
-      case "$tok" in
-        --) break ;;
-        --*)
-          flag=${tok%%=*}
-          if printf '%s' "$help" | grep -q -- "$flag"; then
-            printf 'ok\t%s: jj %s accepts %s\n' "$fname" "$sub" "$flag" >> "$TMPROOT/fenced"
-          else
-            printf 'FAIL\t%s: jj %s does NOT accept %s\n' "$fname" "$sub" "$flag" >> "$TMPROOT/fenced"
-          fi ;;
-      esac
-    done
+# ------------------------------------------- 3. Git → jj translation table cells
+# Every command file carries a `| git ... | jj ... |` block, and the plugin
+# README carries a conceptual one. These are markdown table cells — neither
+# fenced nor !-injected — so nothing checked them until #144's review noticed.
+# 26 distinct invocations live here.
+: > "$TMPROOT/tables"
+for f in "$CMDS"/*.md "$CMDS/../README.md"; do
+  [ -f "$f" ] || continue
+  fname=$(basename "$f")
+  grep -hoE '^\|[^|]*\|[[:space:]]*`jj [^`]+`' "$f" 2>/dev/null \
+    | sed 's/.*`jj /jj /; s/`$//' |
+  while IFS= read -r line; do
+    check_invocation "$fname table" "$line" "$TMPROOT/tables"
   done
 done
 
@@ -147,16 +180,24 @@ done
 # `|| printf 0` fallback concatenates to "00" and the -eq test below misfires —
 # leaving this guard silently unable to fire. Caught by mutation testing.
 fen_total=$(wc -l < "$TMPROOT/fenced" | tr -d ' ')
+tbl_total=$(wc -l < "$TMPROOT/tables" | tr -d ' ')
+
+cat "$TMPROOT/fenced" "$TMPROOT/tables" > "$TMPROOT/static"
 while IFS= read -r row; do
   [ -n "$row" ] || continue
   case "$row" in
     ok*)   ok   "$(printf '%s' "$row" | cut -f2-)" ;;
     FAIL*) bad  "$(printf '%s' "$row" | cut -f2-)" ;;
   esac
-done < "$TMPROOT/fenced"
+done < "$TMPROOT/static"
 
+# Guard each extractor separately: a combined count stays healthy while one
+# source silently stops matching.
 if [ "$fen_total" -eq 0 ]; then
-  bad "no fenced jj invocations found — the extractor broke, so this half is vacuous"
+  bad "no fenced jj invocations found — that extractor broke, so this source is vacuous"
+fi
+if [ "$tbl_total" -eq 0 ]; then
+  bad "no Git-to-jj table invocations found — that extractor broke, so this source is vacuous"
 fi
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
