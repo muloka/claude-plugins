@@ -170,6 +170,8 @@ What works instead is cheaper and needs no harness: dispatch agents at throwaway
 
 One further measurement shapes how much any command-prose fix is worth: **a command auto-invokes roughly 1 request in 6**, and the rate tracks how closely the request's wording matches the command's `description:` field. A command whose prose is perfect but which never fires contributes nothing.
 
+**Where coverage actually stands** — which plugins are prose-linted and which are not, why prose is a ~1-in-6 mechanism, the three staleness layers and the ordering trap that reinstalls a fixed bug — is mapped in **[docs/plugin-coverage-map-2026-08.md](docs/plugin-coverage-map-2026-08.md)**. Start there when deciding where to spend testing effort.
+
 Read both triage documents before authoring a case. Tranche 1's §3 is the prompting-and-grading recipe that was measured to work; its §2 is three separate mechanisms that make a case report green while measuring nothing. Tranche 2's §2 and §7 carry the command-prose limit above and the instrument constraints behind it.
 
 Failure taxonomy informed by netresearch/jujutsu-workflow-skill (MIT AND CC-BY-SA-4.0); cases independently authored.
