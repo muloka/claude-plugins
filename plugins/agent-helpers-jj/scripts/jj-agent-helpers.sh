@@ -10,7 +10,10 @@
 #
 # --ignore-working-copy: read-only queries must never snapshot the working copy
 # (a snapshot writes a new operation to the shared op-log, the serialization
-# point concurrent jj workspaces race on).
+# point concurrent jj workspaces race on). That covers the three QUERY helpers,
+# which may be called repeatedly from inside concurrent workspaces.
+#
+# jjcheckpoint is deliberately the exception — see its own note below.
 
 # jjctx — current change as one JSON object (orientation)
 jjctx() { jj --ignore-working-copy log -r @ --no-graph -T 'json(self) ++ "\n"'; }
@@ -34,5 +37,18 @@ jjconflicts() {
   return "$rc"
 }
 
-# jjcheckpoint — current operation id (for a kaisen ledger start-op)
-jjcheckpoint() { jj --ignore-working-copy op log -n1 --no-graph -T 'id.short()'; }
+# jjcheckpoint — a RESTORE POINT: the op id to hand to `jj op restore` later.
+#
+# This one MUST snapshot, so it is the only helper without --ignore-working-copy.
+# Its consumer is kaisen's ledger `start-op`, and kaisen restores to it to abort
+# a run ("the run's whole-repo checkpoint" — kaisen SKILL.md). With the flag,
+# `jj op log` reports the op BEFORE the current working copy is snapshotted, so
+# the id names a state that predates any edit not yet snapshotted — and
+# Write/Edit tools do not snapshot. Measured: restoring to such an id loses
+# those edits silently. Pinned by test-jj-agent-helpers.sh.
+#
+# The race-safety argument does not apply here: a checkpoint is taken once at a
+# run boundary and capturing the working copy IS the point, whereas the query
+# helpers are polled from inside concurrent workspaces where a snapshot would
+# perturb the shared op log.
+jjcheckpoint() { jj op log -n1 --no-graph -T 'id.short()'; }
