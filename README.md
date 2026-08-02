@@ -113,9 +113,11 @@ Two verification layers cover this repo, doing different jobs:
 | Layer | Question it answers | Where | Gating |
 |---|---|---|---|
 | 1 — evals | Does a plugin change what the **model** does? | `plugins/<name>/evals/<case>/` | none — run by hand |
-| 2 — shell tests | Do the **scripts** behave? | `plugins/<name>/tests/test-*.sh`, `.github/tests/` | CI, every push |
+| 2 — shell tests | Do the **scripts** behave, and does the **prose** still describe reality? | `plugins/<name>/tests/test-*.sh`, `.github/tests/` | CI, every push |
 
-Layer 2 is the gate. The eval suite gates nothing — it is a measurement instrument, run deliberately, to answer what a deterministic test cannot: whether the prose and hooks a plugin ships actually move model behaviour. Each case runs under `--ablation with-without` (plugin loaded vs. not), and the **delta between the two arms is the result**. A case whose arms score the same measured nothing, however green it looks.
+Layer 2 is the gate. It covers two distinct questions, and the second one is easy to overlook: besides asserting that scripts behave, it asserts that the **command prose has not rotted**. Prose fails silently — a command file still reads authoritatively while naming a flag jj removed, or describing behaviour jj no longer has, and nothing surfaces it until a user is misled. Two suites in `plugins/commit-commands-jj/tests/` do that job: `test-command-invocations.sh` runs or `--help`-checks every `jj` invocation the 16 commands contain, and `test-command-prose-claims.sh` asserts the jj *behaviours* the prose claims by exercising them in throwaway repos.
+
+The eval suite gates nothing — it is a measurement instrument, run deliberately, to answer what a deterministic test cannot: whether the prose and hooks a plugin ships actually move model behaviour. Each case runs under `--ablation with-without` (plugin loaded vs. not), and the **delta between the two arms is the result**. A case whose arms score the same measured nothing, however green it looks. **For hooks that works and is demonstrated below; for command prose it does not — see the limit in Measured results before writing a command case.**
 
 ### Running it
 
@@ -156,9 +158,19 @@ The runner emits one TSV row per case — `name / score / score_without / delta 
 
 ### Measured results
 
-Tranche 1 (issue #79) is written up in **[docs/eval-triage-2026-07.md](docs/eval-triage-2026-07.md)** — what shipped, what was cut and why, and three runner gaps found but left unfixed. Two cases ship today, both under `plugins/commit-commands-jj/evals/`, both at Δ +1.00, and they now exercise **different** branches of `block-raw-git.sh`. `hook-blocks-git-internals` did not: its name promised the internals branch while its `git rev-parse HEAD` prompt was answered by the raw-git branch, which returns first (§1.1). Issue #103 repointed it at a dot-git path, narrowed its grader to wording the raw-git branch cannot produce, and re-measured at Δ +1.00 — so the triage document's §1.1 finding is resolved, not still open. A third case measured Δ 0.00 and was cut; its assertions now live in `plugins/commit-commands-jj/tests/test-block-raw-git-gating.sh`, where they are deterministic and free.
+Tranche 1 (issue #79) is written up in **[docs/eval-triage-2026-07.md](docs/eval-triage-2026-07.md)** — what shipped, what was cut and why, and three runner gaps found but left unfixed. Two cases ship today, both under `plugins/commit-commands-jj/evals/`, both at Δ +1.00, and they now exercise **different** branches of `block-raw-git.sh`. `hook-blocks-git-internals` did not: its name promised the internals branch while its `git rev-parse HEAD` prompt was answered by the raw-git branch, which returns first (§1.1). Issue #103 repointed it at a dot-git path, narrowed its grader to wording the raw-git branch cannot produce, and re-measured at Δ +1.00 — so the triage document's §1.1 finding is resolved, not still open. A third case measured Δ 0.00 and was cut; its assertions now live in `plugins/project-setup-jj/tests/test-block-raw-git.sh`, where they are deterministic and free.
 
-Read the triage document before authoring a case. Its §3 is the prompting-and-grading recipe that was measured to work; its §2 is three separate mechanisms that make a case report green while measuring nothing.
+### The limit: command prose cannot be measured on this harness
+
+Tranche 2 is written up in **[docs/eval-command-triage-2026-07.md](docs/eval-command-triage-2026-07.md)**, and its headline is a negative result worth knowing before spending anything.
+
+**Both shipped cases exercise a hook. No eval case can measure a `commit-commands-jj` *command*.** Under this harness the plugin's commands register as slash_commands contributing **zero skills**, and `SlashCommand` is not grantable — so the command's prose never enters the model's context and every case reads `NO_GAP` by construction, whatever the prose says. The obvious unblocking (ship the commands as skills) was **refuted by measurement**, not merely untried: they are already `Skill`-invocable in a real session, and fresh agents given a natural-language task ignored them anyway. Issues #104 and #133 are closed on that basis.
+
+What works instead is cheaper and needs no harness: dispatch agents at throwaway repos, grade from **repo state** rather than from what the agent narrates, and pin each finding as a mutation-tested assertion in layer 2. That route found and fixed real defects in `finish.md` (#137) and `abandon.md` (#139).
+
+One further measurement shapes how much any command-prose fix is worth: **a command auto-invokes roughly 1 request in 6**, and the rate tracks how closely the request's wording matches the command's `description:` field. A command whose prose is perfect but which never fires contributes nothing.
+
+Read both triage documents before authoring a case. Tranche 1's §3 is the prompting-and-grading recipe that was measured to work; its §2 is three separate mechanisms that make a case report green while measuring nothing. Tranche 2's §2 and §7 carry the command-prose limit above and the instrument constraints behind it.
 
 Failure taxonomy informed by netresearch/jujutsu-workflow-skill (MIT AND CC-BY-SA-4.0); cases independently authored.
 
