@@ -55,21 +55,62 @@ if jjconflicts; then ok "jjconflicts exits 0 when clean"; else bad "jjconflicts(
 # jjconflicts: broken env (not a jj repo) -> non-zero, NOT a false clean
 ( cd "$WORK" && jjconflicts >/dev/null 2>&1 ) && bad "jjconflicts(non-repo)" "returned clean outside a jj repo" || ok "jjconflicts non-zero outside a jj repo"
 
-# race-safety invariant (behavioral): the helpers must NOT snapshot the working
-# copy, so they must create no new operations — even when the working copy is
-# dirty (an unsnapshotted edit that a plain jj command would snapshot into a new op).
+# race-safety invariant (behavioral): the three QUERY helpers must NOT snapshot
+# the working copy, so they must create no new operations — even when the working
+# copy is dirty (an unsnapshotted edit a plain jj command would snapshot).
+#
+# jjcheckpoint is excluded on purpose and asserted the opposite way below: it is
+# a restore point, not a query, so it MUST snapshot.
 echo dirty > uncommitted.txt
 ops() { jj --ignore-working-copy op log --no-graph -T 'id.short() ++ "\n"' | grep -c .; }
 before="$(ops)"
 jjctx >/dev/null 2>&1 || true
 jjstack >/dev/null 2>&1 || true
 jjconflicts >/dev/null 2>&1 || true
+after="$(ops)"
+if [ "$before" = "$after" ]; then ok "query helpers create no operations (no working-copy snapshot)"; else bad "invariant" "op count $before -> $after (a query helper snapshotted)"; fi
+
+# jjcheckpoint MUST snapshot — the inverse of the invariant above.
+before="$(ops)"
 jjcheckpoint >/dev/null 2>&1 || true
 after="$(ops)"
-if [ "$before" = "$after" ]; then ok "helpers create no operations (no working-copy snapshot)"; else bad "invariant" "op count $before -> $after (a helper snapshotted)"; fi
+if [ "$before" != "$after" ]; then ok "jjcheckpoint snapshots (op count $before -> $after)"; else bad "jjcheckpoint" "created no operation with a dirty working copy — it is not capturing live edits"; fi
 
-# defense in depth: the flag is literally present in the script
-if grep -q -- '--ignore-working-copy' "$HELPERS"; then ok "script carries --ignore-working-copy"; else bad "flag" "missing from script"; fi
+# THE ONE THAT MATTERS: a checkpoint must survive a destructive op and bring the
+# working copy back — including edits made with Write/Edit, which never snapshot.
+# With --ignore-working-copy this silently returned a pre-edit state (measured
+# 2026-08-02); the second arm below proves the flag is what breaks it, so a jj
+# change that made the flag harmless would surface here rather than rot.
+for arm in shipped with-the-flag; do
+  ( cd "$WORK" && rm -rf cp && jj git init cp >/dev/null 2>&1 && cd cp \
+    && jj describe -m base >/dev/null 2>&1 \
+    && jj new >/dev/null 2>&1 \
+    && printf 'committed\n' > tracked.txt \
+    && jj describe -m work >/dev/null 2>&1 \
+    && printf 'live edit\n' > tracked.txt \
+    && printf 'new file\n'  > untracked.txt \
+    && if [ "$arm" = shipped ]; then cp_id="$(jjcheckpoint)"
+       else cp_id="$(jj --ignore-working-copy op log -n1 --no-graph -T 'id.short()')"; fi \
+    && tgt="$(jj log -r @ --no-graph -T 'change_id.short()')" \
+    && jj abandon "$tgt" >/dev/null 2>&1 \
+    && jj op restore "$cp_id" >/dev/null 2>&1 \
+    && [ -f untracked.txt ] && grep -q 'live edit' tracked.txt ) && recovered=yes || recovered=no
+
+  if [ "$arm" = shipped ]; then
+    [ "$recovered" = yes ] \
+      && ok "jjcheckpoint restore point recovers live (unsnapshotted) edits" \
+      || bad "jjcheckpoint" "restoring to its id LOST edits made since the last snapshot"
+  else
+    [ "$recovered" = no ] \
+      && ok "the --ignore-working-copy form loses those edits (why jjcheckpoint omits the flag)" \
+      || bad "arm" "--ignore-working-copy no longer costs live edits — the rationale in the script is stale"
+  fi
+done
+
+# defense in depth: the flag is present for the query helpers, and absent from
+# jjcheckpoint. A blanket grep would pass if the flag crept back onto it.
+if grep -q -- 'jjctx() {.*--ignore-working-copy' "$HELPERS"; then ok "jjctx carries --ignore-working-copy"; else bad "flag" "missing from jjctx"; fi
+if grep -q -- 'jjcheckpoint() {.*--ignore-working-copy' "$HELPERS"; then bad "jjcheckpoint" "--ignore-working-copy crept back — its restore point will exclude live edits"; else ok "jjcheckpoint does not carry --ignore-working-copy"; fi
 
 # drift guard: catalog names == public function names (exclude private _jjq)
 defined="$(grep -Eo '^(jj[a-z]+)\(\)' "$HELPERS" | sed 's/()//' | sort -u)"
