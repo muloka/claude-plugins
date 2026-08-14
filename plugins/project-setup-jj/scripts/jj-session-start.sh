@@ -1,6 +1,19 @@
 #!/usr/bin/env bash
 # SessionStart hook: Show jj context and workflow reminder
 # Outputs JSON with additionalContext for Claude Code
+#
+# What belongs in this briefing: it is the one payload EVERY session
+# reads, so it must answer the questions that change what an agent does next —
+# what is in my stack, am I in conflict, which workspace am I in — rather than
+# spend its budget on state that changes nothing. It used to emit the whole of
+# `jj config list` (four lines of hostname/username/identity) and none of the
+# three above. Identity survives the trim as `user.email` alone, because an eval
+# scaffold once truncated a caller's ~/.config/jj/config.toml and the wrong
+# author on every subsequent change was the symptom nobody saw.
+#
+# bash 3.2-safe (macOS): no globstar, no associative arrays. Note that under
+# `set -e` a bare `[ cond ] && var=x` at top level EXITS the script when cond is
+# false — every conditional below is written as if/then for that reason.
 
 set -euo pipefail
 
@@ -9,10 +22,43 @@ if ! jj root >/dev/null 2>&1; then
   exit 0
 fi
 
-# Gather jj context
-current_change=$(jj log -r @ --no-graph -T 'json(self) ++ "\n"' 2>/dev/null || echo "(unable to read current change)")
+# `jj status` runs FIRST and deliberately WITHOUT --ignore-working-copy: it is
+# the single snapshot point for this briefing. Every read after it carries the
+# flag, so (a) the whole briefing describes one consistent post-snapshot state
+# instead of a mix of pre- and post-, and (b) the hook writes at most one
+# operation to the op log — the serialization point concurrent jj workspaces
+# race on (see agent-helpers-jj/scripts/jj-agent-helpers.sh).
 working_status=$(jj status 2>/dev/null || echo "(unable to read status)")
-repo_config=$(jj config list -T 'json(self) ++ "\n"' 2>/dev/null || echo "(unable to read config)")
+
+current_change=$(jj --ignore-working-copy log -r @ --no-graph -T 'json(self) ++ "\n"' 2>/dev/null || echo "(unable to read current change)")
+
+# The local stack. Empty output means @ sits at trunk — say so, because a blank
+# section reads as "unknown" rather than "nothing there".
+stack=$(jj --ignore-working-copy log -r 'trunk()..@' --no-graph -T 'json(self) ++ "\n"' 2>/dev/null || echo "(unable to read stack)")
+if [ -z "$stack" ]; then
+  stack="(none — @ is at trunk)"
+fi
+
+# jj 0.43: `resolve --list` exits 0 (and lists) when conflicts exist, and exits
+# 2 ("No conflicts found at this revision") when clean. Distinguishing 2 from
+# any other non-zero exit stops the briefing reporting "none" out of a broken
+# environment — the same discipline as the jjconflicts helper.
+conflicts_out=$(jj --ignore-working-copy resolve --list 2>/dev/null) && conflicts_rc=0 || conflicts_rc=$?
+if [ "$conflicts_rc" -eq 0 ] && [ -n "$conflicts_out" ]; then
+  conflicts="CONFLICTS PRESENT — resolve these before further work:
+${conflicts_out}"
+elif [ "$conflicts_rc" -eq 0 ] || [ "$conflicts_rc" -eq 2 ]; then
+  conflicts="none"
+else
+  conflicts="(unable to check conflicts — jj exited ${conflicts_rc})"
+fi
+
+# @ and `jj root` are workspace-relative: which workspace this session is
+# attached to determines what @ even means, and a second live workspace means
+# another agent may be editing concurrently.
+workspaces=$(jj --ignore-working-copy workspace list 2>/dev/null || echo "(unable to read workspaces)")
+
+identity=$(jj --ignore-working-copy config list user.email -T 'json(self) ++ "\n"' 2>/dev/null || echo "(unable to read user.email)")
 
 # Escape string for JSON embedding
 escape_for_json() {
@@ -27,14 +73,22 @@ escape_for_json() {
 
 context="== jj Session Context ==
 
-Current change:
+Current change (@):
 ${current_change}
+
+Local stack (trunk()..@):
+${stack}
+
+Conflicts: ${conflicts}
+
+Workspaces:
+${workspaces}
 
 Working copy status:
 ${working_status}
 
-Repository config (JSON):
-${repo_config}
+Identity:
+${identity}
 
 == jj Workflow Reminder ==
 - Use \`jj new\` to start a fresh change before making edits

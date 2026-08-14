@@ -6,7 +6,7 @@ Bootstrap jj (Jujutsu) workflow enforcement for any Claude Code project with a s
 
 When starting a new Claude Code project that uses jj, there's no automated way to set up jj workflow enforcement. This plugin adds a `/project-setup` command that configures everything in one step:
 
-- **SessionStart hook** — shows current jj change, status, and workflow reminder when a session starts
+- **SessionStart hook** — shows the current jj change, the local stack (`trunk()..@`), conflicts, workspaces, status and workflow reminder when a session starts
 - **PreToolUse guard hook** — advises Claude to run `jj new` before editing into a non-empty change (informational — does not block)
 - **PreCompact hook** — snapshots the working copy before context compaction so `jj undo` / `jj op restore` can always reach the pre-compaction state
 - **CLAUDE.md template** — slim jj VCS policy directive
@@ -54,7 +54,7 @@ This creates/updates the following in your project:
 | `.claude/hooks/jj-workspace-create.sh` | WorktreeCreate hook — creates jj workspace for worktree isolation |
 | `.claude/hooks/jj-workspace-remove.sh` | WorktreeRemove hook — cleans up jj workspace |
 | `.claude/settings.json` | Hooks (SessionStart, PreToolUse, PreCompact, WorktreeCreate, WorktreeRemove) + the `Bash(git *)` deny floor — **commit this**, it is what makes fresh clones and jj workspaces enforce the rules (#97) |
-| `.claude/settings.local.json` | Personal settings: jj/gh allow-list, and `statusLine` if `/statusline-jj-setup` is used |
+| `.claude/settings.local.json` | Personal settings: jj/gh allow-list. **Not** the statusline — that lives in the tracked `settings.json` so jj workspaces inherit it |
 | `CLAUDE.md` | jj VCS policy directive (created or updated) |
 
 **Restart Claude Code** after running `/project-setup` for the SessionStart hook to take effect.
@@ -66,14 +66,22 @@ On every session start, you'll see:
 ```
 == jj Session Context ==
 
-Current change:
-<current change details>
+Current change (@):
+<current change as JSON>
+
+Local stack (trunk()..@):
+<changes ahead of trunk, JSON lines — or "(none — @ is at trunk)">
+
+Conflicts: none            # or "CONFLICTS PRESENT" + the conflicted paths
+
+Workspaces:
+<jj workspace list — which workspace @ belongs to, and who else is live>
 
 Working copy status:
 <modified/added files>
 
-Repository config (JSON):
-<repository config>
+Identity:
+<user.email>
 
 == jj Workflow Reminder ==
 - Use `jj new` to start a fresh change before making edits
@@ -90,13 +98,15 @@ Two more commands manage a jj-aware statusline, independent of `/project-setup`:
 /statusline-jj-setup
 ```
 
-Copies `.claude/hooks/statusline-jj.sh` into the project and sets it as the `statusLine` command in `.claude/settings.local.json`. The statusline is a powerline-style bar showing the model, bookmark, change ID, change description, trunk-sync status, context-window percentage, and Anthropic service status.
+Copies `.claude/hooks/statusline-jj.sh` into the project and sets it as the `statusLine` command in the **tracked** `.claude/settings.json`. The statusline is a powerline-style bar showing the model, bookmark, change ID, change description, trunk-sync status, context-window percentage, and Anthropic service status.
+
+Both halves are tracked on purpose: a `claude -w` session runs in a jj workspace, which materialises only tracked files, so a statusline configured in the gitignored `.claude/settings.local.json` — or pointing at a script under the gitignored `.claude/scripts/` — silently disappears in every side thread. The configured command resolves the *live* workspace (`$CLAUDE_PROJECT_DIR`, falling back to `jj root`) rather than hardcoding an absolute path to the main checkout.
 
 ```
 /statusline-jj-remove
 ```
 
-Removes `statusline-jj.sh` and deletes the `statusLine` key from `.claude/settings.local.json`. It clears both `.claude/hooks/` and the legacy `.claude/scripts/`, so a project set up before the move can still uninstall cleanly.
+Removes `statusline-jj.sh` and deletes the `statusLine` key from **both** `.claude/settings.json` and `.claude/settings.local.json`. It clears both `.claude/hooks/` and the legacy `.claude/scripts/`, so a project set up before either move can still uninstall cleanly — and because both scopes apply, removing only one would leave the statusline running.
 
 ## Idempotent
 
