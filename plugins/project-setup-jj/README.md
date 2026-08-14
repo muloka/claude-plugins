@@ -6,7 +6,7 @@ Bootstrap jj (Jujutsu) workflow enforcement for any Claude Code project with a s
 
 When starting a new Claude Code project that uses jj, there's no automated way to set up jj workflow enforcement. This plugin adds a `/project-setup` command that configures everything in one step:
 
-- **SessionStart hook** — shows current jj change, status, and workflow reminder when a session starts
+- **SessionStart hook** — shows the current jj change, the local stack (`trunk()..@`), conflicts, workspaces, status and workflow reminder when a session starts
 - **PreToolUse guard hook** — advises Claude to run `jj new` before editing into a non-empty change (informational — does not block)
 - **PreCompact hook** — snapshots the working copy before context compaction so `jj undo` / `jj op restore` can always reach the pre-compaction state
 - **CLAUDE.md template** — slim jj VCS policy directive
@@ -66,14 +66,22 @@ On every session start, you'll see:
 ```
 == jj Session Context ==
 
-Current change:
-<current change details>
+Current change (@):
+<current change as JSON>
+
+Local stack (trunk()..@):
+<changes ahead of trunk, JSON lines — or "(none — @ is at trunk)">
+
+Conflicts: none            # or "CONFLICTS PRESENT" + the conflicted paths
+
+Workspaces:
+<jj workspace list — which workspace @ belongs to, and who else is live>
 
 Working copy status:
 <modified/added files>
 
-Repository config (JSON):
-<repository config>
+Identity:
+<user.email>
 
 == jj Workflow Reminder ==
 - Use `jj new` to start a fresh change before making edits

@@ -13,12 +13,23 @@ per `docs/eval-triage-2026-07.md` §5, nothing here is grounds for deleting a pl
 | `commit-commands-jj` | 333 | **yes** — 117 checks | 15 behavioural assertions | frequent |
 | `workspace-jj` | 83 | no | 3 suites | occasional |
 | `peer-review-jj` | 34 | no | 1 suite | occasional |
-| `project-setup-jj` | 21 | no | 4 suites (hook: 151 assertions) | load-bearing |
+| `project-setup-jj` | 21 | no | 5 suites (hook: 151 assertions) | load-bearing |
 | `agent-helpers-jj` | 8 | no | 2 suites (12 assertions) | constant |
 
 **146 jj invocations across four plugins are unvalidated.** Nothing catches a
 removed flag in any of them — the class that reached for `jj git push --allow-new`
 three separate times.
+
+**Update 2026-08-13:** one instance of that class is now closed, in a
+script rather than in markdown. `test-jj-session-start.sh` lints every `jj` call
+site in the SessionStart hook and fails if any but the repo probe and the single
+snapshot point drops `--ignore-working-copy`. It is worth reading before
+generalising the markdown lint, for a reason that only showed up under mutation:
+the *behavioural* check (count operations written to the op log) could NOT see
+the dropped flag, because the earlier `jj status` had already snapshotted and
+the second snapshot found nothing to write. A removed flag is invisible to
+behaviour whenever something else already did the work — only reading the source
+catches it.
 
 The lint that closes this is `plugins/commit-commands-jj/tests/test-command-invocations.sh`.
 It hardcodes `CMDS="$(dirname $0)/../commands"`, which is the only thing scoping
