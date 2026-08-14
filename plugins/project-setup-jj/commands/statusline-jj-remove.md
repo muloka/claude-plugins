@@ -32,15 +32,21 @@ refuses a non-empty directory, so a script the user keeps there is never destroy
 rmdir "$(jj root)/.claude/scripts" 2>/dev/null || true
 ```
 
-### Step 3: Remove statusLine from settings
+### Step 3: Remove statusLine from BOTH settings files
 
-Read `.claude/settings.local.json`. If it has a `statusLine` key, remove it using `jq`:
+Setup writes `statusLine` to the tracked `.claude/settings.json`; older installs
+put it in `.claude/settings.local.json`. Both scopes apply, so removing only one
+leaves the statusline running and the uninstall silently ineffective — the same
+reason setup has to strip the local copy.
 
 ```bash
-jq 'del(.statusLine)' .claude/settings.local.json > .claude/settings.local.json.tmp && mv .claude/settings.local.json.tmp .claude/settings.local.json
+for f in .claude/settings.json .claude/settings.local.json; do
+  [ -f "$f" ] || continue
+  jq 'del(.statusLine)' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
+done
 ```
 
-If no `statusLine` key exists, skip — nothing to remove.
+If neither file has a `statusLine` key, skip — nothing to remove.
 
 ### Step 4: Confirm to user
 
