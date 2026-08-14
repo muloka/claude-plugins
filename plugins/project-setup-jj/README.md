@@ -70,7 +70,10 @@ Current change (@):
 <current change as JSON>
 
 Local stack (trunk()..@):
-<changes ahead of trunk, JSON lines — or "(none — @ is at trunk)">
+qnmwxqnp @ [empty] (no description)     # one compact line per change ahead of
+yxurtlwx (main) feat(...): ...          # trunk; markers for @, [empty],
+                                        # [conflict] and bookmarks.
+                                        # Or "(none — @ is at trunk)"
 
 Conflicts: none            # or "CONFLICTS PRESENT" + the conflicted paths
 

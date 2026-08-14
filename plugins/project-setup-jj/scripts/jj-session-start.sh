@@ -32,9 +32,23 @@ working_status=$(jj status 2>/dev/null || echo "(unable to read status)")
 
 current_change=$(jj --ignore-working-copy log -r @ --no-graph -T 'json(self) ++ "\n"' 2>/dev/null || echo "(unable to read current change)")
 
-# The local stack. Empty output means @ sits at trunk — say so, because a blank
-# section reads as "unknown" rather than "nothing there".
-stack=$(jj --ignore-working-copy log -r 'trunk()..@' --no-graph -T 'json(self) ++ "\n"' 2>/dev/null || echo "(unable to read stack)")
+# The local stack, one compact line per change. NOT `json(self)`: the stack is
+# for orientation — which changes am I carrying, are any empty or conflicted —
+# and the full object per change buys nothing beyond what the section above
+# already prints for @. The common case is a depth-1 stack, where a JSON stack
+# repeated @'s object verbatim, ~350 bytes of exact duplication in the one
+# payload whose whole justification is not spending budget on what changes
+# nothing. A 5-deep stack cost ~1.7KB; the same stack is ~250 bytes here.
+#
+# Empty output means @ sits at trunk — say so, because a blank section reads as
+# "unknown" rather than "nothing there".
+_stack_tmpl='self.change_id().short(8)'
+_stack_tmpl="$_stack_tmpl"' ++ if(current_working_copy, " @")'
+_stack_tmpl="$_stack_tmpl"' ++ if(empty, " [empty]", "")'
+_stack_tmpl="$_stack_tmpl"' ++ if(conflict, " [conflict]", "")'
+_stack_tmpl="$_stack_tmpl"' ++ if(bookmarks, " (" ++ bookmarks ++ ")", "")'
+_stack_tmpl="$_stack_tmpl"' ++ " " ++ if(description, description.first_line(), "(no description)") ++ "\n"'
+stack=$(jj --ignore-working-copy log -r 'trunk()..@' --no-graph -T "$_stack_tmpl" 2>/dev/null || echo "(unable to read stack)")
 if [ -z "$stack" ]; then
   stack="(none — @ is at trunk)"
 fi

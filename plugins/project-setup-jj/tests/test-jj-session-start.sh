@@ -103,18 +103,40 @@ case "$out" in
   *) bad "workspaces" "no workspace section in briefing" ;;
 esac
 
+# Scope every stack assertion to the stack SECTION, for the reason the identity
+# check had to learn: @'s own `json(self)` block sits directly above and already
+# contains the description, so an unscoped grep passes even against a hook that
+# emits no stack at all.
+stack_section=$(printf '%s\n' "$out" | awk '/^Local stack/{f=1;next} /^[[:space:]]*$/{f=0} f')
+
 # The stack is `trunk()..@`, not all of history: it must carry the local change
 # and must NOT carry the trunk change it is measured against. A header with the
 # wrong revset behind it looks identical until you check both halves.
-if printf '%s' "$out" | grep -q '"description":"work'; then
+if [ -z "$stack_section" ]; then
+  bad "stack contents" "no stack section — every assertion below would be vacuous"
+elif printf '%s' "$stack_section" | grep -qF 'work'; then
   ok "stack section carries the local change, not just a header"
 else
-  bad "stack contents" "local change absent from the stack section"
+  bad "stack contents" "local change absent from the stack section: $stack_section"
 fi
-if printf '%s' "$out" | grep -q '"description":"seed'; then
+if printf '%s' "$stack_section" | grep -qF 'seed'; then
   bad "stack revset" "trunk's own change leaked into the stack — revset is not trunk()..@"
 else
   ok "stack excludes trunk itself"
+fi
+
+# Compact, not json(self). A depth-1 stack under JSON duplicated @'s object
+# verbatim — the exact "spends budget on what changes nothing" the briefing
+# exists to avoid — so pin the rendering, not just the contents.
+if printf '%s' "$stack_section" | grep -qE '"(commit_id|description|author)"'; then
+  bad "stack rendering" "stack regressed to json(self) — it duplicates the section above"
+else
+  ok "stack renders compact, not JSON"
+fi
+if printf '%s' "$stack_section" | grep -qF ' @'; then
+  ok "stack marks which entry is the working copy"
+else
+  bad "stack marker" "no @ marker in the stack: $stack_section"
 fi
 
 # --- content: identity trimmed to user.email, config trivia gone ---
