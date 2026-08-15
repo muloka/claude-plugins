@@ -106,9 +106,35 @@ What would you like to do?
 6. **Post-merge cleanup.** After a successful `gh pr merge`.
 
    Do not pass `--delete-branch` to `gh pr merge`. It tries to delete a local
-   *git* branch and fails with `could not determine current branch`, because a
-   jj working copy is not on one. The merge itself still succeeds — only the
-   branch cleanup fails, and step (e) below handles that.
+   *git* branch and fails (`could not determine current branch`, or `not on any
+   branch` — wording varies by `gh` version), because a jj working copy is not
+   on one. The merge itself still succeeds — only the branch cleanup fails, and
+   step (e) below handles that.
+
+   **Do not delete the remote branch by hand either — not with `--delete-branch`,
+   not with `gh api -X DELETE`.** It must survive until step (e), and the reason
+   is the fetch in (a). While the branch exists on the remote your local change
+   is still reachable from it and the fetch is inert. Once it is gone, that
+   fetch *itself* does the abandoning — `Abandoned 1 commits that are no longer
+   reachable` / `Rebased 1 descendant commits` — dropping `@` onto the
+   **pre-merge base** with every merged file reverted on disk, before step (b)
+   has confirmed anything landed. And (b) can no longer run: the target's
+   *change* id stops resolving. Tidying the branch early buys nothing and costs
+   the one check standing between a bad merge and a destroyed change.
+
+   **Where the repo deletes head branches for you, this is unavoidable.** Check
+   with `gh repo view --json deleteBranchOnMerge`. If `true`, the branch is gone
+   before you can fetch, so trade the gate for a restore point — capture both of
+   these *before* step (a):
+   ```bash
+   jj op log -n 1 --no-graph -T 'id.short()'             # restore point
+   jj log -r <target> --no-graph -T 'commit_id.short()'  # survives the abandon
+   ```
+   The **commit** id is deliberate, and the one place this repo's "hand around
+   change ids" rule inverts: once the fetch abandons the change its change id is
+   gone, while the commit id still resolves — so step (b) can still be asked,
+   as `jj diff --from 'trunk()' --to <commit-id> --stat`. If that is not empty,
+   `jj op restore <op-id>` puts the change back.
 
    a. **Fetch**, so `trunk()` names the merged trunk rather than the state you
       pushed from:
@@ -151,6 +177,10 @@ What would you like to do?
       ```bash
       jj abandon 'ancestors(<target>) & ~ancestors(trunk())'
       ```
+      If (a) already reported `Abandoned N commits that are no longer
+      reachable`, the remote branch was deleted before the fetch and this step
+      has nothing left to do — skip it rather than resolving `<target>`, which
+      no longer exists.
 
    d. **Move the working copy onto the merged trunk:**
       ```bash
@@ -160,7 +190,8 @@ What would you like to do?
       of the stack sat on — the *pre-merge* trunk — so `@` silently lands on a
       stale base and every file you just merged reads as reverted on disk. The
       work is safe in trunk; the working copy is simply looking at the wrong
-      revision, which is far more alarming than it sounds.
+      revision, which is far more alarming than it sounds. Whichever step did
+      the abandoning — (c), or the fetch in (a) — this is the fix.
 
    e. **Delete the bookmark.** Abandoning the target usually takes the local
       bookmark with it (it pointed at an abandoned change), so this is often

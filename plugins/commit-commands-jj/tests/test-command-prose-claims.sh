@@ -303,6 +303,110 @@ for mode in immediate after-one-op; do
   fi
 done
 
+# --- finish.md step 6, post-merge cleanup ORDER. The prose forbids deleting the
+# remote branch before step (a)'s fetch, and the reason is not tidiness: with the
+# branch already gone, `jj git fetch` performs the abandon ITSELF — re-parenting
+# `@` onto the pre-merge base and reverting the merged files on disk — before
+# step (b) can verify the work landed. The target's CHANGE id stops resolving at
+# that point, so (b) cannot even be asked. Measured 2026-08-14 on jj 0.43 after
+# a `gh api -X DELETE` of the head branch did exactly this in a live repo.
+#
+# Two arms, because the claim is causal: the trigger is the remote branch being
+# absent at fetch time, NOT the squash-merge. If a future jj stopped abandoning
+# on fetch, a one-armed check would keep passing while the prose's whole reason
+# for the ordering rule had evaporated.
+for mode in delete-first keep-branch; do
+  mr=$(new_repo)
+  R "$mr" jj git init . --no-colocate >/dev/null 2>&1
+  ( cd "$mr" && env -i PATH="$PATH" HOME="$mr/home" TERM=dumb git init --bare --quiet origin.git )
+  R "$mr" jj git remote add origin "$mr/origin.git" >/dev/null 2>&1
+  printf 'base\n' > "$mr/cwd/README.md"
+  R "$mr" jj describe -m "Initial commit" >/dev/null 2>&1
+  R "$mr" jj bookmark create main -r @ >/dev/null 2>&1
+  R "$mr" jj git push --bookmark main >/dev/null 2>&1
+
+  # The work, pushed as a PR branch...
+  R "$mr" jj new main >/dev/null 2>&1
+  printf 'feature\n' > "$mr/cwd/feature.txt"
+  R "$mr" jj describe -m "The feature" >/dev/null 2>&1
+  R "$mr" jj bookmark create feat -r @ >/dev/null 2>&1
+  R "$mr" jj git push --bookmark feat >/dev/null 2>&1
+  m_change=$(R "$mr" jj log -r @ --no-graph -T 'change_id.short()')
+  m_commit=$(R "$mr" jj log -r @ --no-graph -T 'commit_id.short()')
+  # @ = a CHILD of the pushed work. It needs a description and content: jj
+  # discards an empty, undescribed working copy the moment you move off it, and
+  # a discarded child cannot be edited back to — leaving @ on the merge commit,
+  # where nothing re-parents and the arm silently stops testing anything.
+  R "$mr" jj new >/dev/null 2>&1
+  printf 'wip\n' > "$mr/cwd/wip.txt"
+  R "$mr" jj describe -m "Follow-up work" >/dev/null 2>&1
+  m_wc=$(R "$mr" jj log -r @ --no-graph -T 'change_id.short()')
+
+  # ...and upstream squash-merges it onto main, rebuilding the same content.
+  R "$mr" jj new main >/dev/null 2>&1
+  printf 'feature\n' > "$mr/cwd/feature.txt"
+  R "$mr" jj describe -m "The feature (squash-merged)" >/dev/null 2>&1
+  R "$mr" jj bookmark set main -r @ >/dev/null 2>&1
+  R "$mr" jj git push --bookmark main >/dev/null 2>&1
+  R "$mr" jj edit "$m_wc" >/dev/null 2>&1         # back to where the dev was
+  if [ "$(R "$mr" jj log -r @ --no-graph -T 'change_id.short()')" != "$m_wc" ]; then
+    bad "scaffold ($mode): @ is not the descendant of the merged work — nothing to re-parent"
+    continue
+  fi
+
+  if [ "$mode" = delete-first ]; then             # the `gh api -X DELETE` mistake
+    ( cd "$mr/cwd" && env -i PATH="$PATH" HOME="$mr/home" TERM=dumb \
+        git --git-dir="$mr/origin.git" update-ref -d refs/heads/feat ) >/dev/null 2>&1
+  fi
+
+  R "$mr" jj git fetch >/dev/null 2>&1            # finish.md step (a)
+
+  if R "$mr" jj log -r "$m_change" --no-graph -T 'change_id.short()' >/dev/null 2>&1; then
+    gate=runnable
+  else
+    gate=gone
+  fi
+
+  if [ "$mode" = delete-first ]; then
+    if [ "$gate" = gone ]; then
+      ok "deleting the remote branch before the fetch abandons the change and disables step (b) (finish.md step 6)"
+    else
+      bad "jj git fetch no longer abandons on a deleted remote branch — finish.md's ordering rule has gone stale"
+    fi
+    if [ -e "$mr/cwd/feature.txt" ]; then
+      bad "the fetch left the merged file in place — finish.md's 'reverted on disk' warning is now wrong"
+    else
+      ok "the fetch re-parented @ onto the pre-merge base, reverting the merged file (finish.md step (d))"
+    fi
+    # ...and the documented fallback: the COMMIT id outlives the change id, so
+    # step (b)'s question can still be asked of it. Conditioned on gate=gone on
+    # purpose — against a change that was never abandoned this diff succeeds for
+    # the boring reason, and mutation testing showed the assertion passing with
+    # the branch deletion removed entirely.
+    m_stat=$(R "$mr" jj diff --from 'trunk()' --to "$m_commit" --stat 2>/dev/null)
+    case "$m_stat" in
+      *"0 files changed"*) m_fallback=works ;;
+      *)                   m_fallback=broken ;;
+    esac
+    if [ "$gate" = gone ] && [ "$m_fallback" = works ]; then
+      ok "an abandoned change still resolves by COMMIT id, so the fallback check runs (finish.md step 6)"
+    else
+      bad "jj diff --from trunk() --to <commit-id> no longer works on an abandoned change — finish.md's auto-delete fallback is wrong"
+    fi
+  else
+    if [ "$gate" = runnable ]; then
+      ok "with the remote branch left in place the fetch is inert and step (b) can gate the abandon"
+    else
+      bad "jj git fetch abandoned the change even with the remote branch intact — finish.md's step (b) gate can never run"
+    fi
+    if [ -e "$mr/cwd/feature.txt" ]; then
+      ok "the control fetch left @ and the working copy untouched (the arms disagree, as the claim requires)"
+    else
+      bad "the control arm also lost the working-copy file — the scaffold is not isolating the deletion"
+    fi
+  fi
+done
+
 # --- undo.md recommends `jj op revert <op-id>`; it must still exist.
 if jj op revert --help >/dev/null 2>&1; then
   ok "jj op revert exists (undo.md recommends it over bare jj undo)"

@@ -1,4 +1,4 @@
-<!-- jj-project-setup:start hash:d01c702b -->
+<!-- jj-project-setup:start hash:27bab007 -->
 ## VCS — jj (Jujutsu)
 
 This project uses **jj (Jujutsu)** as its VCS. Never use raw git commands. Use jj equivalents instead (e.g. `jj log`, `jj status`, `jj diff`). The only exceptions are `jj git` subcommands (e.g. `jj git push`) and the `gh` CLI for GitHub operations.
@@ -8,7 +8,7 @@ In jj, the working copy IS a commit. There is no uncommitted state. Never ask "w
 ### Gotchas that surprise git users
 
 - **Hand revisions between steps as change IDs, not commit IDs.** A change ID (`kouorrnv`) survives `jj squash`, `jj describe` and every other rewrite; a commit ID (`92ef691b`) is replaced by each one, so a value captured before an edit is stale after it. Read one with `jj log -r <rev> --no-graph -T 'change_id.short()'`. Commit IDs are fine for a one-shot query or an immutable record — not for anything held across a step.
-- **`jj abandon` re-parents `@` onto the abandoned change's parent.** After abandoning work that was merged upstream, `@` lands on the *pre-merge* base and every merged file reads as reverted on disk. Fix with `jj new trunk()`. The work is safe; the working copy is looking at the wrong revision.
+- **Abandoning re-parents `@` onto the abandoned change's parent — and `jj git fetch` does the abandoning itself when the remote branch is already gone.** A squash-merge rebuilds your work as a *new* commit, so once the branch is deleted (by hand, or by GitHub's auto-delete-head-branches) the original is unreachable and fetch drops it. Either way `@` lands on the *pre-merge* base and every merged file reads as reverted on disk. Fix with `jj new trunk()`. The work is safe; the working copy is looking at the wrong revision. Corollary: delete the remote branch **last** — while it exists the fetch is inert, and you can still verify the work landed before anything is dropped.
 - **Abandoning `@` always leaves a fresh empty change.** You cannot end up with no working copy, so don't chase the new empty change you just created.
 - **`--ignore-working-copy` skips the snapshot, so it hides edits you just made.** It is correct for background and concurrent tooling — the `jjctx`/`jjstack`/`jjconflicts` helpers bake it in — and wrong for reviewing your own work: `jj diff --from 'trunk()' --to @ --stat` with the flag can omit your most recent edits and still read as a complete answer. Drop it whenever the answer depends on the current working copy. Unlike the two above, this one fails quietly.
 
