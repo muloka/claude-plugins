@@ -40,8 +40,15 @@ you to find anything.**
    a no-op that reads like a successful cleanup.
 
    If fetch also reports `Abandoned N commits that are no longer reachable`,
-   that is jj dropping commits the deleted bookmark was the only path to. Work
-   that was merged into trunk stays reachable and is **not** abandoned.
+   that is jj dropping commits the deleted bookmark was the only path to —
+   **including work you just merged, if it was squash-merged.** A squash-merge
+   rebuilds the work as a *new* commit, so your local one is not an ancestor of
+   trunk and the deleted bookmark was indeed its only path; only a true merge
+   commit leaves it reachable. The content is safe in trunk, but `@` re-parents
+   onto the pre-merge base and the merged files read as reverted on disk — run
+   `jj new trunk()`. This is why `/finish` step 6 deletes the remote branch
+   *last*: while it exists, the fetch is inert and the work can be verified
+   before anything is dropped.
 
 2. **List workspaces to find stale ones**
    ```bash
