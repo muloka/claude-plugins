@@ -70,8 +70,11 @@ jj log -r <rev> --no-graph -T 'self.diff().stat().files().map(|entry| "{ \"path\
 Check for existing review state first:
 
 ```bash
-jj log -r 'description("review: <change-id>")' --no-graph -T 'self.change_id().short(8)'
+jj log -r 'description(substring:"review: <change-id>")' --no-graph -T 'self.change_id().short(8)'
 ```
+
+`substring:` is required: a bare `description("…")` matches exactly, and jj
+stores descriptions with a trailing newline, so it silently returns nothing.
 
 If found, resume from existing state — only dispatch for unreviewed files. Skip setup below.
 

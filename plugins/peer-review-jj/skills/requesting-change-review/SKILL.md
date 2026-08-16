@@ -87,8 +87,14 @@ non-`@` path.
 Check for existing review state first:
 
 ```bash
-jj log -r 'description("review: <change-id>")' --no-graph -T 'self.change_id().short(8)'
+jj log -r 'description(substring:"review: <change-id>")' --no-graph -T 'self.change_id().short(8)'
 ```
+
+`substring:` is load-bearing. A bare `description("…")` is an **exact** match,
+and jj stores descriptions with a trailing newline — so the bare form matches
+nothing even when the text is right, and returns empty rather than erroring.
+Empty reads as "no review state exists", so the review restarts instead of
+resuming.
 
 If found, check which files are already squashed (reviewed) by comparing `jj diff --stat` on the working copy. Only dispatch generalists for files still in the working copy. Skip setup below.
 
