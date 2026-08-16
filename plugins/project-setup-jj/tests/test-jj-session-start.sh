@@ -260,6 +260,34 @@ else
   bad "ordering" "jj status at line $status_line does not precede first flagged read at $first_read_line"
 fi
 
+# --- control characters in a description must not break the payload ---
+# escape_for_json handled only \ " \n \r \t and passed every other C0 control
+# through raw. JSON forbids ALL of U+0000-U+001F unescaped, and the whole
+# briefing is one JSON object — so a single ESC reaching description.first_line()
+# cost the ENTIRE payload (stack, conflicts, workspaces, identity), not just the
+# offending line. One paste of colorized terminal output into `jj describe` is
+# enough to do it.
+#
+# The emoji rides along deliberately. The fix works byte-wise (LC_ALL=C), so the
+# thing most likely to break next is multi-byte UTF-8 being chopped into bytes
+# and reassembled wrong — which would corrupt descriptions silently rather than
+# loudly, and no JSON parse would catch it. Assert the character survives, not
+# just that the payload parses.
+cd "$WORK/repo"
+jj describe -m "$(printf 'boom\033[31mred \013vt \007bel ship\xf0\x9f\x9a\x80it')" >/dev/null 2>&1
+raw_c0="$(bash "$HOOK" 2>/dev/null || true)"
+if printf '%s' "$raw_c0" | jq -e . >/dev/null 2>&1; then
+  ok "briefing stays valid JSON when a description carries C0 controls"
+  if printf '%s' "$raw_c0" | jq -r '.hookSpecificOutput.additionalContext' | grep -q 'ship🚀it'; then
+    ok "multi-byte UTF-8 survives the byte-wise escape intact"
+  else
+    bad "UTF-8" "emoji did not round-trip through escape_for_json"
+  fi
+else
+  bad "C0 escaping" "hook emitted unparseable JSON for a description with ESC/VT/BEL"
+fi
+jj describe -m work >/dev/null 2>&1
+
 # --- conflicts are surfaced, and loudly ---
 # Two siblings editing the same line, merged: @ is a conflicted merge commit.
 jj new 'trunk()' -m left >/dev/null 2>&1
