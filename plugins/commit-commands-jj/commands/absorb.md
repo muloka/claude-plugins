@@ -27,7 +27,9 @@ changes in one sitting."
 
 1. If the current change has no diff, report "nothing to absorb" and stop
 2. Run `jj absorb` (optionally `jj absorb <paths>` if the user scoped it, or
-   `--into <revset>` to restrict target changes)
+   `--into <revset>` to restrict target changes). Never pass `-i`/
+   `--interactive` or `--tool` — jj 0.44 added them, and both open a TUI that
+   hangs a non-interactive session. Scope with paths or `--into` instead.
 3. Report which changes absorbed what, from the command's output
 4. If edits remain in `@` afterward, report them — lines that no single
    ancestor last touched are left behind by design; suggest `/squash` or a

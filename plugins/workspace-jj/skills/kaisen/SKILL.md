@@ -188,7 +188,7 @@ fresh. On resume:
 - Tasks marked `done`/`review-passed` but not `squashed` — their change IDs
   are in the ledger; resume at REVIEW or FAN IN using those IDs
 - Tasks marked `dispatched` with no later line — the agent died mid-flight;
-  check `jj log -r 'description("Task N:")'` and the workspace before
+  check `jj log -r 'description(substring:"Task N:")'` and the workspace before
   re-dispatching
 - Trust the ledger and `jj log` over your own recollection
 
@@ -424,9 +424,11 @@ Agent tool:
 
     CRITICAL: Use only non-interactive jj forms — interactive commands hang
     you. Always pass -m to describe/commit/squash. Never run bare
-    `jj describe`, `jj resolve`, `jj diffedit`, `jj split` without paths, or
-    any command that opens an editor or TUI. To resolve a conflict, edit the
-    conflict markers in the file, then verify with `jj resolve --list`.
+    `jj describe`, `jj resolve`, `jj diffedit`, `jj split` without paths,
+    `jj absorb -i` or `jj absorb --tool`, `jj arrange` (interactive-only —
+    it has no batch form), or any command that opens an editor or TUI. To
+    resolve a conflict, edit the conflict markers in the file, then verify
+    with `jj resolve --list`.
 
     ## Self-Review Before Reporting
 
@@ -575,8 +577,14 @@ Compare against the change ID the agent reported.
 If a subagent crashes or times out before reporting its change ID, the change still exists in jj's DAG — it's just not referenced. Recover it by searching for the task description:
 
 ```bash
-jj log -r 'description("Task N: <short description>")' --no-graph -T 'change_id'
+jj log -r 'description(substring:"Task N: <short description>")' --no-graph -T 'change_id'
 ```
+
+`substring:` is load-bearing, not stylistic. A bare `description("…")` is an
+**exact** match and jj stores descriptions with a trailing newline, so the bare
+form matches nothing even when the text is copied correctly. It returns empty
+rather than erroring — which reads as "the subagent never created a change" and
+sends a recoverable task to BLOCKED.
 
 If multiple matches, use the most recent. If no matches, the subagent likely never created any changes — treat as BLOCKED.
 
@@ -598,9 +606,21 @@ change that a live task workspace still holds as its `@` (e.g. the
 orchestrator running `jj edit`/`jj squash` on a task's change before that
 workspace is forgotten, or two fix subagents amending the same change).
 
-- Detect: `jj log -r '<change-id>'` shows both commits when divergent
-- Fix: inspect both sides, then `jj abandon <unwanted-COMMIT-id>` (commit
-  ID, not change ID — the change ID is ambiguous while divergent)
+- Detect: `jj log -r 'change_id(<change-id>)'` lists both commits. A **bare**
+  `jj log -r '<change-id>'` does not — it fails with `Error: Change ID <id> is
+  divergent`, because the ID no longer resolves to one revision. jj's own hint
+  names the selectors: `change_id(<id>)` for both sides, `<id>/0` and `<id>/1`
+  for one side each.
+- Fix, non-destructive — **prefer this when both sides are agents' work**:
+  `jj metaedit --update-change-id -r <COMMIT-id>` gives that side a fresh
+  change ID. Both commits survive, each addressable by an unambiguous change
+  ID, and the divergence is gone. Descendants of the edited side are rebased
+  onto it, so nothing is stranded.
+- Fix, destructive — only when one side is genuinely unwanted: inspect both,
+  then `jj abandon <unwanted-COMMIT-id>` (commit ID, not change ID — the
+  change ID is ambiguous while divergent). This discards that side's work;
+  in kaisen the two sides are usually two subagents' output, so reach for
+  `metaedit` first and abandon only after reading both.
 - Prevent: never rewrite a task's change while its workspace is still
   registered; fix subagents work only in their own task's workspace
 
