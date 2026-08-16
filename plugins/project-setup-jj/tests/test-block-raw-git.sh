@@ -218,11 +218,21 @@ assert_passthrough "non-git command"        "ls -la"               "$JJ_DIR"
 # Every case below was measured ALLOWED against the pre-#105 hook and must
 # stay that way.
 echo "=== jj repo: #105 must-allow — parens and prefixes that are not git ==="
-# jj revset and template syntax is parenthesis-heavy, and `git_head()` puts the
-# literal string "git" directly before a paren.
+# jj revset and template syntax is parenthesis-heavy, and a function whose name
+# starts with "git" puts that literal string directly before a paren.
+#
+# SYNTHETIC INPUT, deliberately kept: `git_head()` was REMOVED from revsets and
+# templates in jj 0.43, along with `git_refs()`, and as of 0.44 no revset or
+# template function puts "git" before a paren — so nothing jj can parse
+# currently exercises this case. It is retained as defense-in-depth because the
+# hook gates every jj command an agent runs, and the cost of a future
+# `git_something()` being denied is a wall that blocks correct work with an
+# authoritative-sounding message. Do NOT read this line as live jj syntax:
+# running it against 0.43+ is a parse error, not a revset.
 assert_passthrough "revset: trunk() range"  "jj log -r 'trunk()..@'"               "$JJ_DIR"
 assert_passthrough "revset: bare trunk()"   "jj diff --from trunk() --to @ --stat" "$JJ_DIR"
-assert_passthrough "revset: git_head()"     "jj log -r 'ancestors(git_head())'"    "$JJ_DIR"
+assert_passthrough "revset: git-prefixed function (synthetic; git_head() is gone since 0.43)" \
+                                            "jj log -r 'ancestors(git_head())'"    "$JJ_DIR"
 assert_passthrough "revset: grouped+funcs"  "jj log --ignore-working-copy -r '(trunk()..@) & ~empty()' --no-graph -T 'json(self)'" "$JJ_DIR"
 assert_passthrough "template: if() with strings" "jj log -r @ --no-graph -T 'if(empty, \"empty\", \"has-content\")'" "$JJ_DIR"
 # Substitution and grouping around a jj command — the exemption must stay

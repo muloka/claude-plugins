@@ -103,6 +103,34 @@ case "$out" in
   *) bad "workspaces" "no workspace section in briefing" ;;
 esac
 
+# The workspace line's SHAPE is pinned, not just its presence. jj 0.44 added
+# roots to `jj workspace list`'s default output, and the briefing inherited a
+# line of reader-relative path noise per workspace at a dependency bump with
+# every suite still green. The hook now passes its own -T; these two assertions
+# are what make dropping that flag fail loudly instead of silently.
+ws_section=$(printf '%s\n' "$out" | awk '/^Workspaces:/{f=1;next} /^[[:space:]]*$/{f=0} f')
+if [ -z "$ws_section" ]; then
+  bad "workspace shape" "no workspace section — the assertions below would be vacuous"
+else
+  # A change ID, so the line still answers "who is on what".
+  if printf '%s' "$ws_section" | grep -qE '^default: [a-z]{8}'; then
+    ok "workspace line carries a short change id"
+  else
+    bad "workspace shape" "no 'default: <change-id>' line: $ws_section"
+  fi
+  # And no COMMIT id. Absence is the half a presence-only check cannot see, but
+  # it has to be an absence that can actually fail here: measured while writing
+  # this, dropping the -T in THIS scaffold renders the root as "." — cwd-
+  # relative — so a "contains no /" check passes against the very mutation it
+  # exists to catch. The default output's commit id (`wknulskk 1b97fdef`) is the
+  # field that is unambiguously present without -T and absent with it.
+  if printf '%s' "$ws_section" | grep -qE '[0-9a-f]{8,}'; then
+    bad "workspace shape" "a commit id leaked into the workspace line — is the -T template still passed? $ws_section"
+  else
+    ok "workspace line carries no commit id (template still pinned)"
+  fi
+fi
+
 # Scope every stack assertion to the stack SECTION, for the reason the identity
 # check had to learn: @'s own `json(self)` block sits directly above and already
 # contains the description, so an unscoped grep passes even against a hook that

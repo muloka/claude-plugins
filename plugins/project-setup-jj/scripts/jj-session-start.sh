@@ -70,7 +70,18 @@ fi
 # @ and `jj root` are workspace-relative: which workspace this session is
 # attached to determines what @ even means, and a second live workspace means
 # another agent may be editing concurrently.
-workspaces=$(jj --ignore-working-copy workspace list 2>/dev/null || echo "(unable to read workspaces)")
+#
+# The template is PINNED, and that is the point of it. jj 0.44 added workspace
+# roots to this command's default output, so every briefing silently grew a
+# line of reader-relative path noise per workspace at a dependency bump, with
+# all suites green. Nothing here parses the output, but it is read by a model
+# at the top of every session in every workspace — the most-executed prose the
+# plugins ship — so its shape is ours to choose, not jj's to change under us.
+# What the briefing actually needs is the concurrency signal: who else is live,
+# on which change, and whether that change is empty (nobody mid-work) or not.
+workspaces=$(jj --ignore-working-copy workspace list --no-pager \
+  -T 'self.name() ++ ": " ++ self.target().change_id().shortest(8) ++ if(self.target().empty(), " (empty)", "") ++ " " ++ if(self.target().description(), self.target().description().first_line(), "(no description set)") ++ "\n"' \
+  2>/dev/null || echo "(unable to read workspaces)")
 
 identity=$(jj --ignore-working-copy config list user.email -T 'json(self) ++ "\n"' 2>/dev/null || echo "(unable to read user.email)")
 
