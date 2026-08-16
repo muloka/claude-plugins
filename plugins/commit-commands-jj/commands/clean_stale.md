@@ -8,7 +8,7 @@ allowed-tools: Bash(jj bookmark list:*), Bash(jj workspace:*), Bash(jj git fetch
 ## Context
 
 - Bookmarks **before** the fetch (JSON): !`jj bookmark list --all -T 'json(self) ++ "\n"'`
-- Current workspaces: !`jj workspace list`
+- Current workspaces (`STALE` = directory gone): !`jj workspace list --ignore-working-copy --no-pager -T 'if(self.root(), "live  ", "STALE ") ++ self.name() ++ "\t" ++ self.root() ++ "\n"'`
 
 ## Your Task
 
@@ -50,17 +50,30 @@ you to find anything.**
    *last*: while it exists, the fetch is inert and the work can be verified
    before anything is dropped.
 
-2. **List workspaces to find stale ones**
+2. **List workspaces, with staleness answered rather than guessed**
    ```bash
-   jj workspace list
+   jj workspace list --no-pager \
+     -T 'if(self.root(), "live  ", "STALE ") ++ self.name() ++ "\t" ++ self.root() ++ "\n"'
    ```
 
    This half is real work. A workspace whose directory has been deleted stays
    registered indefinitely — no ordinary jj command clears it, and nothing in
    step 1 touches it.
 
+   **A missing root IS the staleness signal.** `self.root()` returns an
+   `Option`, and for a workspace whose directory is gone it renders as empty
+   rather than erroring — measured on jj 0.44.0, exit 0 with the name still
+   listed. So the template above answers the question outright: every `STALE`
+   row is a candidate for step 3, and no eyeballing of paths is involved.
+
+   Pin the template rather than reading the default output. jj 0.44 changed
+   what `jj workspace list` prints by default (roots were added), and this
+   command's correctness depends on that field being present — a dependency
+   worth stating in the command instead of inheriting from a default that has
+   already moved once.
+
 3. **Forget stale workspaces**
-   For each stale workspace found in step 2 (other than the default workspace):
+   For each `STALE` row from step 2 (other than the default workspace):
    ```bash
    jj workspace forget <workspace-name>
    ```
