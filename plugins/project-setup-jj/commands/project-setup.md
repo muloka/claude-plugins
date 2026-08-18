@@ -54,6 +54,13 @@ Read the script's `key=value` summary and confirm to the user what was set up:
 - `.claude/settings.local.json` — jj/gh allow-list, and in `--local` mode the hooks too — value from `settings=`
 - Legacy `.claude/scripts/` — per the `legacy_scripts=` value: `removed` (migrated and the empty directory cleaned up), `kept_not_empty` (our files removed, directory kept because other files such as `statusline-jj.sh` remain), or `absent` (nothing to migrate)
 - CLAUDE.md — `created`, `updated`, or `already up to date` per the `claude_md=` value
+- Smoke test — value from `smoke=`. `pass` means the copied handlers parse, are
+  executable, and `jj-session-start.sh` actually ran and emitted valid JSON.
+  `fail:<reason>` means the install is written and registered but a handler does
+  not work — report the reason verbatim rather than the summary word, and do not
+  present the setup as ready. This key exists because #88 shipped a handler that
+  was copied, registered, announced, and dead, with every suite green: they
+  covered the installer, not the installed result.
 
 Then remind the user to:
 - **Restart Claude Code** for the hooks to take effect

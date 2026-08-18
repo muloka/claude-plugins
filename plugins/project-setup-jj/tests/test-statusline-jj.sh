@@ -197,6 +197,59 @@ else
   fail=$((fail + 1))
 fi
 
+# ── Tests 10-14: the install-time smoke check ──
+# statusline-smoke.sh is what /statusline-jj-setup runs before telling anyone to
+# restart. These cases are about the SMOKE TOOL, not the statusline: each feeds
+# it a deliberately broken stand-in and pins the diagnosis it produces.
+SMOKE="$SCRIPT_DIR/../scripts/statusline-smoke.sh"
+
+smoke_case() {
+  local test_name="$1" target="$2" want="$3" out
+  out=$(bash "$SMOKE" "$target" 2>&1 || true)
+  if printf '%s' "$out" | grep -q "$want"; then
+    echo "  PASS: $test_name"
+    pass=$((pass + 1))
+  else
+    echo "  FAIL: $test_name — expected /$want/, got: $out"
+    fail=$((fail + 1))
+  fi
+}
+
+smoke_case "smoke passes the shipped statusline" "$SL" '^statusline_smoke=pass$'
+smoke_case "smoke fails a path that does not exist" "$TMPDIR_ROOT/absent.sh" '^statusline_smoke=fail:not found'
+
+printf 'if then fi\n' > "$TMPDIR_ROOT/nosyntax.sh"
+smoke_case "smoke fails an unparseable script" "$TMPDIR_ROOT/nosyntax.sh" '^statusline_smoke=fail:syntax error'
+
+# The #88 shape, and the reason the smoke renders TWICE. This stand-in succeeds
+# once and dies on every render after — exactly how the real bug presented, since
+# the crash needed the status cache the first render itself created. A smoke that
+# rendered once would call this healthy.
+cat > "$TMPDIR_ROOT/second-render-dies.sh" <<'STUB'
+#!/usr/bin/env bash
+marker="${STATUSLINE_JJ_CACHE_DIR:-/tmp}/seen-one-render"
+if [ -f "$marker" ]; then
+  echo "boom: line 168: File: unbound variable" >&2
+  exit 1
+fi
+: > "$marker"
+printf 'first render only'
+STUB
+smoke_case "smoke catches a script that dies on the SECOND render" \
+  "$TMPDIR_ROOT/second-render-dies.sh" '^statusline_smoke=fail:second render exited 1'
+
+# The other half of #88: renders fine, caches a filesystem report instead of an
+# mtime, so the key drifts with free disk space and the cache never validates.
+# Nothing user-visible fails — only the shape of the key gives it away.
+cat > "$TMPDIR_ROOT/garbage-key.sh" <<'STUB'
+#!/usr/bin/env bash
+cache="${STATUSLINE_JJ_CACHE_DIR:-/tmp}/statusline-jj-fake-cache"
+printf '  File: "/x/.jj/repo/op_heads/heads"\n|a|b|@trunk|healthy' > "$cache"
+printf ' rendered fine '
+STUB
+smoke_case "smoke catches a non-numeric cache key" \
+  "$TMPDIR_ROOT/garbage-key.sh" '^statusline_smoke=fail:cache key is not a numeric mtime pair'
+
 # ── Summary ──
 echo ""
 total=$((pass + fail))

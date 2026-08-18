@@ -181,8 +181,34 @@ fi
 # `.github/`. Still quote-blind, so prose naming the directory is denied; that
 # is pinned as a known-open shape rather than fixed, because telling a path from
 # a quoted mention needs a shell parser.
+#
+# EXCLUSION idioms are stripped before the test, because they are the mirror
+# image of what this branch is for: `find . -path ./REPO -prune -o …` and
+# `grep -r --exclude-dir=REPO` (REPO being the directory named below) mention it
+# in order to STAY OUT of it. Denying those taught nothing and cost a rewrite
+# every time — the wall is a guardrail against habit, and reaching for the
+# directory in order to skip it is not the habit in question.
+#
+# This is a carve-out, not a general answer to the quote-blindness noted above.
+# The shapes below are FLAG-ANCHORED: each strips one option together with its
+# own argument, a fixed token sequence rather than a quoted region needing a
+# parser. Everything else behaves exactly as before, and crucially the strip
+# removes only the exclusion token itself — a command that both excludes the
+# directory and then reads a file inside it still denies, because the second
+# mention survives the strip. A carve-out that cleared every mention once one
+# was benign would be a hole, not a fix.
+#
+# `-prune` is required on the find form deliberately. `-path X -prune` skips the
+# directory; the same test without `-prune` is a SEARCH for it, which is exactly
+# what this branch exists to answer.
+internals_scan=$(printf '%s\n' "$command_normalized" | sed -E \
+  -e "s/--exclude(-dir)?=[${sq}${dq}]?[^[:space:]${sq}${dq}]*\.git[${sq}${dq}]?//g" \
+  -e "s/--exclude(-dir)?[[:space:]]+[${sq}${dq}]?[^[:space:]${sq}${dq}]*\.git[${sq}${dq}]?//g" \
+  -e "s/(!|-not)?[[:space:]]*-(path|wholename|name|iname|regex)[[:space:]]+[${sq}${dq}]?[^[:space:]${sq}${dq}]*\.git[^[:space:]${sq}${dq}]*[${sq}${dq}]?[[:space:]]+-prune//g" \
+  -e "s/(!|-not)[[:space:]]+-(path|wholename|name|iname|regex)[[:space:]]+[${sq}${dq}]?[^[:space:]${sq}${dq}]*\.git[^[:space:]${sq}${dq}]*[${sq}${dq}]?//g")
+
 has_git_internals=false
-if printf '%s\n' "$command_normalized" \
+if printf '%s\n' "$internals_scan" \
    | grep -qE '(^|[^A-Za-z0-9._-])\.git([^A-Za-z0-9_-]|$)'; then
   has_git_internals=true
 fi

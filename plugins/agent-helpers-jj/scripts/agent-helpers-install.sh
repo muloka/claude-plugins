@@ -81,6 +81,43 @@ cmd_install() {
   strip_fence "$CLAUDEMD" "$C_BEGIN" "$C_END"
   append_block "$CLAUDEMD" "$(cat "$TEMPLATE")"
   settings_add
+  smoke
+}
+
+# Prove the installed file actually defines the helpers, by sourcing the copy at
+# $HELPER_PATH — the same path ~/.zshrc will source, not $SRC.
+#
+# Sourcing is the whole mechanism here: the install writes a `source` line and
+# then tells the user to restart, so nothing between those two points would ever
+# notice a file that parses but defines nothing, or one whose helpers were
+# renamed out from under the catalog block in CLAUDE.md. That is the shape #88
+# had in the sibling plugin — installed, announced, never executed.
+#
+# zsh first, because zsh is what actually sources this file. bash is the
+# fallback so the check still runs where zsh is absent (CI images, containers).
+smoke() {
+  local shell_bin=""
+  if command -v zsh >/dev/null 2>&1; then shell_bin=zsh
+  elif command -v bash >/dev/null 2>&1; then shell_bin=bash
+  else echo "smoke=skip:no zsh or bash to source with"; return 0
+  fi
+
+  if [ ! -r "$HELPER_PATH" ]; then
+    echo "smoke=fail:not readable: $HELPER_PATH"; return 0
+  fi
+
+  local missing=""
+  for fn in jjctx jjstack jjconflicts jjcheckpoint; do
+    if ! "$shell_bin" -c ". '$HELPER_PATH' >/dev/null 2>&1; command -v $fn >/dev/null 2>&1"; then
+      missing="$missing $fn"
+    fi
+  done
+
+  if [ -n "$missing" ]; then
+    echo "smoke=fail:sourced under $shell_bin but undefined:$missing"
+  else
+    echo "smoke=pass:$shell_bin"
+  fi
 }
 
 cmd_remove() {

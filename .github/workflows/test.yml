@@ -7,7 +7,21 @@ on:
 
 jobs:
   test:
-    runs-on: macos-latest
+    # Both platforms, because the suites are the only thing that would ever
+    # notice a platform assumption, and for a year they ran on exactly one.
+    # #88 shipped a BSD-only `stat -f` into a script that is dead on GNU
+    # coreutils — copied, registered, announced, and never executed anywhere it
+    # was wrong. macOS-only CI could not have caught it, and did not.
+    #
+    # fail-fast: false is load-bearing here rather than stylistic. The entire
+    # value of this matrix is seeing WHICH platform broke; cancelling the other
+    # leg on the first failure throws away exactly the comparison that makes a
+    # portability failure legible.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
     # macOS runners bill at a 10x multiplier and the job default is 6 hours.
     # A hung suite should cost minutes, not a day's budget.
     timeout-minutes: 15
@@ -20,8 +34,37 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install jj
+      - name: Install jj (macOS)
+        if: runner.os == 'macOS'
         run: brew install jj
+
+      # Not `cargo install jj-cli`: that is a multi-minute compile on every run
+      # of a job whose own work takes seconds. Not `brew` on Linux either — it
+      # bootstraps a second package manager to install one static binary.
+      #
+      # The release is resolved at run time rather than pinned. A pin here would
+      # be a THIRD place the jj version is asserted (the other two being the
+      # developer's machine and whatever the suites assume), and #141 is open
+      # precisely because those assertions drift apart unnoticed. Tracking the
+      # latest release means a jj change that breaks the plugins turns this leg
+      # red, which is the signal we want and cannot get from a pin.
+      - name: Install jj (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          tag=$(curl -fsSL https://api.github.com/repos/jj-vcs/jj/releases/latest | jq -r .tag_name)
+          [ -n "$tag" ] && [ "$tag" != null ] || { echo "::error::could not resolve the latest jj release"; exit 1; }
+          echo "installing jj $tag"
+          url="https://github.com/jj-vcs/jj/releases/download/$tag/jj-$tag-x86_64-unknown-linux-musl.tar.gz"
+          # Extract the WHOLE archive rather than naming the binary as a member.
+          # The member is `./jj`, so `tar xz jj` fails with "Not found in
+          # archive" — measured, not assumed, and it would have failed on this
+          # leg's first run. Extracting everything depends on no naming
+          # convention the release is free to change.
+          dir=$(mktemp -d)
+          curl -fsSL "$url" | tar xz -C "$dir"
+          sudo install -m 0755 "$dir/jj" /usr/local/bin/jj
+          jj --version
 
       - name: Run all suites
         run: |

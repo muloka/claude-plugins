@@ -373,4 +373,45 @@ else
 fi
 echo "claude_md=$claude_outcome"
 
+# --- 6. smoke: prove the copied handlers actually run ---
+#
+# The suites cover this INSTALLER thoroughly and covered the INSTALLED RESULT
+# not at all — the gap #88 lived in for a month, where a handler was copied,
+# registered, announced, and dead. An installer that reports success without
+# once executing what it installed is reporting that the copy succeeded, which
+# is not what the user asked.
+#
+# Deliberately NOT fatal: the files are already written and correctly
+# registered, and a failing smoke does not make them less written. It is a
+# summary key like every other, and the command prose relays it — exiting
+# non-zero here would collide with the contract that non-zero means NOTHING was
+# written (invalid JSON, excluded .gitignore).
+smoke_fail=""
+for s in $MANAGED_SCRIPTS; do
+  if ! bash -n "$DST/$s" 2>/dev/null; then smoke_fail="syntax error in $s"; break; fi
+  if [ ! -x "$DST/$s" ]; then smoke_fail="$s is not executable"; break; fi
+done
+
+# Only jj-session-start.sh is actually EXECUTED. It reads nothing from stdin and
+# mutates nothing, so running it is free. require-jj-new.sh expects a tool-call
+# payload and the workspace pair mutates workspaces — for those, syntax and the
+# exec bit is as far as a smoke test can honestly go.
+if [ -z "$smoke_fail" ]; then
+  smoke_out=$( (cd "$PROJECT_ROOT" && bash "$DST/jj-session-start.sh" </dev/null) 2>/dev/null ) \
+    || smoke_fail="jj-session-start.sh exited non-zero"
+  # Empty is legitimate: the handler exits silently outside a jj repo. Non-empty
+  # must parse — a briefing that is not valid JSON is dropped whole, and the
+  # session starts with no context at all rather than with a visible error.
+  if [ -z "$smoke_fail" ] && [ -n "$smoke_out" ]; then
+    printf '%s' "$smoke_out" | jq -e . >/dev/null 2>&1 \
+      || smoke_fail="jj-session-start.sh emitted invalid JSON"
+  fi
+fi
+
+if [ -n "$smoke_fail" ]; then
+  echo "smoke=fail:$smoke_fail"
+else
+  echo "smoke=pass"
+fi
+
 echo "restart_required=true"

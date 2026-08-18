@@ -79,11 +79,34 @@ the install looks successful) while every workspace stays broken.
   mv .claude/settings.local.json.tmp .claude/settings.local.json
 ```
 
-### Step 6: Confirm to user
+### Step 6: Smoke-test the installed statusline
+
+**Required.** Every step above copies and configures; none of them has run the
+thing being installed. That gap is where #88 lived: the script was copied,
+registered, and announced while being dead on Linux — first render fine, every
+render after it exit 1 with zero output. A missing statusline reads as "not
+configured yet", so nobody connects it to the install that reported success.
+
+```bash
+bash <plugin-scripts-dir>/statusline-smoke.sh "$(jj root)/.claude/hooks/statusline-jj.sh"
+```
+
+It renders **twice** (the #88 crash only appears on the second render, once the
+first has populated the status cache) and checks the cache key is a numeric
+mtime pair (which catches the same bug where no network reaches the status API).
+
+- `statusline_smoke=pass` — say so, then continue to Step 7.
+- `statusline_smoke=fail:<reason>` — **do not tell the user to restart and expect
+  a statusline.** Report the reason verbatim; it names the failing render or the
+  malformed cache key. The install itself is intact — the files are written and
+  the config is correct — so the fix belongs in the script, not in a re-run.
+
+### Step 7: Confirm to user
 
 Show:
 - Statusline script copied to `.claude/hooks/statusline-jj.sh` (tracked — commit it, or workspaces will not see it)
 - `statusLine` config added to `.claude/settings.json`, and removed from `.claude/settings.local.json` if present
+- The smoke result from Step 6
 - **Restart Claude Code** for the statusline to appear
 
 The statusline shows: `[Model] bookmark-or-change-id description | N% ctx | $cost`

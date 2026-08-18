@@ -29,8 +29,19 @@ The script is idempotent — re-running it will not create duplicates.
 
 ### Step 3: Report and remind
 
-Report what changed (the four targets above). Then, prominently:
+Report what changed (the four targets above), then the `smoke=` line the script
+prints last:
+
+- `smoke=pass:<shell>` — the installed file was sourced under that shell and all
+  four helpers came out defined. This is the only step that proves the install
+  works; everything before it proves only that text was written.
+- `smoke=fail:<detail>` — the file was written and `~/.zshrc` sources it, but the
+  helpers are not defined. Report the detail verbatim and do not present the
+  helpers as available.
+- `smoke=skip:...` — no shell was available to source with; unverified, say so.
+
+Then, prominently:
 
 > **Restart Claude Code (or start a new session) for the helpers to take effect.** They become callable only after the next session regenerates its shell snapshot; the permission allowlist also applies from the next session.
 
-Warn if any of the names `jjctx`, `jjstack`, `jjconflicts`, `jjcheckpoint`, or `_jjq` were already defined in the user's shell (the source line will shadow them). Remove with `/agent-helpers-remove`.
+Warn if any of the names `jjctx`, `jjstack`, `jjconflicts`, or `jjcheckpoint` were already defined in the user's shell (the source line will shadow them). Those four are the whole surface. There is no shared `_jjq` internal to warn about: Claude Code's shell-snapshot capture drops `_`-prefixed functions as zsh completion helpers, so each helper inlines its own query (see the header of `scripts/jj-agent-helpers.sh`). Do not warn about a name the file does not define. Remove with `/agent-helpers-remove`.

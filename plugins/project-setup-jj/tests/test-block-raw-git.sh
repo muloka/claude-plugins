@@ -490,6 +490,41 @@ assert_passthrough "relative cwd terminates, passes through" "git status" "some/
 assert_passthrough "bare-dot cwd terminates, passes through" "git status" "."
 cd "$_orig_pwd"
 
+# ---- exclusion idioms: naming the directory in order to SKIP it ----
+# The internals branch is quote-blind by design, but it was also intent-blind in
+# one direction that cost real work: the canonical ways to EXCLUDE the git
+# directory from a search all mention it, so all of them were denied. Each of
+# these is the mirror image of access — the token exists so the tool stays out.
+
+assert_passthrough "find -path … -prune excludes rather than reads" \
+  'find . -path ./.git -prune -o -name "*.md" -print' "$JJ_DIR"
+assert_passthrough "find -path with a glob and -prune" \
+  "find . -path '*/.git' -prune -o -type f -print" "$JJ_DIR"
+assert_passthrough "find -name … -prune" \
+  'find . -name .git -prune -o -name "*.sh" -print' "$JJ_DIR"
+assert_passthrough "grep --exclude-dir=" \
+  'grep -rn "TODO" --exclude-dir=.git .' "$JJ_DIR"
+assert_passthrough "grep --exclude-dir with quotes" \
+  "grep -rn TODO --exclude-dir='.git' ." "$JJ_DIR"
+assert_passthrough "rsync/tar-style --exclude=" \
+  'tar czf out.tgz --exclude=.git .' "$JJ_DIR"
+assert_passthrough "negated -path, no -prune (a filter, still an exclusion)" \
+  "find . -not -path '*/.git/*' -name '*.sh'" "$JJ_DIR"
+assert_passthrough "bang-negated -path" \
+  "find . ! -path './.git/*' -type f" "$JJ_DIR"
+
+# The carve-out must not become a passphrase. An exclusion token neutralises
+# ITSELF and nothing else: a second mention that reads the directory still
+# denies, and a bare -name without -prune is a SEARCH for it, not a skip.
+assert_blocked "exclusion token does not launder a real read in the same command" \
+  'grep -rn x --exclude-dir=.git . && cat .git/config' "$JJ_DIR"
+assert_blocked "exclusion flag followed by a direct read" \
+  'find . -path ./.git -prune -o -name "*.md" -print; ls .git/refs' "$JJ_DIR"
+assert_blocked "-name without -prune is a search for the directory" \
+  'find . -name .git -type d' "$JJ_DIR"
+assert_blocked "plain read still denied with no exclusion present" \
+  'cat .git/HEAD' "$JJ_DIR"
+
 echo ""
 echo "=== Results: $pass passed, $fail failed ==="
 if [ "$fail" -gt 0 ]; then
