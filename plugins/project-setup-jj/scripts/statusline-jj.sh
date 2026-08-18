@@ -54,6 +54,38 @@ render() {
   printf '%s' "$out"
 }
 
+# ── Portable stat/date shims (BSD/macOS vs GNU/Linux) ──
+#
+# GNU must be tried FIRST, and the result must be validated rather than trusted.
+# `stat -c` on macOS fails cleanly (non-zero, no output), so the fallback below
+# fires correctly. The reverse does not hold: GNU `stat -f` means --file-system,
+# and given a FILE it complains about the format string on stderr while still
+# printing filesystem info on stdout and exiting 0. A `|| echo 0` fallback
+# therefore never fires on Linux — the caller captures a multi-line blob that
+# looks like success. That is not a slow statusline, it is a dead one: the blob
+# reaches `$(( NOW - CACHE_MTIME ))`, bash reads the word `File:` as a variable
+# name, and `set -u` aborts the whole script with no output at all. Hence the
+# digit check: exit status is not evidence here, the shape of the value is.
+_mtime() {                        # whole seconds, or "" if unresolvable
+  local m
+  m=$(stat -c '%Y' "$1" 2>/dev/null) || m=$(stat -f '%m' "$1" 2>/dev/null) || m=""
+  case "$m" in ''|*[!0-9]*) printf '' ;; *) printf '%s' "$m" ;; esac
+}
+
+_mtime_ns() {                     # nanosecond precision, or "" if unresolvable
+  local m
+  m=$(stat -c '%.9Y' "$1" 2>/dev/null) || m=$(stat -f '%Fm' "$1" 2>/dev/null) || m=""
+  case "$m" in ''|*[!0-9.]*) printf '' ;; *) printf '%s' "$m" ;; esac
+}
+
+_epoch_utc() {                    # ISO8601 (no zone) → epoch seconds, or ""
+  local e
+  e=$(date -u -d "$1" '+%s' 2>/dev/null) \
+    || e=$(TZ=UTC date -jf '%Y-%m-%dT%H:%M:%S' "$1" '+%s' 2>/dev/null) \
+    || e=""
+  case "$e" in ''|*[!0-9]*) printf '' ;; *) printf '%s' "$e" ;; esac
+}
+
 input=$(cat)
 
 # Session info from stdin JSON
@@ -80,21 +112,22 @@ JJ_DIR="$JJ_ROOT/.jj"
 # Track instead the two things the rendered segments actually depend on:
 #   op_heads/heads        — bumped by every jj operation (commit, describe, bookmark)
 #   working_copy/checkout — bumped when this workspace's working copy is snapshotted
-# %Fm is nanosecond-precision, so two operations in the same second still differ.
-# In a workspace `.jj/repo` is a FILE holding a relative pointer to the main repo
-# directory; in the main repo it is that directory itself.
+# _mtime_ns is nanosecond-precision, so two operations in the same second still
+# differ. In a workspace `.jj/repo` is a FILE holding a relative pointer to the
+# main repo directory; in the main repo it is that directory itself.
 if [ -d "$JJ_DIR/repo" ]; then
   REPO_DIR="$JJ_DIR/repo"
 else
   REPO_DIR="$JJ_DIR/$(cat "$JJ_DIR/repo" 2>/dev/null || echo "")"
 fi
-OP_MTIME="$(stat -f '%Fm' "$REPO_DIR/op_heads/heads" 2>/dev/null || echo "")"
-WC_MTIME="$(stat -f '%Fm' "$JJ_DIR/working_copy/checkout" 2>/dev/null || echo "")"
+OP_MTIME="$(_mtime_ns "$REPO_DIR/op_heads/heads")"
+WC_MTIME="$(_mtime_ns "$JJ_DIR/working_copy/checkout")"
 if [ -n "$OP_MTIME" ] && [ -n "$WC_MTIME" ]; then
   CACHE_KEY="${OP_MTIME}:${WC_MTIME}"
 else
-  # Signal unresolvable — e.g. jj changed its internal layout. Force a miss rather
-  # than risk serving stale state: correctness over speed, never silently wrong.
+  # Signal unresolvable — e.g. jj changed its internal layout, or neither stat
+  # dialect answered. Force a miss rather than risk serving stale state:
+  # correctness over speed, never silently wrong.
   CACHE_KEY="uncacheable:$$"
 fi
 
@@ -163,10 +196,13 @@ fi
 SUMMARY_CACHE="/tmp/statusline-claude-summary"
 SUMMARY_JSON=""
 if [ -f "$SUMMARY_CACHE" ]; then
-  CACHE_MTIME=$(stat -f '%m' "$SUMMARY_CACHE" 2>/dev/null || echo "0")
+  # An unresolvable mtime must never reach the arithmetic below — treat it as
+  # expired and re-fetch. Failing open to 0 here would also read as "expired",
+  # but only by accident; an empty value says so deliberately.
+  CACHE_MTIME=$(_mtime "$SUMMARY_CACHE")
   NOW=$(date +%s)
-  AGE=$(( NOW - CACHE_MTIME ))
-  if [ "$AGE" -lt 300 ]; then
+  AGE=$(( NOW - ${CACHE_MTIME:-0} ))
+  if [ -n "$CACHE_MTIME" ] && [ "$AGE" -lt 300 ]; then
     SUMMARY_JSON=$(cat "$SUMMARY_CACHE" 2>/dev/null || echo "")
   fi
 fi
@@ -212,11 +248,15 @@ if [ -n "$SUMMARY_JSON" ]; then
   # 3. Maintenance countdown
   MAINT_TIME=$(echo "$SUMMARY_JSON" | jq -r '.scheduled_maintenances[0].scheduled_for // ""' 2>/dev/null || echo "")
   if [ -n "$MAINT_TIME" ]; then
-    MAINT_EPOCH=$(TZ=UTC date -jf '%Y-%m-%dT%H:%M:%S' "${MAINT_TIME%%.*}" '+%s' 2>/dev/null || echo "0")
+    # Skip the badge outright when the timestamp will not parse. Falling back to
+    # epoch 0 rendered a confident "⚙ now" for a maintenance window in 1970.
+    MAINT_EPOCH=$(_epoch_utc "${MAINT_TIME%%.*}")
     NOW=${NOW:-$(date +%s)}
-    DIFF=$(( MAINT_EPOCH - NOW ))
+    DIFF=$(( ${MAINT_EPOCH:-0} - NOW ))
     MAINT_BG="$ATT_BG"; MAINT_FG="$ATT_FG"
-    if [ "$DIFF" -gt 86400 ]; then
+    if [ -z "$MAINT_EPOCH" ]; then
+      MAINT_TXT=""; MAINT_BG=""; MAINT_FG=""
+    elif [ "$DIFF" -gt 86400 ]; then
       MAINT_TXT="⚙ $((DIFF / 86400))d"
     elif [ "$DIFF" -gt 3600 ]; then
       MAINT_TXT="⚙ $((DIFF / 3600))h"

@@ -70,19 +70,61 @@ fi
 # @ and `jj root` are workspace-relative: which workspace this session is
 # attached to determines what @ even means, and a second live workspace means
 # another agent may be editing concurrently.
-workspaces=$(jj --ignore-working-copy workspace list 2>/dev/null || echo "(unable to read workspaces)")
+#
+# The template is PINNED, and that is the point of it. jj 0.44 added workspace
+# roots to this command's default output, so every briefing silently grew a
+# line of reader-relative path noise per workspace at a dependency bump, with
+# all suites green. Nothing here parses the output, but it is read by a model
+# at the top of every session in every workspace — the most-executed prose the
+# plugins ship — so its shape is ours to choose, not jj's to change under us.
+# What the briefing actually needs is the concurrency signal: who else is live,
+# on which change, and whether that change is empty (nobody mid-work) or not.
+workspaces=$(jj --ignore-working-copy workspace list --no-pager \
+  -T 'self.name() ++ ": " ++ self.target().change_id().shortest(8) ++ if(self.target().empty(), " (empty)", "") ++ " " ++ if(self.target().description(), self.target().description().first_line(), "(no description set)") ++ "\n"' \
+  2>/dev/null || echo "(unable to read workspaces)")
 
 identity=$(jj --ignore-working-copy config list user.email -T 'json(self) ++ "\n"' 2>/dev/null || echo "(unable to read user.email)")
 
-# Escape string for JSON embedding
+# Escape string for JSON embedding.
+#
+# The five short forms below are NOT sufficient. JSON forbids every control
+# character in U+0000-U+001F unescaped, and this briefing is a single JSON
+# object — so one stray control byte does not corrupt one line, it makes the
+# whole payload unparseable and the session starts with NO briefing at all: no
+# stack, no conflicts, no workspaces, no identity. A jj description picks one up
+# trivially, because pasting colorized terminal output into `jj describe` puts an
+# ESC (0x1B) into description.first_line(), which line 50 interpolates.
+#
+# `local LC_ALL=C` makes every string operation in this function byte-wise:
+# ${#s} counts bytes, ${s:i:1} takes one byte, and the [ - ] range is byte
+# ordering rather than locale collation. Multi-byte UTF-8 therefore survives as
+# a run of individual bytes, each >= 0x80 and so passed through untouched, and
+# reassembles unchanged. Without the C locale the range would collate and the
+# match would be unpredictable.
 escape_for_json() {
-    local s="$1"
+    local LC_ALL=C
+    local s="$1" out="" i ch
     s="${s//\\/\\\\}"
     s="${s//\"/\\\"}"
     s="${s//$'\n'/\\n}"
     s="${s//$'\r'/\\r}"
     s="${s//$'\t'/\\t}"
-    printf '%s' "$s"
+    # Fast path: the overwhelmingly common case has nothing left below 0x20, and
+    # the byte loop below should not run on every description.
+    case "$s" in
+      *[$'\001'-$'\037']*) ;;
+      *) printf '%s' "$s"; return 0 ;;
+    esac
+    i=0
+    while [ "$i" -lt "${#s}" ]; do
+      ch="${s:$i:1}"
+      case "$ch" in
+        [$'\001'-$'\037']) out="$out$(printf '\\u%04x' "'$ch")" ;;
+        *) out="$out$ch" ;;
+      esac
+      i=$((i+1))
+    done
+    printf '%s' "$out"
 }
 
 context="== jj Session Context ==
