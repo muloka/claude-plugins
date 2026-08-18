@@ -70,9 +70,41 @@ fi
 
 # Cache: only re-query jj if repo state changed
 # Stores raw pipe-delimited values for segment building
-CACHE_FILE="/tmp/statusline-jj-$$-cache"
-JJ_DIR="$(jj root --ignore-working-copy 2>/dev/null)/.jj"
-CACHE_KEY="$(stat -f '%m' "$JJ_DIR/repo" 2>/dev/null || echo "0")"
+JJ_ROOT="$(jj root --ignore-working-copy 2>/dev/null)"
+JJ_DIR="$JJ_ROOT/.jj"
+
+# Cache validity key. `.jj/repo`'s own mtime is NOT a usable signal: it only moves
+# when that directory gains an entry (adding a workspace, say), so it can sit frozen
+# through hours of commits and serve a permanently stale statusline. This went
+# unnoticed only because the $$-keyed filename below meant the cache never hit.
+# Track instead the two things the rendered segments actually depend on:
+#   op_heads/heads        — bumped by every jj operation (commit, describe, bookmark)
+#   working_copy/checkout — bumped when this workspace's working copy is snapshotted
+# %Fm is nanosecond-precision, so two operations in the same second still differ.
+# In a workspace `.jj/repo` is a FILE holding a relative pointer to the main repo
+# directory; in the main repo it is that directory itself.
+if [ -d "$JJ_DIR/repo" ]; then
+  REPO_DIR="$JJ_DIR/repo"
+else
+  REPO_DIR="$JJ_DIR/$(cat "$JJ_DIR/repo" 2>/dev/null || echo "")"
+fi
+OP_MTIME="$(stat -f '%Fm' "$REPO_DIR/op_heads/heads" 2>/dev/null || echo "")"
+WC_MTIME="$(stat -f '%Fm' "$JJ_DIR/working_copy/checkout" 2>/dev/null || echo "")"
+if [ -n "$OP_MTIME" ] && [ -n "$WC_MTIME" ]; then
+  CACHE_KEY="${OP_MTIME}:${WC_MTIME}"
+else
+  # Signal unresolvable — e.g. jj changed its internal layout. Force a miss rather
+  # than risk serving stale state: correctness over speed, never silently wrong.
+  CACHE_KEY="uncacheable:$$"
+fi
+
+# Key the cache file by repo path, NOT by $$. Claude Code spawns this script as a
+# new process on every redraw, so a PID-keyed name never matches on the next run:
+# the cache-hit branch below became dead code (all 11 jj queries ran every redraw)
+# and each redraw leaked another /tmp file. A cksum collision only degrades to a
+# cache miss — CACHE_KEY (repo mtime) still gates validity.
+CACHE_DIR="${STATUSLINE_JJ_CACHE_DIR:-/tmp}"
+CACHE_FILE="$CACHE_DIR/statusline-jj-$(printf '%s' "$JJ_ROOT" | cksum | cut -d' ' -f1)-cache"
 
 if [ -f "$CACHE_FILE" ] && [ "$(head -1 "$CACHE_FILE")" = "$CACHE_KEY" ]; then
   IFS='|' read -r BOOKMARK CHANGE_ID DESC TRUNK_LABEL TRUNK_CLR < <(tail -1 "$CACHE_FILE") || true
