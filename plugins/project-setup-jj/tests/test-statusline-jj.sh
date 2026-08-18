@@ -165,6 +165,38 @@ else
   fail=$((fail + 1))
 fi
 
+# ── Test 9: the cache validity key is a pair of numeric mtimes ──
+# Platform regression (#88). The key is built from two file mtimes, and reading an
+# mtime is the one place this script has to speak two dialects: BSD `stat -f` and
+# GNU `stat -c`. Getting it wrong is not a clean failure — GNU `stat -f` warns on
+# stderr about the format string, then prints a filesystem report on stdout and
+# exits 0, so `|| echo` never fires and the key silently becomes:
+#     File: "…/op_heads/heads"
+#     ID: … Namelen: 255  Type: ext2/ext3
+#     Blocks: Total: … Free: … Available: …
+# which drifts with free-disk-space and so never validates — the exact dead-cache
+# pathology test 7 exists for. Assert the SHAPE of the key rather than the platform:
+# this fails on macOS and Linux alike if either dialect stops resolving.
+if [ -n "${cache_file:-}" ] && [ -f "$cache_file" ]; then
+  _k=$(head -1 "$cache_file")
+  case "$_k" in
+    *[!0-9.:]*|*:*:*|"") _shape=bad ;;
+    *.*:*.*)             _shape=ok ;;
+    *:*)                 _shape=ok ;;
+    *)                   _shape=bad ;;
+  esac
+  if [ "$_shape" = ok ]; then
+    echo "  PASS: cache key is a numeric mtime pair"
+    pass=$((pass + 1))
+  else
+    echo "  FAIL: cache key is not a numeric mtime pair — got: $(printf '%s' "$_k" | head -1)"
+    fail=$((fail + 1))
+  fi
+else
+  echo "  FAIL: no cache file created — cannot verify cache key shape"
+  fail=$((fail + 1))
+fi
+
 # ── Summary ──
 echo ""
 total=$((pass + fail))
