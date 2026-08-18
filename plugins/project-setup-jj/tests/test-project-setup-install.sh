@@ -382,6 +382,73 @@ P=$(mktemp -d); printf 'node_modules/\n*.log\n' > "$P/.gitignore"
 bash "$INSTALL" "$PLUG" "$P" >/dev/null 2>&1
 [ -f "$P/.claude/settings.json" ] && ok "gitignore: unrelated rules do not trip the guard" || bad "gitignore" "false positive on unrelated rules"
 
+# ---- smoke=: the installer must EXECUTE what it installed ----
+# #88 shipped a handler that was copied, registered, announced and dead, with
+# every suite green — because the suites covered this installer and nothing
+# covered the installed result. These cases pin the key that closes that gap.
+
+P=$(newproj)
+OUT=$(bash "$INSTALL" $INSTALL_MODE "$PLUG" "$P")
+printf '%s' "$OUT" | grep -q '^smoke=pass$' \
+  && ok "smoke: healthy handlers report pass" || bad "smoke" "expected smoke=pass, got: $(printf '%s' "$OUT" | grep '^smoke=' || echo none)"
+
+# A handler that does not parse. `bash -n` is the cheapest possible check and it
+# is the one the install path never ran.
+BROKEN="$(mktemp -d)"; mkdir -p "$BROKEN/scripts" "$BROKEN/templates"
+cp "$PLUG"/scripts/*.sh "$BROKEN/scripts/"
+cp "$PLUG"/templates/CLAUDE.md.template "$BROKEN/templates/"
+printf '#!/usr/bin/env bash
+if then fi
+' > "$BROKEN/scripts/jj-session-start.sh"
+P=$(newproj)
+OUT=$(bash "$INSTALL" $INSTALL_MODE "$BROKEN" "$P")
+printf '%s' "$OUT" | grep -q '^smoke=fail:syntax error in jj-session-start.sh$' \
+  && ok "smoke: unparseable handler reports fail" || bad "smoke" "expected syntax fail, got: $(printf '%s' "$OUT" | grep '^smoke=' || echo none)"
+
+# A handler that runs but exits non-zero.
+printf '#!/usr/bin/env bash
+exit 3
+' > "$BROKEN/scripts/jj-session-start.sh"
+P=$(newproj)
+OUT=$(bash "$INSTALL" $INSTALL_MODE "$BROKEN" "$P")
+printf '%s' "$OUT" | grep -q '^smoke=fail:jj-session-start.sh exited non-zero$' \
+  && ok "smoke: non-zero handler reports fail" || bad "smoke" "expected exit fail, got: $(printf '%s' "$OUT" | grep '^smoke=' || echo none)"
+
+# A handler that succeeds and emits garbage. This is the mode that matters most:
+# the briefing is ONE JSON object, so a single bad byte does not corrupt a line,
+# it drops the whole payload and the session starts with no context at all.
+printf '#!/usr/bin/env bash
+printf "not json at all\\n"
+' > "$BROKEN/scripts/jj-session-start.sh"
+P=$(newproj)
+OUT=$(bash "$INSTALL" $INSTALL_MODE "$BROKEN" "$P")
+printf '%s' "$OUT" | grep -q '^smoke=fail:jj-session-start.sh emitted invalid JSON$' \
+  && ok "smoke: invalid-JSON handler reports fail" || bad "smoke" "expected JSON fail, got: $(printf '%s' "$OUT" | grep '^smoke=' || echo none)"
+
+# Silence is legitimate — the real handler exits 0 with no output outside a jj
+# repo, and that must not read as a failure.
+printf '#!/usr/bin/env bash
+exit 0
+' > "$BROKEN/scripts/jj-session-start.sh"
+P=$(newproj)
+OUT=$(bash "$INSTALL" $INSTALL_MODE "$BROKEN" "$P")
+printf '%s' "$OUT" | grep -q '^smoke=pass$' \
+  && ok "smoke: silent handler is not a failure" || bad "smoke" "silence misreported: $(printf '%s' "$OUT" | grep '^smoke=' || echo none)"
+
+# A failing smoke must NOT abort the install: the files are already written and
+# correctly registered, and non-zero exit is reserved for "nothing was written".
+printf '#!/usr/bin/env bash
+exit 3
+' > "$BROKEN/scripts/jj-session-start.sh"
+P=$(newproj)
+if bash "$INSTALL" $INSTALL_MODE "$BROKEN" "$P" >/dev/null 2>&1; then
+  [ -f "$P/.claude/settings.local.json" ] \
+    && ok "smoke: failure is reported, not fatal" || bad "smoke" "settings missing after smoke failure"
+else
+  bad "smoke" "a failing smoke aborted the install (exit non-zero)"
+fi
+rm -rf "$BROKEN"
+
 echo ""
 echo "=== Results: $pass passed, $fail failed ==="
 [ "$fail" -eq 0 ]

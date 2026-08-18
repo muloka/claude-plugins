@@ -56,6 +56,34 @@ HOME="$FAKE2" bash "$INSTALL" install
 grep -qxF '# >>> jj-agent-helpers (managed by agent-helpers-jj) >>>' "$FAKE2/.zshrc" && ok "install creates missing ~/.zshrc" || bad "missing/zshrc" "not created"
 [ "$(jq -r '.permissions.allow | index("Bash(jjctx:*)") != null' "$FAKE2/.claude/settings.json")" = true ] && ok "install creates missing settings.json with allow" || bad "missing/settings" "not created"
 
+# --- smoke: the install must SOURCE what it wrote ---
+# Everything above proves text landed in the right files. None of it proves the
+# helpers exist, and the install ends by telling the user to restart — so a file
+# that parses but defines nothing would be discovered by the user, not by us.
+
+FAKE3="$(mktemp -d)"
+OUT=$(HOME="$FAKE3" bash "$INSTALL" install)
+printf '%s' "$OUT" | grep -q '^smoke=pass:' \
+  && ok "smoke: real helper file sources and defines all four" || bad "smoke" "expected smoke=pass, got: $(printf '%s' "$OUT" | grep '^smoke=' || echo none)"
+
+# Overwrite the INSTALLED copy with a file that parses and defines nothing, then
+# re-run the smoke logic against it by re-installing from a plugin root whose
+# source is that same empty file.
+FAKE4="$(mktemp -d)"; STUBPLUG="$(mktemp -d)"
+mkdir -p "$STUBPLUG/scripts" "$STUBPLUG/templates"
+printf '# defines nothing at all\n' > "$STUBPLUG/scripts/jj-agent-helpers.sh"
+cp "$SCRIPT_DIR/../templates/jj-agent-helpers-claudemd.md" "$STUBPLUG/templates/"
+cp "$INSTALL" "$STUBPLUG/scripts/agent-helpers-install.sh"
+OUT=$(HOME="$FAKE4" bash "$STUBPLUG/scripts/agent-helpers-install.sh" install)
+printf '%s' "$OUT" | grep -q '^smoke=fail:.*jjctx' \
+  && ok "smoke: a file defining nothing reports fail" || bad "smoke" "expected smoke=fail naming jjctx, got: $(printf '%s' "$OUT" | grep '^smoke=' || echo none)"
+
+# A failing smoke is a report, not an abort — the files are already written.
+[ -f "$FAKE4/.config/jj-agent-helpers/jj-agent-helpers.sh" ] \
+  && ok "smoke: failure does not abort the install" || bad "smoke" "install aborted on smoke failure"
+
+rm -rf "$FAKE3" "$FAKE4" "$STUBPLUG"
+
 echo ""
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]
