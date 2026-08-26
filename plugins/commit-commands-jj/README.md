@@ -114,13 +114,14 @@ Finishes development work by presenting a menu of completion options and executi
 
 **What it does:**
 1. Verifies the target change (current or parent, if `@` is empty) has content against trunk
-2. Presents four options: push and create a PR, squash into trunk (local merge), keep as-is, or discard
-3. Executes the chosen workflow:
+2. Runs the project's test suite — the menu only appears after a green run (skipped when no suite is detected)
+3. Presents four options: push and create a PR, merge into trunk locally, keep as-is, or discard
+4. Executes the chosen workflow:
    - **Push and create PR:** warns about non-target ancestor changes that would be swept into the PR, creates a bookmark if needed (or uses `jj git push --change <target>` for a quick anonymous push), pushes with `jj git push --bookmark`, and opens the PR with `gh pr create`
-   - **Squash into trunk:** fetches, rebases the change onto trunk, and folds it in with `jj squash --into trunk()`
+   - **Merge into trunk locally:** fetches, rebases the change onto trunk, and fast-forwards the trunk bookmark with `jj bookmark move` (not `jj squash --into trunk()` — trunk is immutable, so that form errors)
    - **Keep as-is:** reports the change ID and stops — no cleanup
    - **Discard:** records a restore point from the op log, runs `jj abandon`, and hands back the exact `jj op restore <id>` that undoes it
-4. For push, squash, and discard, cleans up the jj workspace if running in a non-default one (`jj workspace forget`)
+5. For push, merge, and discard, cleans up the jj workspace if running in a non-default one (`jj workspace forget`) — auto-forgetting only ephemeral hook-created workspaces, and asking before ending a durable side thread
 
 **Usage:**
 ```bash
@@ -134,8 +135,9 @@ Finishes development work by presenting a menu of completion options and executi
 
 # Claude will:
 # - Confirm there's work to finish (against trunk)
+# - Run the project's test suite (menu only appears after a green run)
 # - Ask which of the 4 options you want
-# - Execute it (push+PR, squash, keep, or discard)
+# - Execute it (push+PR, local merge, keep, or discard)
 # - Clean up the workspace if applicable
 ```
 
@@ -144,7 +146,8 @@ Finishes development work by presenting a menu of completion options and executi
 - Makes discarding recoverable rather than gating it — captures an op id first, then reports `jj op restore <id>`
 - Detects and warns about ancestor changes not part of the target work before pushing
 - After a PR merges, abandons the now-landed local ancestor changes as part of cleanup
-- Does not run tests or reviews — finishing work is its own concern
+- Gates the menu behind the project's test suite (skipped only when no suite is detected); reviews remain the caller's concern
+- Workspace cleanup respects provenance — auto-forgets only ephemeral hook-created workspaces (`/tmp/jj-workspaces/`), and asks before ending a durable side thread
 
 ### `/describe`
 

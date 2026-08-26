@@ -12,7 +12,8 @@ allowed-tools: Bash(jj:*), Bash(jj git push:*), Bash(gh pr create:*), Bash(gh pr
 - Current diff stats: !`jj diff --stat`
 - Current status: !`jj status`
 - Bookmarks on current change: !`jj log -r @ --no-graph -T 'bookmarks'`
-- Is this a workspace?: !`jj workspace list --no-pager -T 'self.name() ++ "\n"'`
+- Current workspace root: !`jj workspace root`
+- All workspaces (name, root): !`jj workspace list --no-pager -T 'self.name() ++ "\t" ++ self.root() ++ "\n"'`
 
 ## Overview
 
@@ -20,7 +21,7 @@ allowed-tools: Bash(jj:*), Bash(jj git push:*), Bash(gh pr create:*), Bash(gh pr
 
 Guide completion of development work by presenting clear options and executing the chosen workflow.
 
-**Core principle:** Verify work exists → Present options → Execute choice → Clean up.
+**Core principle:** Verify work exists → Verify tests → Present options → Execute choice → Clean up.
 
 **Announce at start:** "I'm using the /finish skill to complete this work."
 
@@ -40,7 +41,36 @@ Finishing: <description or summary of changes>
 <N> files changed, +<additions>, -<deletions>
 ```
 
-## Step 2: Present options
+## Step 2: Verify tests
+
+The menu comes after a green suite — integrating untested work is how bad
+merges happen.
+
+1. **Find the project's test command.** In order of authority: project
+   instructions (CLAUDE.md), CI config (`.github/workflows/`), then standard
+   manifests (`package.json` scripts.test, `Cargo.toml`, `pyproject.toml`,
+   `Makefile` test target, `go.mod`).
+
+   If none of these yields a test command, report:
+   ```
+   No test suite detected — skipping test gate.
+   ```
+   and continue to Step 3.
+
+2. **Run the suite on the tree being finished.** A green run earlier in the
+   session only proves the tree it ran on — if `@` has changed since, run it
+   again. (The test command is usually outside this command's pre-approved
+   tools, so expect a permission prompt.)
+
+3. **If tests fail**, report the failures and stop:
+   ```
+   Tests failing (<N> failures). Must fix before finishing:
+   <failures>
+   ```
+   Do not present the menu. If the user explicitly says to discard the work
+   anyway, Option 4 remains available on that request.
+
+## Step 3: Present options
 
 Present exactly these 4 options:
 
@@ -48,12 +78,12 @@ Present exactly these 4 options:
 What would you like to do?
 
 1. Push and create a Pull Request
-2. Squash into trunk (local merge)
+2. Merge into trunk locally (fast-forward)
 3. Keep as-is (I'll handle it later)
 4. Discard this work
 ```
 
-## Step 3: Execute choice
+## Step 4: Execute choice
 
 ### Option 1: Push and create PR (most common)
 
@@ -201,27 +231,49 @@ What would you like to do?
       jj git push --deleted
       ```
 
-7. Then: Workspace cleanup (Step 4).
+7. Then: Workspace cleanup (Step 5).
 
-### Option 2: Squash into trunk (local merge)
+### Option 2: Merge into trunk locally (fast-forward)
+
+Do NOT reach for `jj squash --into trunk()`. Measured on jj 0.44.0: `--into`
+and `-r` are mutually exclusive (the command errors before doing anything),
+and the corrected `--from <target> --into trunk()` form is then rejected with
+`Error: Commit ... is immutable` — trunk is in `builtin_immutable_heads()`.
+The jj-native local merge is a rebase plus a bookmark fast-forward, which
+rewrites nothing that is shared:
 
 1. Fetch latest trunk:
    ```bash
    jj git fetch
    ```
 
-2. Rebase the work onto trunk and squash:
+2. Rebase the work onto trunk:
    ```bash
    jj rebase -r <target> -d trunk()
-   jj squash --into trunk() -r <target>
    ```
+   The ancestor concern from Option 1 applies here too: moving the bookmark
+   to the target brings every ancestor with it, so if the ancestor check
+   shows unrelated changes between trunk and the target, surface them first.
 
-3. Verify the squash landed:
+3. Fast-forward the trunk bookmark (read its name — usually `main` — from
+   `jj log -r 'trunk()' --no-graph -T 'bookmarks'` before the move):
    ```bash
-   jj log -r 'trunk()' --limit 3 --no-graph
+   jj bookmark move <trunk-bookmark> --to <target>
    ```
 
-4. Then: Workspace cleanup (Step 4).
+4. Verify against the **local bookmark, not `trunk()`**:
+   ```bash
+   jj log -r <trunk-bookmark> --limit 3 --no-graph
+   ```
+   `trunk()` keeps resolving to the *remote* bookmark (`main@origin`) until a
+   push happens, so it still shows the pre-merge state on a successful local
+   merge — checking it here reports a false failure.
+
+5. Report that the merge is local only: the remote is unchanged until
+   `jj git push --bookmark <trunk-bookmark>` (measured: the push is a clean
+   `[move forward ...]`, no force needed). Push only if the user asks.
+
+6. Then: Workspace cleanup (Step 5).
 
 ### Option 3: Keep as-is
 
@@ -288,35 +340,51 @@ it to the user, not to gate the discard behind a typed keyword.
    then re-publish:     jj git push --bookmark <name>
    ```
 
-Then: Workspace cleanup (Step 4).
+Then: Workspace cleanup (Step 5).
 
-## Step 4: Workspace cleanup
+## Step 5: Workspace cleanup
 
 **For Options 1, 2, and 4 only.**
 
-Check if running inside a jj workspace (from context above — if workspace list shows more than just "default"):
+1. **Identify the current workspace by root, not by name.** Read the two
+   workspace lines from Context: the current workspace is the row of the
+   list whose root equals the current workspace root. (The list template is
+   pinned deliberately — jj 0.44 changed what `jj workspace list` prints by
+   default, and this step depends on the root field being present.) On macOS,
+   `/tmp` is a symlink to `/private/tmp` — treat the two spellings of a path
+   as the same location when matching.
 
-```bash
-jj workspace list --no-pager -T 'self.name() ++ "\n"'
-```
+   If the current workspace is `default`, no cleanup is needed. Stop here.
 
-If in a non-default workspace:
-```bash
-# Get the workspace name
-# Forget the workspace from the repo
-jj workspace forget <workspace-name>
-```
+2. **Branch on provenance — who created the workspace decides who ends it:**
 
-Report what was cleaned up. If the worktree directory should be removed, note it but do NOT remove it automatically — the WorktreeRemove hook handles that.
+   - **Root under `/tmp/jj-workspaces/`** — an ephemeral workspace the
+     WorktreeCreate hook made (`claude --worktree`, `EnterWorktree`). Ours to
+     clean up:
+     ```bash
+     jj workspace forget <workspace-name>
+     ```
+   - **Any other root** — a durable side thread (e.g. a `jjtab` sibling
+     directory). Ending one with `/finish` is a documented use, but the thread
+     outlives any single change, so ending it is the user's call, not a side
+     effect — ask:
+     ```
+     This session is in the durable workspace <name> (<root>).
+     Finish the side thread too (forget the workspace), or keep it for more work?
+     ```
+     Forget only on a yes. Keeping it is not a failure — report the change as
+     finished and the workspace as kept.
 
-If in the default workspace, no cleanup needed.
+3. **Report what was cleaned up.** Never remove the workspace directory
+   itself — the WorktreeRemove hook owns ephemeral directories, and a durable
+   directory's removal is the user's to do by hand.
 
 ## Quick Reference
 
-| Option | Push | Squash | Keep Workspace | Cleanup |
+| Option | Push | Merge | Keep Workspace | Cleanup |
 |--------|------|--------|----------------|---------|
 | 1. PR | ✓ | - | ✓ | bookmark only |
-| 2. Squash | - | ✓ | - | ✓ |
+| 2. Local merge | - | ✓ | - | ✓ |
 | 3. Keep | - | - | ✓ | - |
 | 4. Discard | - | - | - | ✓ |
 
@@ -327,7 +395,8 @@ If in the default workspace, no cleanup needed.
 - **Make discard recoverable; don't gate it.** Capture `jj op log -n 1 --no-graph -T 'id.short()'` before abandoning, then hand back `jj op restore <id>`. A typed-confirmation prompt is a git habit — in jj the op log is the safety net, and it works whether or not anyone was asked.
 - **If the discard removed a pushed bookmark from the remote, the recovery command is `jj op restore <id> --what repo`.** The bare form restores remote-tracking refs too, and the following `jj git push` reports `Nothing changed.` over a remote that is still empty.
 - **Don't auto-remove worktree directories.** Let the WorktreeRemove hook handle it.
-- **Keep it focused.** This skill finishes work. It does not run tests or do reviews — those are the caller's responsibility.
+- **Provenance gates workspace cleanup.** Auto-forget only ephemeral workspaces (root under `/tmp/jj-workspaces/`); a durable workspace is forgotten only after the user says so.
+- **Menu after green.** Run the project's test suite (Step 2) before presenting options; skip the gate only when no suite is detected. Reviews remain the caller's responsibility.
 
 ## Integration
 
