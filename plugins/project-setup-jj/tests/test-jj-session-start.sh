@@ -131,6 +131,38 @@ else
   fi
 fi
 
+# --- current-workspace marker: the briefing says which row is THIS session ---
+# Root-matched, not name-matched. The single-workspace scaffold marks default;
+# with a second workspace the marker must sit on the session's row and only
+# there, from either side.
+if printf '%s' "$ws_section" | grep -q '^default: .*(this session)$'; then
+  ok "default row carries the (this session) marker"
+else
+  bad "marker" "no (this session) marker on the default row: $ws_section"
+fi
+
+jj workspace add ../ws2 --name second >/dev/null 2>&1
+out2="$(ctx)"
+ws2_section=$(printf '%s\n' "$out2" | awk '/^Workspaces:/{f=1;next} /^[[:space:]]*$/{f=0} f')
+if printf '%s' "$ws2_section" | grep -q '^default: .*(this session)$' \
+   && printf '%s' "$ws2_section" | grep -q '^second: ' \
+   && ! printf '%s' "$ws2_section" | grep -q '^second: .*(this session)$'; then
+  ok "with a second workspace, only the session's row is marked"
+else
+  bad "marker" "marker misplaced with two workspaces: $ws2_section"
+fi
+
+out3="$(cd ../ws2 && bash "$HOOK" 2>/dev/null | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null || true)"
+ws3_section=$(printf '%s\n' "$out3" | awk '/^Workspaces:/{f=1;next} /^[[:space:]]*$/{f=0} f')
+if printf '%s' "$ws3_section" | grep -q '^second: .*(this session)$' \
+   && ! printf '%s' "$ws3_section" | grep -q '^default: .*(this session)$'; then
+  ok "marker follows the session into a non-default workspace"
+else
+  bad "marker" "marker did not follow into the second workspace: $ws3_section"
+fi
+jj workspace forget second >/dev/null 2>&1
+rm -rf ../ws2
+
 # Scope every stack assertion to the stack SECTION, for the reason the identity
 # check had to learn: @'s own `json(self)` block sits directly above and already
 # contains the description, so an unscoped grep passes even against a hook that

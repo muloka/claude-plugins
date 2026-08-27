@@ -83,6 +83,26 @@ workspaces=$(jj --ignore-working-copy workspace list --no-pager \
   -T 'self.name() ++ ": " ++ self.target().change_id().shortest(8) ++ if(self.target().empty(), " (empty)", "") ++ " " ++ if(self.target().description(), self.target().description().first_line(), "(no description set)") ++ "\n"' \
   2>/dev/null || echo "(unable to read workspaces)")
 
+# Mark which row is THIS session — the paragraph above says the attached
+# workspace determines what @ means, so the briefing should say which one that
+# is rather than leave it to inference. Match by ROOT, never by name: names
+# repeat across repos while roots cannot, and both sides of the comparison come
+# from jj itself, so the spellings agree (no /tmp vs /private/tmp mismatch).
+# No `exit` inside the awk: under this script's set -euo pipefail, awk exiting
+# on the first match closes the pipe while jj may still be writing later rows,
+# jj dies of EPIPE, and the whole briefing silently vanishes — measured as an
+# intermittent empty payload the moment a second workspace existed.
+current_root=$(jj workspace root --ignore-working-copy 2>/dev/null || true)
+if [ -n "$current_root" ]; then
+  current_ws=$(jj --ignore-working-copy workspace list --no-pager \
+    -T 'self.name() ++ "\t" ++ self.root() ++ "\n"' 2>/dev/null \
+    | awk -F'\t' -v r="$current_root" '!found && $2 == r {print $1; found=1}') || true
+  if [ -n "$current_ws" ]; then
+    workspaces=$(printf '%s\n' "$workspaces" \
+      | awk -v ws="$current_ws" 'index($0, ws ": ") == 1 {$0 = $0 " (this session)"} {print}') || true
+  fi
+fi
+
 identity=$(jj --ignore-working-copy config list user.email -T 'json(self) ++ "\n"' 2>/dev/null || echo "(unable to read user.email)")
 
 # Escape string for JSON embedding.
