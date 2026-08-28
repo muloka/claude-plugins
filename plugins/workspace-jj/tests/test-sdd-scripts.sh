@@ -209,6 +209,50 @@ check_fails "review-package: a revset naming many revisions is exit 2" 2 \
 check_fails "review-package: a revset naming none is exit 2" 2 \
   "$SCRIPTS/sdd-review-package" plan.md 'none()' @
 
+# --- sdd-review-package: BASE must be on HEAD's line of history -------------
+
+# `## Changes` is the revset range base..head; `## Files changed` and `## Diff`
+# are a tree-to-tree comparison. Those agree for an ancestral pair and disagree
+# for a sibling pair — and the output never says which it gave you. Measured
+# before the guard: two revisions forked off the same root produced a package
+# listing one change while the diff deleted a file that change never touched.
+#
+# `--no-edit` is load-bearing. The first cut of this used a plain
+# `jj new 'root()'`, which MOVES the working copy onto the root commit — an
+# empty tree, so plan.md left the disk and every case below failed on "no such
+# plan file" instead. That still exits 2, so the exit-code assertion passed for
+# entirely the wrong reason; only the message assertion noticed. Creating the
+# sibling off to the side keeps the working copy, and its files, where the rest
+# of the suite left them.
+#
+# The siblings are empty on purpose: this guard is about TOPOLOGY, and an empty
+# revision is no more an ancestor than a populated one.
+jj new 'root()' --no-edit -m "sibling work" >/dev/null 2>&1
+SIB_CHANGE=$(jj log -r 'description(substring:"sibling work")' --no-graph -T 'change_id.short()')
+
+check_fails "review-package: a BASE that is not an ancestor of HEAD is exit 2" 2 \
+  "$SCRIPTS/sdd-review-package" plan.md "$T1_CHANGE" "$SIB_CHANGE"
+
+err=$("$SCRIPTS/sdd-review-package" plan.md "$T1_CHANGE" "$SIB_CHANGE" 2>&1 >/dev/null || true)
+case "$err" in
+  *"is not an ancestor of HEAD"*) ok "review-package: non-ancestral BASE names the contradiction" ;;
+  *) bad "review-package: non-ancestral BASE names the contradiction" "stderr was: $err" ;;
+esac
+
+# The same check catches BASE and HEAD passed the wrong way round, since a
+# descendant is not an ancestor either. Without this, a reversed pair produced a
+# clean-looking reverse diff.
+jj new "$SIB_CHANGE" --no-edit -m "sibling child" >/dev/null 2>&1
+SIB_CHILD=$(jj log -r 'description(substring:"sibling child")' --no-graph -T 'change_id.short()')
+
+check_fails "review-package: BASE and HEAD reversed is exit 2" 2 \
+  "$SCRIPTS/sdd-review-package" plan.md "$SIB_CHILD" "$SIB_CHANGE"
+
+# And the ancestral direction of that very pair must still succeed, so the guard
+# is not just rejecting everything it is handed.
+check "review-package: the same pair in ancestral order succeeds" \
+  "$SCRIPTS/sdd-review-package" plan.md "$SIB_CHANGE" "$SIB_CHILD"
+
 echo
 echo "$PASS passed, $FAIL failed"
 test "$FAIL" -eq 0

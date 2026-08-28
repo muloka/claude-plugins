@@ -129,6 +129,8 @@ So a BASE captured before a review round does not error afterwards — it silent
 
 `sdd-review-package` therefore reinstates the guard on jj's terms — a hidden BASE or HEAD is a hard error naming the change ID to use instead, and a commit-ID-shaped argument is a warning rather than a stop, since an immutable record is a legitimate use. Packages are named `review-<baseChange>..<headChange>-<headCommit>.diff`: change IDs carry identity across a review round, the head commit ID keeps each round's package a distinct file.
 
+**BASE must be on HEAD's line of history.** The two halves of a package are built by different machinery: `## Changes` is the revset range `base..head`, while `## Files changed` and `## Diff` compare the two trees directly. Those agree for an ancestral pair and disagree for a sibling pair, and nothing in the output says which you got — measured on two revisions forked off the same root, the package listed one change while the diff deleted a file that change never touched. A non-ancestral BASE is therefore a hard error too, which also catches BASE and HEAD passed the wrong way round.
+
 **Implementers share the default workspace.** Serial SDD deliberately uses no isolation, so implementer subagents running `jj describe` and `jj new` move `@` for the orchestrator too. Dispatch one at a time; that constraint is what makes the shared working copy safe, not an incidental scheduling choice.
 
 ## Author
