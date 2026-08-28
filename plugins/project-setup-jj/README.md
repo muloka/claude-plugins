@@ -31,6 +31,25 @@ Git plumbing commands are *not* special-cased. `git config` and `git rev-parse` 
 
 The authoritative list is the comment block in `scripts/block-raw-git.sh`, which is byte-identical across this plugin and `peer-review-jj` and pinned by assertions in `project-setup-jj/tests/test-block-raw-git.sh`. `commit-commands-jj` depends on this plugin for the wall rather than shipping its own copy (#128), so those assertions guard its commands too. Every jj command the deny messages recommend is checked to exist *and* be runnable by `.github/tests/test-jj-recommendations.sh`. It is a guardrail against habit, not a sandbox — anyone who needs git can disable the plugin.
 
+## Flags the Installed jj Does Not Have
+
+The plugin registers a second `PreToolUse` hook on `Bash`, `scripts/check-jj-flags.sh`, also active as soon as the plugin is enabled. It rejects a long flag that the jj on this machine does not accept.
+
+`jj git push --allow-new` is the case it was written for: correct for years, now removed — pushing a new bookmark is the default. The habit outlives the flag, and jj's own error actively misleads:
+
+```
+error: unexpected argument '--allow-new' found
+  tip: a similar argument exists: '--all'
+```
+
+`--all` pushes **every** bookmark. Anyone reaching for the old `--allow-new` wanted one new bookmark pushed, which is now just `--bookmark <name>`, so taking that suggestion turns a no-op flag into a repo-wide push. Answering precisely is most of the hook's value.
+
+**The decision is a property, not a list.** There is no table of removed flags to fall out of date: the check asks the installed binary what it accepts via `--help` and denies only what that binary does not list. It is correct across jj upgrades by construction and self-corrects if a flag returns.
+
+**Scope is deliberately narrow.** Like every hook of this kind the matcher is quote-blind, and most jj subcommands take free text that routinely names flags — `jj describe -m "the fixture uses jj new --no-edit"` would be denied by a general version of this check, as would several of this repo's own commit messages. So it runs only for subcommands with no free-text argument anywhere in their surface. `jj git push` is the archetype and currently the whole list. Widening that scope is a claim about a subcommand's argument surface; the boundary note in the script says what the claim has to be.
+
+Pinned by `tests/test-check-jj-flags.sh`, where every deny case is paired with a must-allow case — a hook that denied everything would otherwise pass the deny half of the suite.
+
 ## Installation
 
 ```bash
