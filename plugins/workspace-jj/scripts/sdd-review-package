@@ -141,6 +141,57 @@ resolved=$(resolve HEAD "$head") || exit 2
 set -- $resolved; head_change=$1; head_commit=$2; head_vis=$3
 check_id HEAD "$head" "$head_change" "$head_commit" "$head_vis"
 
+# BASE MUST BE AN ANCESTOR OF HEAD, or the package contradicts itself.
+#
+# The two halves are built by different machinery: `## Changes` is the revset
+# range `base..head`, while `## Files changed` and `## Diff` are a tree-to-tree
+# comparison of the two revisions. For an ancestral pair those agree. For a
+# sibling pair they do not, and the disagreement is not visible in the output —
+# measured with two revisions forked off the same root:
+#
+#   ## Changes  ->  one entry, "branch B work"
+#   ## Diff     ->  deletes f.txt, a file branch B never touched
+#
+# A reviewer reads that as "this task deleted f.txt". Exit 0, no warning. It is
+# the same silent-wrongness this script exists to stop, arriving by a different
+# road: the hidden-revision guard above catches a BASE that was rewritten, and
+# this one catches a BASE that was never on this line of history at all.
+#
+# Inherited from upstream, which has the identical semantics in
+# `git log BASE..HEAD` beside `git diff BASE..HEAD` — but far more reachable
+# here, because a change id recorded for one task can end up on a different
+# parent after a duplicate, an abandon-and-recreate, or a rebase onto another
+# branch, and it keeps resolving cleanly the whole time.
+#
+# A hard error rather than a warning: the package's entire claim is "here is
+# what this task changed", and a non-ancestral BASE makes that claim false
+# rather than imprecise. This also catches BASE and HEAD passed the wrong way
+# round, since a descendant is not an ancestor either.
+#
+# Matched with `case`, not `| grep -q`: under `set -o pipefail` grep -q exits on
+# first match, jj takes SIGPIPE, and the pipeline reports failure on success.
+ancestral=$(jj log -r "${base_commit} & ::${head_commit}" --no-graph -T '"x"' 2>/dev/null || true)
+case "$ancestral" in
+  *x*) ;;
+  *)
+    cat >&2 <<EOF
+bad BASE: ${base} is not an ancestor of HEAD (${head}).
+
+  BASE  change ${base_change}
+  HEAD  change ${head_change}
+
+The package would contradict itself: '## Changes' lists the revset range
+${base}..${head}, while '## Diff' compares the two trees directly. For revisions
+on different lines of history those describe different work, and nothing in the
+output says so — the diff reports files the listed changes never touched.
+
+If HEAD really is the task's tip, record the BASE from this task's own ancestry
+(\`jj log -r '::${head_change}'\`). If the arguments are the wrong way round,
+swap them.
+EOF
+    exit 2 ;;
+esac
+
 if [ -n "$outfile" ]; then
   out=$outfile
 else
