@@ -163,6 +163,51 @@ fi
 jj workspace forget second >/dev/null 2>&1
 rm -rf ../ws2
 
+# The marker must not depend on a RECORDED workspace root. `WorkspaceRef.root()`
+# is optional: jj records nothing for workspaces created before 0.38.0, and
+# drops the recorded path once a workspace directory is moved. The briefing used
+# to match `jj workspace root` against that field, so in either shape the
+# comparison ran against an empty string, never matched, and the marker was
+# silently dropped — a bare `default: <id>` that reads as correct. Whole repos
+# shipped with the marker installed, registered, announced, and dead.
+#
+# Moving the directory is the reproducible half of that pair: it produces the
+# same empty `self.root()` on a current jj, with no pre-0.38.0 repo to conjure.
+# This case fails against root matching and passes against
+# `current_working_copy()`, which is the whole point of the change.
+jj workspace add ../ws3 --name third >/dev/null 2>&1
+mv ../ws3 ../ws3-moved
+# The precondition is NOT "the field renders empty" — that spelling is
+# platform- and version-dependent. Linux renders an empty string; macOS on a
+# newer jj renders `<Error: Failed to resolve workspace root: ...>`, because the
+# recorded path is stored relative to the repo and no longer resolves after the
+# move. Asserting emptiness failed there on a fix that was working correctly.
+#
+# What has to hold is the property root matching depended on: the recorded root
+# must no longer equal the workspace's live path, so an equality test against
+# `jj workspace root` cannot succeed. Empty, an error placeholder, and a stale
+# path all satisfy that; a live matching path would make the case vacuous.
+moved_root=$(cd ../ws3-moved && jj workspace root --ignore-working-copy 2>/dev/null || true)
+root_field=$(jj --ignore-working-copy workspace list --no-pager \
+  -T 'self.name() ++ "\t" ++ self.root() ++ "\n"' 2>/dev/null \
+  | awk -F'\t' '$1 == "third" {print $2}')
+if [ -n "$moved_root" ] && [ "$root_field" != "$moved_root" ]; then
+  ok "fixture is honest: the recorded root no longer identifies the moved workspace"
+else
+  bad "marker" "fixture is vacuous — recorded root still matches the live path: [$root_field] vs [$moved_root]"
+fi
+
+out4="$(cd ../ws3-moved && bash "$HOOK" 2>/dev/null | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null || true)"
+ws4_section=$(printf '%s\n' "$out4" | awk '/^Workspaces:/{f=1;next} /^[[:space:]]*$/{f=0} f')
+if printf '%s' "$ws4_section" | grep -q '^third: .*(this session)$' \
+   && ! printf '%s' "$ws4_section" | grep -q '^default: .*(this session)$'; then
+  ok "marker survives a workspace whose recorded root is gone"
+else
+  bad "marker" "marker lost when the recorded root is empty: $ws4_section"
+fi
+jj workspace forget third >/dev/null 2>&1
+rm -rf ../ws3-moved
+
 # Scope every stack assertion to the stack SECTION, for the reason the identity
 # check had to learn: @'s own `json(self)` block sits directly above and already
 # contains the description, so an unscoped grep passes even against a hook that
