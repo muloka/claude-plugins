@@ -1,4 +1,4 @@
-<!-- jj-project-setup:start hash:27bab007 -->
+<!-- jj-project-setup:start hash:3862b7bf -->
 ## VCS — jj (Jujutsu)
 
 This project uses **jj (Jujutsu)** as its VCS. Never use raw git commands. Use jj equivalents instead (e.g. `jj log`, `jj status`, `jj diff`). The only exceptions are `jj git` subcommands (e.g. `jj git push`) and the `gh` CLI for GitHub operations.
@@ -19,5 +19,25 @@ When superpowers skills reference git-based workflows, use these jj-native repla
 | Superpowers skill | Use instead | Why |
 |---|---|---|
 | `finishing-a-development-branch` | `/finish` | jj-native: bookmarks, `jj git push`, workspace cleanup |
-| `subagent-driven-development` | `workspace-jj:kaisen` | jj-native: wave-based parallel execution with spec review gates |
+| `subagent-driven-development` | `workspace-jj:kaisen` — **for parallel plans** | jj-native: wave-based parallel execution across isolated workspaces with spec review gates |
+
+**The kaisen row is a preference conditional on plan shape, not a blanket override.** Kaisen's value is wave-based *parallel* execution across isolated workspaces, so route to it when the plan's tasks are independent. For a **serial** plan — tasks strictly ordered, or repeatedly touching the same files — waves of one task each buy nothing but workspace setup and reunification overhead. Use `superpowers:subagent-driven-development` directly, in the default workspace.
+
+Three things that serial path needs here.
+
+**Its helper scripts shell out to `git`, which is blocked.** Resolve the jj-native replacements once per run (a local checkout of the plugins repo has them at `plugins/workspace-jj/scripts` instead):
+
+```bash
+SDD=$(ls -d ~/.claude/plugins/cache/*/workspace-jj/*/scripts 2>/dev/null | sort -V | tail -1)
+```
+
+| Superpowers script | Use instead |
+|---|---|
+| `scripts/sdd-workspace` | `"$SDD/sdd-artifacts" <plan>` — same argv, same stdout, same `.superpowers/sdd/<plan>/` layout |
+| `scripts/review-package` | `"$SDD/sdd-review-package" <plan> <BASE> <HEAD> [outfile]` — same sections, plus the guard below |
+| `scripts/task-brief` | works as-is; it only shells out to derive its default path, so pass an explicit outfile: `task-brief <plan> <n> "$("$SDD/sdd-artifacts" <plan>)/task-<n>-brief.md"` |
+
+**Record each task's BASE as a change ID.** This is the change-ID rule above, in the one place it bites hardest. A commit ID captured before a review round is stale after it — and a stale commit ID still *resolves*, merely hidden, so `jj diff` returns a plausible review package built against the code as it was **before** the fix and nothing anywhere errors. A reviewer reads it as current and reports clean. `sdd-review-package` rejects a hidden revision outright, but the change ID is what should have been recorded in the first place.
+
+**Implementers share the default workspace.** Serial SDD deliberately uses no isolation, so an implementer subagent running `jj describe` or `jj new` moves `@` for the orchestrator too. Dispatch one implementer at a time: that constraint is what makes the shared working copy safe, not an incidental scheduling choice.
 <!-- jj-project-setup:end -->

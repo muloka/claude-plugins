@@ -106,6 +106,31 @@ Override merge order with `--merge-order task-3,task-1,task-2`. Skip the REVIEW 
 
 See [design spec](../../docs/specs/2026-07-15-kaisen-rename-and-collision-design.md) for full details.
 
+## Serial SDD: shims for the superpowers scripts
+
+Kaisen is for plans whose tasks are independent. A **serial** plan — tasks strictly ordered, or repeatedly touching the same files — gets nothing from waves of one task each, so the right tool there is superpowers' own `subagent-driven-development`, run in the default workspace.
+
+Two of that skill's helper scripts shell out to `git` and are denied by `block-raw-git.sh`, the PreToolUse hook project-setup-jj registers in its plugin manifest — so it fires in every jj repo where the plugin is enabled, not through per-project settings anyone can toggle. These are drop-in replacements:
+
+| Superpowers script | Replacement | What changes |
+|---|---|---|
+| `scripts/sdd-workspace` | `scripts/sdd-artifacts` | `jj root` replaces `git rev-parse --show-toplevel`. Same argv, same stdout, same `.superpowers/sdd/<plan>/` layout — a plan mid-flight can switch without moving an artifact. Renamed because in a jj repo "workspace" means `jj workspace add`, and this directory is not one. |
+| `scripts/review-package` | `scripts/sdd-review-package` | Same sections and argv, plus the guard jj needs (below). |
+| `scripts/task-brief` | works as-is | It only shells out when deriving its default path. Pass an explicit outfile: `task-brief <plan> <n> "$(sdd-artifacts <plan>)/task-<n>-brief.md"`. |
+
+**Hand the review package change IDs, not commit IDs.** This is the guard, and it is the reason `sdd-review-package` is more than a port. Upstream protects BASE and HEAD with `git rev-parse --verify`, which fails loudly on a revision that no longer exists. jj offers no equivalent failure, because the revision still exists: a rewrite — `jj describe`, `jj squash`, the rebase of descendants that follows either, and every working-copy snapshot — leaves the old commit reachable and merely *hidden*. Measured on jj 0.44.0:
+
+```
+jj log  -r <stale-commit-id>                    → resolves, hidden=YES, pre-rewrite tree
+jj diff --from <stale-commit-id> --to @ --stat  → exit 0, plausible diff
+```
+
+So a BASE captured before a review round does not error afterwards — it silently produces a package built against the code as it was *before* the fix, which a reviewer reads as current and reports clean. A change ID has no such failure: it follows its change through every rewrite.
+
+`sdd-review-package` therefore reinstates the guard on jj's terms — a hidden BASE or HEAD is a hard error naming the change ID to use instead, and a commit-ID-shaped argument is a warning rather than a stop, since an immutable record is a legitimate use. Packages are named `review-<baseChange>..<headChange>-<headCommit>.diff`: change IDs carry identity across a review round, the head commit ID keeps each round's package a distinct file.
+
+**Implementers share the default workspace.** Serial SDD deliberately uses no isolation, so implementer subagents running `jj describe` and `jj new` move `@` for the orchestrator too. Dispatch one at a time; that constraint is what makes the shared working copy safe, not an incidental scheduling choice.
+
 ## Author
 
 [muloka](https://github.com/muloka)
