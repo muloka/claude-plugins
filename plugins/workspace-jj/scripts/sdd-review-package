@@ -1,0 +1,181 @@
+#!/usr/bin/env bash
+# jj-native shim for superpowers' subagent-driven-development `review-package`.
+#
+# Generate a review package — change list, stat summary, and the net diff with
+# extended context — written to one file the reviewer reads in a single call.
+#
+# Usage: sdd-review-package PLAN_FILE BASE HEAD [OUTFILE]
+# Default OUTFILE: <artifacts-dir>/review-<baseChange>..<headChange>-<headCommit>.diff
+#
+# ---------------------------------------------------------------------------
+# HAND IT CHANGE IDs, NOT COMMIT IDs. This is the whole reason the shim exists
+# and not just a port of the git plumbing.
+#
+# Upstream takes BASE and HEAD and guards them with
+# `git rev-parse --verify --quiet`, which fails loudly on a revision that no
+# longer exists. jj has no equivalent failure to offer, because in jj the
+# revision still exists: a rewrite (`jj describe`, `jj squash`, the rebase of
+# descendants that follows either, and every working-copy snapshot) leaves the
+# OLD commit reachable and merely hidden. Measured on jj 0.44.0 — describe an
+# earlier change, then feed its pre-rewrite commit id back in:
+#
+#     jj log  -r <stale-commit-id>   -> resolves, hidden=YES, pre-rewrite tree
+#     jj diff --from <stale-commit-id> --to @ --stat   -> exit 0, plausible diff
+#
+# So the git guard's whole job — turn a stale BASE into a loud error — is not
+# merely absent under jj, it is inverted: the stale value succeeds and produces
+# a review package built against the tree as it was BEFORE the fix round, which
+# a reviewer then reads as current and reports clean. Nothing anywhere errors.
+#
+# A change id does not have this failure. It follows its change through every
+# rewrite, so the same token keeps meaning "that task's work" across a review
+# loop that squashes fixes backward and rebases everything above.
+#
+# This script therefore reinstates the missing guard on jj's own terms:
+#   - a BASE or HEAD resolving to a HIDDEN revision is a hard error, because
+#     that is precisely the silent-wrongness case above;
+#   - a commit-id-shaped token is a warning naming the change id to use instead.
+#     Not an error: an immutable record is a legitimate use, and this script is
+#     invoked mid-run by an agent that should be told, not stopped.
+#
+# The shape check is exact rather than heuristic. jj renders change ids in a
+# reverse-hex alphabet using only k-z, and commit ids in ordinary hex 0-9a-f;
+# the two sets are disjoint, so `^[0-9a-f]+$` identifies a commit id with no
+# false positives against change ids. The warning additionally requires the
+# token to be a prefix of the resolved commit id and NOT of the resolved change
+# id, so a bookmark that happens to spell hex (`bad`, `face`) cannot trip it.
+#
+# NO --ignore-working-copy ANYWHERE BELOW. The helpers bake that flag in and it
+# is right for them, but a review package's HEAD is normally `@` — the change an
+# implementer just finished writing. Skipping the snapshot omits their most
+# recent edits and still produces a complete-looking package. It is the failure
+# mode this repo's CLAUDE.md flags as the one that fails quietly, and a reviewer
+# reading a truncated diff is exactly how it would cash out here.
+# ---------------------------------------------------------------------------
+set -euo pipefail
+
+if [ $# -lt 3 ] || [ $# -gt 4 ]; then
+  echo "usage: sdd-review-package PLAN_FILE BASE HEAD [OUTFILE]" >&2
+  exit 2
+fi
+
+plan=$1
+base=$2
+head=$3
+# Captured BEFORE the `set --` calls below, which reuse the positional
+# parameters to split `resolve`'s output and would otherwise eat $4.
+outfile=${4:-}
+[ -f "$plan" ] || { echo "no such plan file: $plan" >&2; exit 2; }
+
+jj root >/dev/null 2>&1 || { echo "not in a jj repo (jj root failed)" >&2; exit 2; }
+
+# resolve LABEL REV -> prints "change_id commit_id hidden|visible"
+# Exits 2 with a keyed message when the revset names anything other than
+# exactly one revision, which is what --from/--to require.
+resolve() {
+  local label=$1 rev=$2 out n
+  if ! out=$(jj log -r "$rev" --no-graph \
+        -T 'change_id ++ " " ++ commit_id ++ " " ++ if(hidden,"hidden","visible") ++ "\n"' 2>/dev/null); then
+    echo "bad ${label}: ${rev} — no such revision" >&2
+    exit 2
+  fi
+  n=$(printf '%s' "$out" | grep -c . || true)
+  if [ "$n" -eq 0 ]; then
+    echo "bad ${label}: ${rev} — resolves to no revision" >&2
+    exit 2
+  fi
+  if [ "$n" -gt 1 ]; then
+    echo "bad ${label}: ${rev} — resolves to ${n} revisions; --from/--to need exactly one" >&2
+    exit 2
+  fi
+  printf '%s\n' "$out" | head -n 1
+}
+
+# check_id LABEL TOKEN CHANGE_ID COMMIT_ID VISIBILITY
+check_id() {
+  local label=$1 token=$2 change=$3 commit=$4 vis=$5 lower
+
+  if [ "$vis" = "hidden" ]; then
+    cat >&2 <<EOF
+bad ${label}: ${token} resolves to a HIDDEN revision (${commit}).
+
+A hidden revision is the pre-rewrite copy of a change that has since been
+described, squashed, or rebased. Diffing against it silently produces a review
+package for the code as it was BEFORE that rewrite.
+
+Use the change id, which followed the rewrite:  ${change}
+EOF
+    exit 2
+  fi
+
+  lower=$(printf '%s' "$token" | tr '[:upper:]' '[:lower:]')
+  case "$lower" in
+    *[!0-9a-f]*) return 0 ;;   # not commit-id-shaped; nothing to say
+    '')          return 0 ;;
+  esac
+  # Hex-shaped. Only warn when it really is this revision's commit id and not
+  # its change id, so a hex-spelled bookmark cannot trip the check.
+  case "$commit" in "$lower"*) ;; *) return 0 ;; esac
+  case "$change" in "$lower"*) return 0 ;; esac
+
+  cat >&2 <<EOF
+warning: ${label}=${token} is a COMMIT id. It is replaced by every jj describe,
+         squash, and rebase-of-descendants, so a value captured before a review
+         round is stale after it — and a stale commit id still resolves, so the
+         package would be built silently against the old tree.
+         Prefer the change id: ${change}
+EOF
+}
+
+# `resolve` runs in a command substitution, so its `exit 2` ends the SUBSHELL,
+# not this script. Without checking the status here the failure printed its
+# message and then fell through to `set -- ` on empty output, where `set -u`
+# raised "$1: unbound variable" and the script exited 1 — the right diagnosis
+# followed by the wrong exit code and a spurious second error. Test the status
+# and re-raise it.
+resolved=$(resolve BASE "$base") || exit 2
+set -- $resolved; base_change=$1; base_commit=$2; base_vis=$3
+check_id BASE "$base" "$base_change" "$base_commit" "$base_vis"
+
+resolved=$(resolve HEAD "$head") || exit 2
+set -- $resolved; head_change=$1; head_commit=$2; head_vis=$3
+check_id HEAD "$head" "$head_change" "$head_commit" "$head_vis"
+
+if [ -n "$outfile" ]; then
+  out=$outfile
+else
+  dir=$("$(cd "$(dirname "$0")" && pwd)/sdd-artifacts" "$plan")
+  # Named by CHANGE ids for identity and the head COMMIT id for the round.
+  # Change ids alone would make a re-review after fixes overwrite the package it
+  # is meant to be compared against — same change, same filename. The commit id
+  # is what a rewrite moves, so appending it yields the distinct fresh file per
+  # round that upstream got from its commit-range name, without giving up the
+  # stable identity in the first half. This is the CLAUDE.md rule applied in
+  # both directions at once: change ids to carry identity across a step, commit
+  # ids for an immutable record of one.
+  out="$dir/review-${base_change:0:8}..${head_change:0:8}-${head_commit:0:8}.diff"
+fi
+
+# Internally the range is built from the RESOLVED commit ids, not the caller's
+# tokens: they were resolved once, above, and a one-shot query is exactly where
+# a commit id is the correct currency. It also stops a compound revset token
+# from re-associating inside the `..` below.
+{
+  echo "# Review package: ${base} .. ${head}"
+  echo "#"
+  echo "# BASE  change ${base_change}  commit ${base_commit}"
+  echo "# HEAD  change ${head_change}  commit ${head_commit}"
+  echo
+  echo "## Changes"
+  jj log -r "${base_commit}..${head_commit}" --no-graph \
+    -T 'change_id.short() ++ " " ++ commit_id.short() ++ " " ++ if(empty,"[empty] ","") ++ description.first_line() ++ "\n"'
+  echo
+  echo "## Files changed"
+  jj diff --from "$base_commit" --to "$head_commit" --stat
+  echo
+  echo "## Diff"
+  jj diff --git --context 10 --from "$base_commit" --to "$head_commit"
+} > "$out"
+
+changes=$(jj log -r "${base_commit}..${head_commit}" --no-graph -T '"x\n"' | grep -c . || true)
+echo "wrote ${out}: ${changes} change(s), $(wc -c < "$out" | tr -d ' ') bytes"

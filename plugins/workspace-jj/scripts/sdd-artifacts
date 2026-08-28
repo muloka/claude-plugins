@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# jj-native shim for superpowers' subagent-driven-development `sdd-workspace`.
+#
+# Resolve and ensure the directory one plan's short-lived SDD artifacts live in:
+# task briefs, implementer reports, review packages, and the progress ledger.
+# Prints the directory's absolute path.
+#
+# WHY A SHIM. Upstream's script is one `git rev-parse --show-toplevel` away from
+# working here, and that single call is denied by project-setup-jj's
+# block-raw-git.sh PreToolUse hook — which is registered in plugin.json and so
+# fires in EVERY jj repo where the plugin is enabled, not per-project settings
+# anyone can toggle off. The rest of upstream's design is kept byte-for-byte in
+# behaviour, deliberately: this is a shim, not a redesign. Same argv, same
+# stdout, same directory layout, so a plan mid-flight can switch to it without
+# moving a single artifact.
+#
+# NOT NAMED sdd-workspace. In a jj repo "workspace" is `jj workspace add` — a
+# second working copy sharing one store. This directory is not one, and a script
+# that says otherwise teaches the wrong noun in the one repo where the noun is
+# load-bearing. `kaisen-artifacts` next door already made this call.
+#
+# One directory per plan (.superpowers/sdd/<plan-basename>/) so a follow-up plan
+# in the same working copy can never read or overwrite another plan's artifacts.
+# A stale ledger misread as current progress makes controllers skip whole task
+# sequences — plan-scoping removes that failure structurally.
+#
+# IN THE WORKING COPY, ON PURPOSE — and safe under jj. jj snapshots the working
+# copy automatically, so artifacts written here would land in `@` and ride along
+# into whatever that change becomes. The self-ignoring `.gitignore` (`*`, which
+# matches the .gitignore itself) is what prevents that, and jj honours
+# .gitignore natively: measured on jj 0.44.0, writing a brief under an ignored
+# .superpowers/sdd/ leaves `jj status` reporting no changes and `jj file list`
+# empty. The alternative — /tmp, as kaisen uses — is wrong for THIS path: kaisen
+# artifacts die with the run, while a serial SDD plan spans sessions and its
+# ledger is the thing you come back to days later.
+#
+# Single source of truth for the location, so a brief and its review package
+# cannot drift to different directories.
+#
+# Usage: sdd-artifacts PLAN_FILE
+set -euo pipefail
+
+if [ $# -ne 1 ]; then
+  echo "usage: sdd-artifacts PLAN_FILE" >&2
+  exit 2
+fi
+
+plan=$1
+[ -f "$plan" ] || { echo "no such plan file: $plan" >&2; exit 2; }
+
+slug=$(basename "$plan" .md)
+[ -n "$slug" ] && [ "$slug" != "." ] && [ "$slug" != ".." ] \
+  || { echo "cannot derive an artifacts directory name from: $plan" >&2; exit 2; }
+
+# `jj root` replaces `git rev-parse --show-toplevel`. No --ignore-working-copy:
+# it is correct for background query tooling, and this is a mkdir on the path
+# the caller is about to write into.
+root=$(jj root) || { echo "not in a jj repo (jj root failed)" >&2; exit 2; }
+
+base="$root/.superpowers/sdd"
+dir="$base/$slug"
+mkdir -p "$dir"
+printf '*\n' > "$base/.gitignore"
+printf '%s\n' "$dir"
