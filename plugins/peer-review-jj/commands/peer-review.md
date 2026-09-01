@@ -46,6 +46,9 @@ Parse `$ARGUMENTS` to extract:
   - `security` → `Security`
   - `perf` → `Performance`
   - `concurrency` → `Concurrency`
+  - `rust` → `rust` (specialist supplied by the `rust-quality` plugin)
+
+  An alias with no table entry is passed through verbatim as the concern type; the discovery walk resolves it as `specialists/<concern>.md`. The table maps the generalist's PascalCase enum values to their lowercase alias forms; the walk always uses the lowercase alias.
 - **--track**: Enable progress tracking via duplicate+squash
 - **--post**: Post findings to GitHub PR
 - **--json**: Output raw JSON
@@ -133,7 +136,7 @@ Follow the `receiving-change-review` skill:
 ### Step 7: Handle --deep
 
 If `--deep` specified, the receiving skill dispatches specialists:
-- Discovery order: project → user-global → plugin built-in
+- Discovery order: project → user-global → installed plugins' `specialists/` → plugin built-in
 - Scope to flagged locations only
 - Aggregate specialist findings into final output
 
