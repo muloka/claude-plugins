@@ -4,7 +4,7 @@ Claude Code plugins — **jj (Jujutsu)** workflows (project setup, workspace iso
 
 ## Who this is for
 
-These plugins are for people who have chosen **jj (Jujutsu)** and want their coding agents to *stay* on it. They are opinionated and jj-only by design: the jj plugins install **hard walls**, not gentle reminders. If you're git-first, or want something neutral between the two, this isn't it.
+The **jj plugins** here are for people who have chosen **jj (Jujutsu)** and want their coding agents to *stay* on it — opinionated and jj-only by design: they install hard walls, not gentle reminders.
 
 ## Why hard walls instead of instructions
 
@@ -22,6 +22,7 @@ All jj output commands (`jj log`, `jj diff`, `jj bookmark list`, `jj op log`, `j
 | **workspace-jj** | Worktree isolation for jj repos via `jj workspace` hooks | 2 | — |
 | **commit-commands-jj** | jj commit workflows — commit, push, PR creation, and more | 16 | — |
 | **peer-review-jj** | Unified change review — generalist-first with emergent specialists | 1 | 1 |
+| **rust-quality** | Rust code-quality specialist for peer-review-jj | — | — |
 
 ## project-setup-jj
 
@@ -88,6 +89,10 @@ Unified change review for jj repos. Two-phase pipeline (requesting → receiving
 **Specialist emergence:** After 3+ reviews flag distinct patterns for a concern type, the plugin prompts to create a project-specific specialist at `.claude/peer-review/specialists/`.
 
 Replaces the deprecated `code-review-jj`, `pr-review-toolkit-jj`, and `feature-dev-jj` plugins. See [design doc](docs/peer-review-jj/2026-03-16-peer-review-jj-design.md) for full details.
+
+## rust-quality
+
+Rust code-quality specialist for peer-review-jj. Ships a generic `rust` specialist that `/peer-review --deep rust` dispatches to the files and line ranges the generalist flagged — needless `.clone()`, `unwrap()`/`expect()` in library code, premature `.collect()`, and stringly-typed keys where a newtype exists. Requires peer-review-jj ≥ 0.7.0, whose specialist discovery reads installed plugins' `specialists/` directories. A project-local `.claude/peer-review/specialists/rust.md` (or user-global equivalent) shadows this plugin's specialist entirely.
 
 ## Installation
 

@@ -46,6 +46,9 @@ Parse `$ARGUMENTS` to extract:
   - `security` → `Security`
   - `perf` → `Performance`
   - `concurrency` → `Concurrency`
+  - `rust` → `rust` (specialist supplied by the `rust-quality` plugin)
+
+  An alias with no table entry is passed through verbatim as the concern type; the discovery walk resolves it as `specialists/<concern>.md`. The table maps the generalist's PascalCase enum values to their lowercase alias forms; the walk always uses the lowercase alias.
 - **--track**: Enable progress tracking via duplicate+squash
 - **--post**: Post findings to GitHub PR
 - **--json**: Output raw JSON

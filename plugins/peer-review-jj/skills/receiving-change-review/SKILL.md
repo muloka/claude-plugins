@@ -163,7 +163,7 @@ Analyze the flagged locations for <concern-type> issues. Return structured JSON 
 
 Dispatch specialists for flagged concerns:
 
-1. **Discovery order**: project (`.claude/peer-review/specialists/`) → user-global (`~/.claude/peer-review/specialists/`) → installed plugins' `specialists/` directories → plugin built-in (`peer-review-jj/agents/`). Resolve the installed-plugins tier for a concern with the version-sorted cache glob `ls ~/.claude/plugins/cache/*/*/*/specialists/<concern>.md 2>/dev/null | sort -V | tail -1` (a local checkout of the plugins repo has them at `plugins/<plugin>/specialists/<concern>.md` instead); if the glob matches nothing, the tier is empty and the walk continues.
+1. **Discovery order**: project (`.claude/peer-review/specialists/`) → user-global (`~/.claude/peer-review/specialists/`) → installed plugins' `specialists/` directories → plugin built-in (`peer-review-jj/agents/`). Resolve the installed-plugins tier with the Glob tool over `~/.claude/plugins/cache/*/*/*/specialists/<concern>.md`, newest version wins (in shell contexts: the version-sorted cache glob `ls ~/.claude/plugins/cache/*/*/*/specialists/<concern>.md 2>/dev/null | sort -V | tail -1`; a local checkout of the plugins repo has them at `plugins/<plugin>/specialists/<concern>.md` instead); if the glob matches nothing, the tier is empty and the walk continues. `<concern>` in the glob is the lowercase alias form (e.g. `ErrorHandling` → `errors`, `rust` → `rust`). If more than one installed plugin ships the same concern, the match is ambiguous — report which plugins matched rather than picking silently.
 2. First match for a concern type wins — no merge, no inheritance
 3. Scope each specialist to flagged locations only (specific files and line ranges)
 4. Include specialist memory summary — prior patterns with recency, framed as context not checklist:
@@ -181,6 +181,8 @@ If a generalist proposes a refinement to an existing specialist, append it to th
 ```
 
 Use `tee -a` or similar append operation. Only humans promote proposals into the active prompt.
+
+Refinements are only ever appended to a **project or user-global** specialist. If the resolved specialist came from the installed-plugins tier or the built-in tier, do not write to it: offer to copy it to `.claude/peer-review/specialists/<concern>.md` and record the proposal there.
 
 ## Verification Protocol
 

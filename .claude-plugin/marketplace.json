@@ -64,7 +64,7 @@
     },
     {
       "name": "rust-quality",
-      "description": "Rust code-quality specialist for peer-review-jj — catches the recurring failure modes generic reviewers miss",
+      "description": "Rust code-quality specialist for peer-review-jj — catches the recurring failure modes generic reviewers miss; requires peer-review-jj ≥ 0.7.0, whose specialist discovery reads installed plugins' specialists/ directories",
       "author": {
         "name": "muloka",
         "email": "muloka@users.noreply.github.com"

@@ -21,6 +21,8 @@ entirely. Use that to encode project-specific rules (crate boundaries,
 domain newtypes, dependency-specific traps) — start by copying this
 plugin's `specialists/rust.md` and extending it.
 
+Review-time refinement proposals are also recorded against a project/user-global copy, never against this plugin's cached file.
+
 ## Requirements
 
 - peer-review-jj ≥ 0.7.0 (the release whose specialist discovery includes
