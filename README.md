@@ -1,6 +1,6 @@
-# Claude Code Plugins for jj (Jujutsu)
+# muloka's Claude Code Plugins
 
-Claude Code plugins for **jj (Jujutsu)** workflows — project setup, workspace isolation, commit management, peer review, and a hard wall against raw `git`.
+Claude Code plugins — **jj (Jujutsu)** workflows (project setup, workspace isolation, commit management, peer review, and a hard wall against raw `git`) and **Rust** code quality.
 
 ## Who this is for
 

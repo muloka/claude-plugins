@@ -59,5 +59,16 @@ done
 
 [ -f "$PLUGIN_ROOT/README.md" ] && ok "README exists" || bad "readme" "missing"
 
+# Marketplace registration: the entry exists, points at the right source,
+# and the storefront description is no longer jj-only.
+REPO_ROOT="$SCRIPT_DIR/../../.."
+MARKET="$REPO_ROOT/.claude-plugin/marketplace.json"
+jq -e '.plugins[] | select(.name == "rust-quality")' "$MARKET" >/dev/null \
+  && ok "marketplace lists rust-quality" || bad "marketplace/entry" "no rust-quality entry"
+jq -e '.plugins[] | select(.name == "rust-quality") | .source == "./plugins/rust-quality"' "$MARKET" >/dev/null \
+  && ok "marketplace source path correct" || bad "marketplace/source" "$(jq -r '.plugins[] | select(.name == "rust-quality") | .source' "$MARKET")"
+jq -e '.description | contains("Rust")' "$MARKET" >/dev/null \
+  && ok "marketplace description mentions Rust" || bad "marketplace/description" "$(jq -r .description "$MARKET")"
+
 printf '%d passed, %d failed\n' "$PASS" "$FAIL"
 test "$FAIL" -eq 0

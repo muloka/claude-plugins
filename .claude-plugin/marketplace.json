@@ -1,7 +1,7 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "muloka-claude-plugins",
-  "description": "jj (Jujutsu) plugins for Claude Code — project setup, commit workflows, peer review, and workspace isolation",
+  "description": "muloka's Claude Code plugins — jj (Jujutsu) workflows, code review, and Rust code quality",
   "owner": {
     "name": "muloka",
     "email": "muloka@users.noreply.github.com"
@@ -61,6 +61,17 @@
       "source": "./plugins/agent-helpers-jj",
       "category": "productivity",
       "homepage": "https://github.com/muloka/claude-plugins/tree/main/plugins/agent-helpers-jj"
+    },
+    {
+      "name": "rust-quality",
+      "description": "Rust code-quality specialist for peer-review-jj — catches the recurring failure modes generic reviewers miss",
+      "author": {
+        "name": "muloka",
+        "email": "muloka@users.noreply.github.com"
+      },
+      "source": "./plugins/rust-quality",
+      "category": "productivity",
+      "homepage": "https://github.com/muloka/claude-plugins/tree/main/plugins/rust-quality"
     }
   ]
 }
