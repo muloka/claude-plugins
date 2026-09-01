@@ -163,7 +163,7 @@ Analyze the flagged locations for <concern-type> issues. Return structured JSON 
 
 Dispatch specialists for flagged concerns:
 
-1. **Discovery order**: project (`.claude/peer-review/specialists/`) → user-global (`~/.claude/peer-review/specialists/`) → plugin built-in (`peer-review-jj/agents/`)
+1. **Discovery order**: project (`.claude/peer-review/specialists/`) → user-global (`~/.claude/peer-review/specialists/`) → installed plugins' `specialists/` directories → plugin built-in (`peer-review-jj/agents/`). Resolve the installed-plugins tier for a concern with the version-sorted cache glob `ls ~/.claude/plugins/cache/*/*/*/specialists/<concern>.md 2>/dev/null | sort -V | tail -1` (a local checkout of the plugins repo has them at `plugins/<plugin>/specialists/<concern>.md` instead); if the glob matches nothing, the tier is empty and the walk continues.
 2. First match for a concern type wins — no merge, no inheritance
 3. Scope each specialist to flagged locations only (specific files and line ranges)
 4. Include specialist memory summary — prior patterns with recency, framed as context not checklist:

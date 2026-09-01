@@ -133,7 +133,7 @@ Follow the `receiving-change-review` skill:
 ### Step 7: Handle --deep
 
 If `--deep` specified, the receiving skill dispatches specialists:
-- Discovery order: project → user-global → plugin built-in
+- Discovery order: project → user-global → installed plugins' `specialists/` → plugin built-in
 - Scope to flagged locations only
 - Aggregate specialist findings into final output
 
