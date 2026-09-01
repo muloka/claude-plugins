@@ -65,12 +65,16 @@ clauses=$(printf '%s\n' "$command" \
   | sed -E -e 's/\$\(/;/g' -e 's/[<>]\(/;/g' \
   | tr ';&|' '\n\n\n')
 
+# Every reason carries the trailer: a PreToolUse deny blocks the ENTIRE Bash
+# call, so a clause before the offending one (a bookmark create ahead of the
+# push) never ran either — leaving that unsaid is how a retry's "No matching
+# bookmarks" turns into a confused hunt (#173).
 deny() {
   jq -n --arg reason "$1" '{
   hookSpecificOutput: {
     hookEventName: "PreToolUse",
     permissionDecision: "deny",
-    permissionDecisionReason: $reason
+    permissionDecisionReason: ($reason + "\n\nNo part of this command executed — including anything before the failing clause.")
   }
 }'
 }

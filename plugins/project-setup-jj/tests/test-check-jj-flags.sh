@@ -78,6 +78,16 @@ case "$reason" in
   *) bad "message warns off jj's own --all suggestion" "reason was: $reason" ;;
 esac
 
+# A deny blocks the whole Bash call, and the trailer must say so: without it,
+# a bookmark create sitting before the && silently never ran and the retry's
+# "No matching bookmarks" reads as a new mystery (#173). Asserted on a
+# compound so the case it exists for is the case that pins it.
+compound_reason=$(emit 'jj bookmark create foo && jj git push --allow-new' | jq -r '.hookSpecificOutput.permissionDecisionReason // ""')
+case "$compound_reason" in
+  *"No part of this command executed"*) ok "deny on a compound says nothing executed" ;;
+  *) bad "deny on a compound says nothing executed" "reason was: $compound_reason" ;;
+esac
+
 # --- must-allow: real flags of the installed jj -----------------------------
 #
 # Without these the suite would pass against a hook that denied unconditionally.

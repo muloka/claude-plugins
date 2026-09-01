@@ -217,12 +217,17 @@ fi
 # and backticks and varies with the input, and hand-escaping that into a JSON
 # string literal is how a hook starts emitting malformed JSON on exactly the
 # inputs nobody tested. jq is already required above.
+#
+# Every reason carries the trailer: a PreToolUse deny blocks the ENTIRE Bash
+# call, so a clause before the offending one (a bookmark create ahead of a
+# blocked push) never ran either — leaving that unsaid is how a retry's
+# "No matching bookmarks" turns into a confused hunt (#173).
 deny() {
   jq -n --arg reason "$1" '{
   hookSpecificOutput: {
     hookEventName: "PreToolUse",
     permissionDecision: "deny",
-    permissionDecisionReason: $reason
+    permissionDecisionReason: ($reason + "\n\nNo part of this command executed — including anything before the failing clause.")
   }
 }'
 }

@@ -322,6 +322,12 @@ echo "=== jj repo: the suggestion is keyed on the attempted subcommand (#115) ==
 # against the static heredoc this section exists to replace — it would be green
 # on trunk and green after, measuring nothing. The `lacks` is what distinguishes
 # "answered specifically" from "handed the whole list".
+# A deny blocks the whole Bash call; the trailer saying so is pinned on a
+# compound — the clause before the && is exactly what a reader would
+# otherwise assume ran (#173).
+assert_reason_has  "deny on a compound says nothing executed (#173)" \
+  "mkdir -p out && git status" "$JJ_DIR" 'No part of this command executed'
+
 assert_reason_has  "exact: status"  "git status"           "$JJ_DIR" 'jj status'
 assert_reason_lacks "exact: status is not the generic list" \
   "git status" "$JJ_DIR" 'jj file annotate' 'jj git remote list'
