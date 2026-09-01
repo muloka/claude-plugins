@@ -253,6 +253,263 @@ check_fails "review-package: BASE and HEAD reversed is exit 2" 2 \
 check "review-package: the same pair in ancestral order succeeds" \
   "$SCRIPTS/sdd-review-package" plan.md "$SIB_CHANGE" "$SIB_CHILD"
 
+# --- sdd-review-package: --evolution-diff mode ------------------------------
+#
+# describe-only rewrites (used above) don't touch the tree, so they can't
+# exercise "## Diff showing the content the rewrite changed". Build a
+# dedicated fixture where the SAME change's CONTENT changes across a
+# rewrite: `jj new` (a normal child of @, not `root()` — a root-based commit
+# has an EMPTY tree, and editing into one wipes plan.md et al from disk, the
+# exact gotcha the sibling-fixture comment above warns about) lands us on the
+# new change, so editing its file and re-describing auto-snapshots a new
+# commit id for the same change id and hides the old one — a real evolution,
+# not just a description edit.
+jj new >/dev/null 2>&1
+echo "evo before" > evo.txt
+jj describe -m "evo task work" >/dev/null 2>&1
+EVO_CHANGE=$(jj log -r 'description(substring:"evo task work")' --no-graph -T 'change_id.short()')
+EVO_BASE=$(jj log -r 'description(substring:"evo task work")' --no-graph -T 'commit_id.short()')
+
+echo "evo after" > evo.txt
+jj describe -m "evo task work" >/dev/null 2>&1
+
+# fixture-is-honest: EVO_BASE really is hidden, and really shares HEAD's
+# (EVO_CHANGE's) change id.
+hidden=$(jj log -r "$EVO_BASE" --no-graph -T 'if(hidden,"hidden","visible")')
+[ "$hidden" = "hidden" ] \
+  && ok "evolution-diff fixture: pre-rewrite commit is really hidden" \
+  || bad "evolution-diff fixture: pre-rewrite commit is really hidden" "got $hidden"
+
+base_change_of=$(jj log -r "$EVO_BASE" --no-graph -T 'change_id.short()')
+[ "$base_change_of" = "$EVO_CHANGE" ] \
+  && ok "evolution-diff fixture: pre-rewrite commit shares HEAD's change id" \
+  || bad "evolution-diff fixture: pre-rewrite commit shares HEAD's change id" "got $base_change_of"
+
+# fixture-is-honest: EVO_CHANGE and T1_CHANGE really are different changes —
+# needed for the "different changes" case below.
+[ "$EVO_CHANGE" != "$T1_CHANGE" ] \
+  && ok "evolution-diff fixture: EVO and T1 really are different changes" \
+  || bad "evolution-diff fixture: EVO and T1 really are different changes"
+
+# fails-correctly: DEFAULT mode, hidden BASE of the SAME change as HEAD ->
+# exit 2 AND stderr contains the runnable rerun command (the discoverability
+# contract from #172: the error IS the documentation).
+check_fails "review-package: default mode, hidden BASE of HEAD's own change is exit 2" 2 \
+  "$SCRIPTS/sdd-review-package" plan.md "$EVO_BASE" "$EVO_CHANGE"
+err=$("$SCRIPTS/sdd-review-package" plan.md "$EVO_BASE" "$EVO_CHANGE" 2>&1 >/dev/null || true)
+case "$err" in
+  # The leading token matters (M5): the rerun command must be directly
+  # invokable as printed, via `$0` — not merely mention the flag somewhere.
+  *"$SCRIPTS/sdd-review-package --evolution-diff plan.md $EVO_BASE $EVO_CHANGE"*)
+    ok "review-package: same-change hidden BASE hands back the runnable rerun command" ;;
+  *) bad "review-package: same-change hidden BASE hands back the runnable rerun command" "stderr was: $err" ;;
+esac
+
+# fails-correctly: --evolution-diff with BASE and HEAD of DIFFERENT changes ->
+# exit 2, error names both change ids. The flag declares intent, it does not
+# disable the guard.
+check_fails "review-package: --evolution-diff with different changes is exit 2" 2 \
+  "$SCRIPTS/sdd-review-package" --evolution-diff plan.md "$EVO_BASE" "$T1_CHANGE"
+err=$("$SCRIPTS/sdd-review-package" --evolution-diff plan.md "$EVO_BASE" "$T1_CHANGE" 2>&1 >/dev/null || true)
+case "$err" in
+  *"$EVO_CHANGE"*"$T1_CHANGE"*) ok "review-package: --evolution-diff different changes names both change ids" ;;
+  *) bad "review-package: --evolution-diff different changes names both change ids" "stderr was: $err" ;;
+esac
+
+# happy path: --evolution-diff with the hidden pre-rewrite commit as BASE and
+# its evolved change as HEAD.
+check "review-package: --evolution-diff succeeds for a same-change hidden BASE" \
+  "$SCRIPTS/sdd-review-package" --evolution-diff plan.md "$EVO_BASE" "$EVO_CHANGE"
+
+EVO_PKG=$(ls "$DIR"/evolution-*.diff 2>/dev/null | head -n 1)
+if [ -n "$EVO_PKG" ]; then
+  ok "review-package: --evolution-diff writes a package into the artifacts directory"
+else
+  bad "review-package: --evolution-diff writes a package into the artifacts directory"
+fi
+
+if grep -qF "## Evolution" "$EVO_PKG" 2>/dev/null; then
+  ok "review-package: --evolution-diff package contains '## Evolution'"
+else
+  bad "review-package: --evolution-diff package contains '## Evolution'"
+fi
+
+if grep -qF "## Changes" "$EVO_PKG" 2>/dev/null; then
+  bad "review-package: --evolution-diff package does not contain '## Changes'"
+else
+  ok "review-package: --evolution-diff package does not contain '## Changes'"
+fi
+
+if grep -qF "$EVO_CHANGE" "$EVO_PKG" 2>/dev/null; then
+  ok "review-package: --evolution-diff package's evolog names the change"
+else
+  bad "review-package: --evolution-diff package's evolog names the change"
+fi
+
+for section in "## Files changed" "## Diff"; do
+  if grep -qF "$section" "$EVO_PKG" 2>/dev/null; then
+    ok "review-package: --evolution-diff package contains '$section'"
+  else
+    bad "review-package: --evolution-diff package contains '$section'"
+  fi
+done
+
+if grep -qF "evo after" "$EVO_PKG" 2>/dev/null; then
+  ok "review-package: --evolution-diff Diff shows the content the rewrite changed"
+else
+  bad "review-package: --evolution-diff Diff shows the content the rewrite changed"
+fi
+
+case "$(basename "$EVO_PKG")" in
+  evolution-*-*..*.diff) ok "review-package: --evolution-diff default filename starts with evolution- and embeds both commit prefixes" ;;
+  *) bad "review-package: --evolution-diff default filename shape" "got $(basename "$EVO_PKG")" ;;
+esac
+
+# happy path negative: the commit-id-shaped warning must not appear on stderr
+# in evolution mode — a commit id is the expected currency for BASE here.
+warn=$("$SCRIPTS/sdd-review-package" --evolution-diff plan.md "$EVO_BASE" "$EVO_CHANGE" 2>&1 >/dev/null || true)
+case "$warn" in
+  *"is a COMMIT id"*) bad "review-package: --evolution-diff suppresses the commit-id warning for BASE" "stderr was: $warn" ;;
+  *) ok "review-package: --evolution-diff suppresses the commit-id warning for BASE" ;;
+esac
+
+# minor: the same-change teach error's rerun command must include an
+# explicit OUTFILE when the caller passed one — the plan calls this out
+# explicitly, and it's part of "the caller's own arguments substituted in
+# verbatim", not just the three positional ones.
+err=$("$SCRIPTS/sdd-review-package" plan.md "$EVO_BASE" "$EVO_CHANGE" "$repo/teach-out.diff" 2>&1 >/dev/null || true)
+case "$err" in
+  *"$SCRIPTS/sdd-review-package --evolution-diff plan.md $EVO_BASE $EVO_CHANGE $repo/teach-out.diff"*)
+    ok "review-package: same-change hidden BASE's rerun command includes an explicit OUTFILE" ;;
+  *) bad "review-package: same-change hidden BASE's rerun command includes an explicit OUTFILE" "stderr was: $err" ;;
+esac
+
+# minor: HEAD hidden still errors under --evolution-diff. The flag lets BASE
+# name a pre-fix copy; it never lets HEAD be one. This needs a THIRD state of
+# the evo change — EVO_BASE (v1) as BASE and EVO_CHANGE's current commit (v2)
+# as HEAD would trip the new C1 predecessor guard first (v2 is v1's
+# SUCCESSOR, not on v1's own evolog, since evolog only looks backward), never
+# reaching HEAD's hidden check at all. Capture v2's commit id BEFORE
+# superseding it, then rewrite once more: v1 (EVO_BASE) stays hidden and IS
+# v2's predecessor (so C1 passes), v2 (EVO_MID) becomes hidden in turn (so
+# HEAD's own check is what fires), and EVO_CHANGE now resolves to v3.
+EVO_MID=$(jj log -r "$EVO_CHANGE" --no-graph -T 'commit_id.short()')
+echo "evo third" > evo.txt
+jj describe -m "evo task work" >/dev/null 2>&1
+
+hidden=$(jj log -r "$EVO_MID" --no-graph -T 'if(hidden,"hidden","visible")')
+[ "$hidden" = "hidden" ] \
+  && ok "HEAD-hidden fixture: EVO_MID is really hidden after the third rewrite" \
+  || bad "HEAD-hidden fixture: EVO_MID is really hidden after the third rewrite" "got $hidden"
+
+check_fails "review-package: --evolution-diff with hidden HEAD is exit 2" 2 \
+  "$SCRIPTS/sdd-review-package" --evolution-diff plan.md "$EVO_BASE" "$EVO_MID"
+err=$("$SCRIPTS/sdd-review-package" --evolution-diff plan.md "$EVO_BASE" "$EVO_MID" 2>&1 >/dev/null || true)
+case "$err" in
+  *"bad HEAD:"*"HIDDEN"*) ok "review-package: --evolution-diff hidden HEAD names the hazard" ;;
+  *) bad "review-package: --evolution-diff hidden HEAD names the hazard" "stderr was: $err" ;;
+esac
+
+# --- sdd-review-package: BASE's checks run before HEAD's --------------------
+#
+# The pre-task script resolved and fully checked BASE before ever resolving
+# HEAD. Evolution mode needs HEAD's change id available earlier (to compare
+# against BASE's), but "resolved early" must not become "checked early": a
+# reordering that ran HEAD's hidden check first would (a) silently drop
+# BASE's commit-id-shape warning whenever HEAD is also hidden — the script
+# would exit on HEAD before BASE's warning ever printed — and (b), for a
+# BASE-and-HEAD-both-hidden pair, report HEAD's hidden error first instead of
+# BASE's, where the original script reported BASE's.
+
+# fixture-is-honest: T1_COMMIT and EVO_BASE really are both hidden (and are
+# from different changes — T1_CHANGE vs EVO_CHANGE, already proven above).
+hidden=$(jj log -r "$T1_COMMIT" --no-graph -T 'if(hidden,"hidden","visible")')
+[ "$hidden" = "hidden" ] \
+  && ok "precedence fixture: T1_COMMIT is really hidden" \
+  || bad "precedence fixture: T1_COMMIT is really hidden" "got $hidden"
+
+hidden=$(jj log -r "$EVO_BASE" --no-graph -T 'if(hidden,"hidden","visible")')
+[ "$hidden" = "hidden" ] \
+  && ok "precedence fixture: EVO_BASE is really hidden" \
+  || bad "precedence fixture: EVO_BASE is really hidden" "got $hidden"
+
+# fails-correctly: DEFAULT mode, BASE and HEAD both hidden and from DIFFERENT
+# changes -> exit 2, and BASE's hidden error is the one reported. The
+# original script never got far enough to check HEAD at all in this case.
+check_fails "review-package: BASE and HEAD both hidden (different changes) is exit 2" 2 \
+  "$SCRIPTS/sdd-review-package" plan.md "$T1_COMMIT" "$EVO_BASE"
+err=$("$SCRIPTS/sdd-review-package" plan.md "$T1_COMMIT" "$EVO_BASE" 2>&1 >/dev/null || true)
+case "$err" in
+  "bad BASE:"*) ok "review-package: both-hidden different-changes reports BASE's hidden error, not HEAD's" ;;
+  *) bad "review-package: both-hidden different-changes reports BASE's hidden error, not HEAD's" "stderr was: $err" ;;
+esac
+
+# --- sdd-review-package: C1 — same change id does NOT imply predecessor -----
+#
+# A `jj op restore` rewind forks the evolution: it abandons one branch of a
+# change's history while keeping the other, and the abandoned branch's
+# commits stay hidden but keep the SAME change id. Without a guard beyond the
+# change-id check, that fork's abandoned commit would pass straight through
+# to an exit-0 package that silently attributes its content to the round.
+#
+# Fixture: describe a change (the fork point), capture the operation id right
+# there, evolve it once more (branch A), then `jj op restore` back to the
+# fork point and evolve it again differently (branch B). Branch A's commit
+# shares the change id with branch B's (both are rewrites of the same
+# change) but is NOT branch B's predecessor — branch B evolved directly from
+# the restored fork point, never passing through branch A.
+jj new >/dev/null 2>&1
+echo "fork base" > fork.txt
+jj describe -m "fork task work" >/dev/null 2>&1
+FORK_CHANGE=$(jj log -r 'description(substring:"fork task work")' --no-graph -T 'change_id.short()')
+FORK_OP=$(jj op log --no-graph -T 'id.short() ++ "\n"' -n 1)
+
+echo "fork branch A" > fork.txt
+jj describe -m "fork task work (branch A)" >/dev/null 2>&1
+FORK_A=$(jj log -r "$FORK_CHANGE" --no-graph -T 'commit_id.short()')
+
+jj op restore "$FORK_OP" >/dev/null 2>&1
+
+echo "fork branch B" > fork.txt
+jj describe -m "fork task work (branch B)" >/dev/null 2>&1
+FORK_B=$(jj log -r "$FORK_CHANGE" --no-graph -T 'commit_id.short()')
+
+# fixture-is-honest: branch A's commit is hidden, shares HEAD's (branch B's)
+# change id, and is genuinely ABSENT from branch B's own evolog.
+hidden=$(jj log -r "$FORK_A" --no-graph -T 'if(hidden,"hidden","visible")')
+[ "$hidden" = "hidden" ] \
+  && ok "fork fixture: branch A's commit is really hidden" \
+  || bad "fork fixture: branch A's commit is really hidden" "got $hidden"
+
+fork_a_change=$(jj log -r "$FORK_A" --no-graph -T 'change_id.short()')
+[ "$fork_a_change" = "$FORK_CHANGE" ] \
+  && ok "fork fixture: branch A's commit shares HEAD's change id" \
+  || bad "fork fixture: branch A's commit shares HEAD's change id" "got $fork_a_change"
+
+evolog_of_b=$(jj evolog -r "$FORK_B" --no-graph -T 'commit.commit_id() ++ "\n"')
+case "$evolog_of_b" in
+  *"$FORK_A"*) bad "fork fixture: branch A's commit is really absent from branch B's evolog" ;;
+  *) ok "fork fixture: branch A's commit is really absent from branch B's evolog" ;;
+esac
+
+# fails-correctly: --evolution-diff with branch A's (abandoned, hidden)
+# commit as BASE and the change (now branch B) as HEAD -> exit 2, stderr
+# names the predecessor problem — not just "hidden", the fork itself.
+check_fails "review-package: --evolution-diff with a forked (op-restore-abandoned) BASE is exit 2" 2 \
+  "$SCRIPTS/sdd-review-package" --evolution-diff plan.md "$FORK_A" "$FORK_CHANGE"
+err=$("$SCRIPTS/sdd-review-package" --evolution-diff plan.md "$FORK_A" "$FORK_CHANGE" 2>&1 >/dev/null || true)
+case "$err" in
+  *"bad BASE:"*"evolution chain"*) ok "review-package: forked BASE names the predecessor problem" ;;
+  *) bad "review-package: forked BASE names the predecessor problem" "stderr was: $err" ;;
+esac
+
+# still-accepts: the existing happy-path evolution case (an honest amend —
+# EVO_BASE really is EVO_CHANGE's predecessor) must stay green under the new
+# guard. Re-asserted here, after C1 lands, rather than trusted from earlier
+# in the file.
+check "review-package: --evolution-diff still accepts an honest amend after the C1 guard" \
+  "$SCRIPTS/sdd-review-package" --evolution-diff plan.md "$EVO_BASE" "$EVO_CHANGE"
+
 echo
 echo "$PASS passed, $FAIL failed"
 test "$FAIL" -eq 0

@@ -1,4 +1,4 @@
-<!-- jj-project-setup:start hash:3862b7bf -->
+<!-- jj-project-setup:start hash:87d3fc01 -->
 ## VCS — jj (Jujutsu)
 
 This project uses **jj (Jujutsu)** as its VCS. Never use raw git commands. Use jj equivalents instead (e.g. `jj log`, `jj status`, `jj diff`). The only exceptions are `jj git` subcommands (e.g. `jj git push`) and the `gh` CLI for GitHub operations.
@@ -34,10 +34,10 @@ SDD=$(ls -d ~/.claude/plugins/cache/*/workspace-jj/*/scripts 2>/dev/null | sort 
 | Superpowers script | Use instead |
 |---|---|
 | `scripts/sdd-workspace` | `"$SDD/sdd-artifacts" <plan>` — same argv, same stdout, same `.superpowers/sdd/<plan>/` layout |
-| `scripts/review-package` | `"$SDD/sdd-review-package" <plan> <BASE> <HEAD> [outfile]` — same sections, plus the guard below |
+| `scripts/review-package` | `"$SDD/sdd-review-package" [--evolution-diff] <plan> <BASE> <HEAD> [outfile]` — same sections, plus the guard below |
 | `scripts/task-brief` | works as-is; it only shells out to derive its default path, so pass an explicit outfile: `task-brief <plan> <n> "$("$SDD/sdd-artifacts" <plan>)/task-<n>-brief.md"` |
 
-**Record each task's BASE as a change ID.** This is the change-ID rule above, in the one place it bites hardest. A commit ID captured before a review round is stale after it — and a stale commit ID still *resolves*, merely hidden, so `jj diff` returns a plausible review package built against the code as it was **before** the fix and nothing anywhere errors. A reviewer reads it as current and reports clean. `sdd-review-package` rejects a hidden revision outright, but the change ID is what should have been recorded in the first place.
+**Record each task's BASE as a change ID.** This is the change-ID rule above, in the one place it bites hardest. A commit ID captured before a review round is stale after it — and a stale commit ID still *resolves*, merely hidden, so `jj diff` returns a plausible review package built against the code as it was **before** the fix and nothing anywhere errors. A reviewer reads it as current and reports clean. `sdd-review-package` rejects a hidden revision outright — except a fix round's own pre-fix copy, where it hands back a `--evolution-diff` rerun instead. Either way the change ID is what should have been recorded in the first place.
 
 **Implementers share the default workspace.** Serial SDD deliberately uses no isolation, so an implementer subagent running `jj describe` or `jj new` moves `@` for the orchestrator too. Dispatch one implementer at a time: that constraint is what makes the shared working copy safe, not an incidental scheduling choice.
 <!-- jj-project-setup:end -->

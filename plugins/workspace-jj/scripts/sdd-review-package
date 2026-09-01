@@ -4,7 +4,7 @@
 # Generate a review package — change list, stat summary, and the net diff with
 # extended context — written to one file the reviewer reads in a single call.
 #
-# Usage: sdd-review-package PLAN_FILE BASE HEAD [OUTFILE]
+# Usage: sdd-review-package [--evolution-diff] PLAN_FILE BASE HEAD [OUTFILE]
 # Default OUTFILE: <artifacts-dir>/review-<baseChange>..<headChange>-<headCommit>.diff
 #
 # ---------------------------------------------------------------------------
@@ -32,11 +32,17 @@
 # loop that squashes fixes backward and rebases everything above.
 #
 # This script therefore reinstates the missing guard on jj's own terms:
-#   - a BASE or HEAD resolving to a HIDDEN revision is a hard error, because
-#     that is precisely the silent-wrongness case above;
+#   - a BASE or HEAD resolving to a HIDDEN revision is a hard error in the
+#     DEFAULT mode, because that is precisely the silent-wrongness case above;
 #   - a commit-id-shaped token is a warning naming the change id to use instead.
 #     Not an error: an immutable record is a legitimate use, and this script is
 #     invoked mid-run by an agent that should be told, not stopped.
+#   - `--evolution-diff` mode permits a hidden BASE — diffing a fix round
+#     against HEAD's own pre-fix copy is its whole purpose — but trades the
+#     hidden-revision guard for a predecessor guard: BASE must be on HEAD's
+#     own evolution chain, or the same silent-wrongness returns through a
+#     fork (a `jj op restore` rewind, or a divergence) that shares HEAD's
+#     change id without being a real predecessor.
 #
 # The shape check is exact rather than heuristic. jj renders change ids in a
 # reverse-hex alphabet using only k-z, and commit ids in ordinary hex 0-9a-f;
@@ -54,8 +60,14 @@
 # ---------------------------------------------------------------------------
 set -euo pipefail
 
+evolution=0
+if [ "${1:-}" = "--evolution-diff" ]; then
+  evolution=1
+  shift
+fi
+
 if [ $# -lt 3 ] || [ $# -gt 4 ]; then
-  echo "usage: sdd-review-package PLAN_FILE BASE HEAD [OUTFILE]" >&2
+  echo "usage: sdd-review-package [--evolution-diff] PLAN_FILE BASE HEAD [OUTFILE]" >&2
   exit 2
 fi
 
@@ -91,12 +103,11 @@ resolve() {
   printf '%s\n' "$out" | head -n 1
 }
 
-# check_id LABEL TOKEN CHANGE_ID COMMIT_ID VISIBILITY
-check_id() {
-  local label=$1 token=$2 change=$3 commit=$4 vis=$5 lower
-
-  if [ "$vis" = "hidden" ]; then
-    cat >&2 <<EOF
+# check_hidden LABEL TOKEN CHANGE_ID COMMIT_ID VISIBILITY
+check_hidden() {
+  local label=$1 token=$2 change=$3 commit=$4 vis=$5
+  [ "$vis" = "hidden" ] || return 0
+  cat >&2 <<EOF
 bad ${label}: ${token} resolves to a HIDDEN revision (${commit}).
 
 A hidden revision is the pre-rewrite copy of a change that has since been
@@ -105,8 +116,12 @@ package for the code as it was BEFORE that rewrite.
 
 Use the change id, which followed the rewrite:  ${change}
 EOF
-    exit 2
-  fi
+  exit 2
+}
+
+# check_shape LABEL TOKEN CHANGE_ID COMMIT_ID
+check_shape() {
+  local label=$1 token=$2 change=$3 commit=$4 lower
 
   lower=$(printf '%s' "$token" | tr '[:upper:]' '[:lower:]')
   case "$lower" in
@@ -133,13 +148,114 @@ EOF
 # raised "$1: unbound variable" and the script exited 1 — the right diagnosis
 # followed by the wrong exit code and a spurious second error. Test the status
 # and re-raise it.
+#
+# BASE and HEAD are both resolved before either is checked: the BASE checks
+# below need head_change on hand to tell a same-change evolution pair (safe —
+# the whole point of --evolution-diff) from a different-change one (the
+# stale-package hazard the guard exists for), and resolve is the only place
+# that value comes from.
 resolved=$(resolve BASE "$base") || exit 2
 set -- $resolved; base_change=$1; base_commit=$2; base_vis=$3
-check_id BASE "$base" "$base_change" "$base_commit" "$base_vis"
 
 resolved=$(resolve HEAD "$head") || exit 2
 set -- $resolved; head_change=$1; head_commit=$2; head_vis=$3
-check_id HEAD "$head" "$head_change" "$head_commit" "$head_vis"
+
+# BASE's checks run before HEAD's — the ORIGINAL script's precedence
+# (resolve BASE, check BASE, resolve HEAD, check HEAD) — even though both are
+# now resolved up front. HEAD being RESOLVED before BASE's checks run is
+# required (evolution mode's same-change teach needs head_change to compare
+# against); HEAD's own checks having already RUN is not the same thing, and
+# reordering that too would silently drop BASE's commit-id-shape warning
+# whenever HEAD is also hidden (the script would exit on HEAD before BASE's
+# warning ever printed), and would report HEAD's hidden error before BASE's
+# for a BASE-and-HEAD-both-hidden pair, where the original reported BASE's.
+if [ "$evolution" -eq 1 ]; then
+  # The flag declares intent, it does not disable the guard: a hidden BASE is
+  # permitted only when it is a rewrite of HEAD's own change. Anything else is
+  # exactly the stale-package hazard, flag or no flag. The commit-id-shape
+  # warning is suppressed for BASE in this mode too — a commit id is the
+  # EXPECTED currency here, naming one immutable pre-fix state.
+  if [ "$base_change" != "$head_change" ]; then
+    cat >&2 <<EOF
+bad BASE: ${base} and HEAD: ${head} resolve to DIFFERENT changes.
+
+  BASE  change ${base_change}
+  HEAD  change ${head_change}
+
+--evolution-diff diffs one change's fix round against its own pre-fix copy —
+that requires BASE and HEAD to be the SAME change (change_id(BASE) ==
+change_id(HEAD)). These are not. Pass a BASE from HEAD's own evolution
+(\`jj evolog -r '${head_change}'\`), or drop --evolution-diff and use the
+default mode with a BASE from HEAD's ancestry.
+EOF
+    exit 2
+  fi
+
+  # C1: same change id does NOT imply predecessor. A `jj op restore` rewind
+  # forks the evolution: the branch it abandons stays reachable-but-hidden,
+  # keeps the SAME change id, and would otherwise sail through the check
+  # above straight to an exit-0 package that silently attributes the
+  # discarded branch's content to this round — `## Evolution` (built from
+  # HEAD's own predecessor chain) would never mention BASE, while `## Diff`
+  # (a raw tree-to-tree comparison) would still diff against it regardless.
+  #
+  # Queried by HEAD's RESOLVED COMMIT id, never $head_change: a divergent
+  # change id (two commits sharing one change id) makes `jj evolog` on the
+  # change id fail outright, where the commit id still resolves cleanly.
+  preds=$(jj evolog -r "$head_commit" --no-graph -T 'commit.commit_id() ++ "\n"' 2>/dev/null || true)
+  case "$preds" in
+    *"$base_commit"*) ;;   # full 40-hex ids don't prefix-collide
+    *)
+      cat >&2 <<EOF
+bad BASE: ${base} shares HEAD's change id (${head_change}) but is not on
+HEAD's evolution chain — a fork (a \`jj op restore\` rewind that abandoned one
+branch while keeping the other, or a divergence), not a straight-line
+predecessor.
+
+Diffing against it would silently attribute the discarded branch's content to
+this round: \`## Evolution\` (HEAD's own predecessor chain) would never
+mention BASE, while \`## Diff\` would still diff against it regardless.
+
+Pick a BASE that is actually on HEAD's evolution chain:
+
+  jj evolog -r '${head_commit}'
+EOF
+      exit 2
+      ;;
+  esac
+else
+  if [ "$base_vis" = "hidden" ]; then
+    if [ "$base_change" = "$head_change" ]; then
+      # The load-bearing discoverability surface (#172): the flag is taught
+      # here, in the failure path, at the moment it is needed, instead of
+      # relying on prose an agent has to remember. The rerun command is the
+      # caller's own arguments substituted in verbatim (via `$0`, not just
+      # its basename, so the remedy is directly invokable as printed; and
+      # `printf '%q'`-quoted, so a path with spaces stays runnable), so it
+      # runs as-is.
+      rerun="$0 --evolution-diff $(printf '%q' "$plan") $(printf '%q' "$base") $(printf '%q' "$head")"
+      [ -n "$outfile" ] && rerun="$rerun $(printf '%q' "$outfile")"
+      cat >&2 <<EOF
+bad BASE: ${base} resolves to a HIDDEN revision (${base_commit}).
+
+BASE is the pre-fix copy of HEAD's own change (${head_change}) — this looks
+like a review round's fix diff, not a stale reference. Rerun with
+--evolution-diff to diff HEAD against its own pre-fix history:
+
+  ${rerun}
+EOF
+      exit 2
+    fi
+    check_hidden BASE "$base" "$base_change" "$base_commit" "$base_vis"
+  fi
+  check_shape BASE "$base" "$base_change" "$base_commit"
+fi
+
+# HEAD hidden is always an error, in both modes: --evolution-diff exists to
+# let BASE name a pre-fix copy, never to review against a HEAD that isn't
+# really there. Checked after BASE's block above — see the precedence note.
+check_hidden HEAD "$head" "$head_change" "$head_commit" "$head_vis"
+check_shape HEAD "$head" "$head_change" "$head_commit"
 
 # BASE MUST BE AN ANCESTOR OF HEAD, or the package contradicts itself.
 #
@@ -170,11 +286,17 @@ check_id HEAD "$head" "$head_change" "$head_commit" "$head_vis"
 #
 # Matched with `case`, not `| grep -q`: under `set -o pipefail` grep -q exits on
 # first match, jj takes SIGPIPE, and the pipeline reports failure on success.
-ancestral=$(jj log -r "${base_commit} & ::${head_commit}" --no-graph -T '"x"' 2>/dev/null || true)
-case "$ancestral" in
-  *x*) ;;
-  *)
-    cat >&2 <<EOF
+#
+# Skipped entirely in evolution mode: a predecessor is a rewrite of its
+# successor, not a DAG ancestor, so this check would reject every valid
+# evolution pair — exactly the case --evolution-diff exists to allow. The
+# change-id-equality check above is what stands in for it there.
+if [ "$evolution" -eq 0 ]; then
+  ancestral=$(jj log -r "${base_commit} & ::${head_commit}" --no-graph -T '"x"' 2>/dev/null || true)
+  case "$ancestral" in
+    *x*) ;;
+    *)
+      cat >&2 <<EOF
 bad BASE: ${base} is not an ancestor of HEAD (${head}).
 
   BASE  change ${base_change}
@@ -189,22 +311,31 @@ If HEAD really is the task's tip, record the BASE from this task's own ancestry
 (\`jj log -r '::${head_change}'\`). If the arguments are the wrong way round,
 swap them.
 EOF
-    exit 2 ;;
-esac
+      exit 2 ;;
+  esac
+fi
 
 if [ -n "$outfile" ]; then
   out=$outfile
 else
   dir=$("$(cd "$(dirname "$0")" && pwd)/sdd-artifacts" "$plan")
-  # Named by CHANGE ids for identity and the head COMMIT id for the round.
-  # Change ids alone would make a re-review after fixes overwrite the package it
-  # is meant to be compared against — same change, same filename. The commit id
-  # is what a rewrite moves, so appending it yields the distinct fresh file per
-  # round that upstream got from its commit-range name, without giving up the
-  # stable identity in the first half. This is the CLAUDE.md rule applied in
-  # both directions at once: change ids to carry identity across a step, commit
-  # ids for an immutable record of one.
-  out="$dir/review-${base_change:0:8}..${head_change:0:8}-${head_commit:0:8}.diff"
+  if [ "$evolution" -eq 1 ]; then
+    # base_change and head_change are IDENTICAL in this mode (the guard above
+    # requires it), so the default-mode name would self-collide across every
+    # fix round for the same task: change id for identity, both commit ids
+    # for the round.
+    out="$dir/evolution-${head_change:0:8}-${base_commit:0:8}..${head_commit:0:8}.diff"
+  else
+    # Named by CHANGE ids for identity and the head COMMIT id for the round.
+    # Change ids alone would make a re-review after fixes overwrite the package it
+    # is meant to be compared against — same change, same filename. The commit id
+    # is what a rewrite moves, so appending it yields the distinct fresh file per
+    # round that upstream got from its commit-range name, without giving up the
+    # stable identity in the first half. This is the CLAUDE.md rule applied in
+    # both directions at once: change ids to carry identity across a step, commit
+    # ids for an immutable record of one.
+    out="$dir/review-${base_change:0:8}..${head_change:0:8}-${head_commit:0:8}.diff"
+  fi
 fi
 
 # Internally the range is built from the RESOLVED commit ids, not the caller's
@@ -217,9 +348,31 @@ fi
   echo "# BASE  change ${base_change}  commit ${base_commit}"
   echo "# HEAD  change ${head_change}  commit ${head_commit}"
   echo
-  echo "## Changes"
-  jj log -r "${base_commit}..${head_commit}" --no-graph \
-    -T 'change_id.short() ++ " " ++ commit_id.short() ++ " " ++ if(empty,"[empty] ","") ++ description.first_line() ++ "\n"'
+  if [ "$evolution" -eq 1 ]; then
+    # Revset ranges cannot list a hidden commit's predecessor relationship —
+    # it isn't a DAG ancestor — so the round's history comes from evolog
+    # instead of the base..head range the default mode uses.
+    echo "## Evolution"
+    # Scope note: evolog below lists the change's FULL predecessor chain, not
+    # just base..head, because a predecessor relationship isn't a DAG range —
+    # it's the '## Diff' section, not this one, that is scoped to the round.
+    echo "# full evolution of ${head_change}; the Diff below covers only ${base_commit}..${head_commit}"
+    # evolog's template context is `CommitEvolutionEntry`, not `Commit` — the
+    # ordinary `change_id`/`commit_id`/`description` keywords used in the
+    # `## Changes` template above don't exist here; go through `.commit()` to
+    # reach the same fields (jj 0.44's method form is the bare keyword
+    # `commit`, not a `commit()` call).
+    #
+    # Queried by HEAD's RESOLVED COMMIT id, not $head_change (I2): this is the
+    # same reason as the C1 guard above — a divergent change id makes evolog
+    # on the change id fail outright, where the commit id still resolves.
+    jj evolog -r "$head_commit" --no-graph \
+      -T 'commit.change_id().short() ++ " " ++ commit.commit_id().short() ++ " " ++ commit.description().first_line() ++ "\n"'
+  else
+    echo "## Changes"
+    jj log -r "${base_commit}..${head_commit}" --no-graph \
+      -T 'change_id.short() ++ " " ++ commit_id.short() ++ " " ++ if(empty,"[empty] ","") ++ description.first_line() ++ "\n"'
+  fi
   echo
   echo "## Files changed"
   jj diff --from "$base_commit" --to "$head_commit" --stat
@@ -228,5 +381,12 @@ fi
   jj diff --git --context 10 --from "$base_commit" --to "$head_commit"
 } > "$out"
 
-changes=$(jj log -r "${base_commit}..${head_commit}" --no-graph -T '"x\n"' | grep -c . || true)
-echo "wrote ${out}: ${changes} change(s), $(wc -c < "$out" | tr -d ' ') bytes"
+if [ "$evolution" -eq 1 ]; then
+  # By head_commit, not $head_change (I2) — same reason as the C1 guard and
+  # the '## Evolution' section above.
+  changes=$(jj evolog -r "$head_commit" --no-graph -T '"x\n"' | grep -c . || true)
+  echo "wrote ${out}: ${changes} evolog entr(ies), $(wc -c < "$out" | tr -d ' ') bytes"
+else
+  changes=$(jj log -r "${base_commit}..${head_commit}" --no-graph -T '"x\n"' | grep -c . || true)
+  echo "wrote ${out}: ${changes} change(s), $(wc -c < "$out" | tr -d ' ') bytes"
+fi
