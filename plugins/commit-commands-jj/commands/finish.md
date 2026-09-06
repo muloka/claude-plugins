@@ -1,6 +1,6 @@
 ---
 description: Finish development work — push+PR, squash into trunk, keep, or discard
-allowed-tools: Bash(jj:*), Bash(jj git push:*), Bash(gh pr create:*), Bash(gh pr view:*), AskUserQuestion, Read
+allowed-tools: Bash(jj:*), Bash(jj git push:*), Bash(gh pr create:*), Bash(gh pr view:*), Bash(.claude/hooks/jj-workspace-remove.sh:*), AskUserQuestion, Read, ExitWorktree
 ---
 
 **CRITICAL: This is a jj (Jujutsu) plugin. You MUST NOT use ANY raw git commands — not even for context discovery. This includes git checkout, git commit, git diff, git log, git status, git add, git branch, git remote, git rev-parse, git config, git show, git fetch, git pull, git push, git merge, git rebase, git stash, git reset, git tag, or any other `git` invocation. Do not run `ls .git`, `git log`, `git remote -v` or similar to detect repo state. Always use jj equivalents (jj log, jj status, jj diff, etc.). The only exceptions are `jj git` subcommands (e.g. `jj git push`, `jj git fetch`) and `gh` CLI for GitHub operations.**
@@ -83,13 +83,108 @@ What would you like to do?
 4. Discard this work
 ```
 
+## Step 3.5: Leave the harness worktree (isolated sessions only)
+
+**Trigger — both must hold:**
+
+1. The current workspace root (Context) is under `/tmp/jj-workspaces/` or
+   `/private/tmp/jj-workspaces/`. That is a workspace the WorktreeCreate hook
+   made (`claude --worktree`, `EnterWorktree`), and a session started in one
+   is **harness-isolated**: Claude Code refuses every `jj git` command there
+   (it reads the `git` token as a git invocation and has no notion of jj),
+   and most compound shell commands.
+2. The chosen option is 1, 2 or 4:
+
+   | Option | Why it must leave the worktree |
+   |---|---|
+   | 1 push + PR | `jj git push`, `jj git fetch`, `jj git push --deleted` are all refused inside |
+   | 2 merge into trunk locally | its step 1 `jj git fetch` is refused inside |
+   | 3 keep | nothing to do — does **not** leave |
+   | 4 discard | `jj git push --deleted` is refused inside if the bookmark was pushed; and even unpushed, forgetting a workspace from inside it leaves this session with no working copy (`jj status` → *No working copy*), unable to run the recovery it just handed back |
+
+A durable root (a `jjtab` sibling directory, or anything else) never triggers
+this step: there is no guard there.
+
+**Selecting option 1, 2 or 4 in such a workspace is the user asking to leave the worktree; call ExitWorktree now.**
+(Its description says not to call it proactively. The `/finish` choice is the ask.)
+
+**Do, in this order, all inside the workspace:**
+
+1. **Snapshot.** Run `jj status`. jj snapshots a workspace only when a jj
+   command runs inside it; bytes the test suite or the user wrote since the
+   last one are otherwise unreachable from the main checkout and destroyed by
+   cleanup.
+2. **Record before moving.** After the exit, `@` means the main checkout's
+   working copy, so everything later steps need is captured now as values,
+   not as `@`-relative revsets:
+   ```bash
+   jj log -r <target> --no-graph -T 'change_id.short()'   # <target-change-id>
+   jj workspace root                                       # <left-workspace-root>
+   jj workspace list --no-pager -T 'if(self.target().current_working_copy(), self.name() ++ "\n", "")'   # <left-workspace-name>
+   ```
+   The name comes from jj directly, not from matching roots against the
+   Context list — `self.root()` renders empty for moved or pre-0.38.0
+   workspaces, which is why the session briefing stopped matching on it.
+3. **Exit.** Call `ExitWorktree` with `action: "keep"`. Never the removing
+   form: it demands the discard flag for a jj workspace and is the path on
+   which an agent lost work in anthropics/claude-code#85118. The change must
+   be pushed and verified before anything is retired, and retirement is
+   Step 5's job.
+   Do not print the line below until the tool has confirmed. Then say:
+
+   > This session is worktree-isolated and the harness refuses every remote
+   > jj command here. Left the worktree (kept on disk at
+   > `<left-workspace-root>`); finishing from the main checkout.
+
+   Then record the main checkout's root — `<main-root>`:
+   ```bash
+   jj workspace root
+   ```
+4. **If ExitWorktree reports no active worktree session** (a resumed
+   session, or any error), do not claim the exit happened. Run every step the
+   guard permits yourself (the ancestor check, `jj bookmark create`,
+   `jj abandon`, `jj op log`). Hand back only the refused commands, one `! `
+   line per command, in order, with `<target-change-id>` substituted:
+   - Option 1: `jj git push --bookmark <name>`, then the `gh pr create`
+     heredoc (a compound command — also refused).
+   - Option 2: `jj git fetch`; continue with its steps 2–5 once the user
+     reports it ran.
+   - Option 4: `jj git push --deleted`, only if the user asked for the remote
+     branch to go.
+   Skip Step 5. The workspace stays registered at `<left-workspace-root>`
+   with its directory intact, so `/clean_stale` will **not** retire it (it
+   forgets only rows whose directory is gone); tell the user to run
+   `jj workspace forget <left-workspace-name>` once the handed-back commands
+   have run. This is the only path on which `/finish` hands back.
+5. **Continue with the option's steps.** Use `<target-change-id>` wherever
+   the prose says `<target>` or `TARGET`; the one deliberate **commit**-id
+   capture in Option 1 step 6 stands. State, rather than hide, what running
+   from main changes: Option 1 step 6d's `jj new trunk()` re-points the
+   **main checkout's** working copy, which is the intended end state for a
+   finished thread — jj abandons main's previous `@` only if it was empty and
+   undescribed; parked non-empty work stays as its own change, report it.
+   Option 2 moves nothing: main's `@` is untouched, and the end state is the
+   target rebased onto trunk with the trunk bookmark moved. Option 4's
+   restore point is captured in its own step 1, from main — valid, because
+   step 1 above already snapshotted the workspace's bytes as a prior
+   operation.
+6. **If a remote command fails after the exit**, report the failure and
+   `<target-change-id>`, and stop. Nothing is lost: the workspace is intact at
+   `<left-workspace-root>` and still registered, and the change is reachable
+   by its id from anywhere. Re-entering by path is not possible
+   (`EnterWorktree` requires `git worktree list`); the user can `cd` into the
+   directory and run plain `claude` there, which is unguarded.
+
 ## Step 4: Execute choice
+
+If any command in this step is refused with *"This session is isolated in the
+worktree ..."*, Step 3.5 was skipped — return to it before retrying.
 
 ### Option 1: Push and create PR (most common)
 
 1. **Ancestor check before push.** Before creating the bookmark, check for non-empty changes between trunk and the target that are NOT the target itself:
    ```bash
-   jj log -r 'ancestors(TARGET) & ~ancestors(trunk()) & ~TARGET' --no-graph
+   jj log -r 'ancestors(<target>) & ~ancestors(trunk()) & ~<target>' --no-graph
    ```
    If any exist, warn the user:
    ```
@@ -300,9 +395,15 @@ it to the user, not to gate the discard behind a typed keyword.
    `--ignore-working-copy`** — it skips that snapshot and hands back a restore
    point that predates the most recent edits, which is exactly the work about to
    be discarded.
+   If Step 3.5 ran, you are in the main checkout now. This id still covers
+   the workspace's bytes: Step 3.5's `jj status` snapshotted them as a prior
+   operation. Capture it here, once — not in Step 3.5.
 
 2. **State what is going, and whether a copy survives anywhere.** Read the
-   target's bookmarks from Context — do not assert either line below without
+   target's bookmarks with `jj bookmark list -r <target> --all-remotes` — a
+   `@origin` row (any `@<remote>` other than `@git`) means pushed. Context's
+   bookmark line is about `@`, not the target, and `jj git remote list` is
+   refused in an isolated workspace. Do not assert either line below without
    having looked:
    ```
    Discarding <change-id>: <description> — <N> files changed.
@@ -338,6 +439,12 @@ it to the user, not to gate the discard behind a typed keyword.
    ```
    If you want it back: jj op restore <id> --what repo
    then re-publish:     jj git push --bookmark <name>
+   ```
+   **If Step 5.0 retires a left workspace**, `jj op restore` also brings back
+   that workspace's registration — its directory is gone by then, so the row
+   is permanently stale. Add to the recovery line:
+   ```
+   then: jj workspace forget <left-workspace-name>
    ```
 
 Then: Workspace cleanup (Step 5).
