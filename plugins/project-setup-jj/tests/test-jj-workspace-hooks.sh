@@ -129,5 +129,89 @@ else
 fi
 HOOK "$root2" "$REMOVE" "{\"worktree_path\":\"$ws2\",\"cwd\":\"$root2/$UNIQ\"}" >/dev/null 2>&1
 
+# ---------------------------------------------------------------- remove hook
+# Positional form: `remove.sh <worktree_path> <cwd>`. /finish calls this from
+# the main checkout after ExitWorktree, where a stdin JSON pipe is a compound
+# command outside its allowed-tools; a plain command with two arguments is not.
+# `</dev/null` on every positional call: the OLD hook reads stdin, and a
+# developer running this suite from a terminal would otherwise hang there.
+root3=$(new_repo)
+seed_repo "$root3"
+ws3=$(HOOK "$root3" "$CREATE" "{\"name\":\"pos\",\"cwd\":\"$root3/$UNIQ\"}" 2>/dev/null)
+R "$root3" bash "$REMOVE" "$ws3" "$root3/$UNIQ" >/dev/null 2>&1 </dev/null
+if R "$root3" jj workspace list 2>/dev/null | grep -q '^workspace-pos:'; then
+  bad "positional remove: workspace-pos still registered"
+else
+  ok "positional remove: workspace forgotten"
+fi
+if [ -e "$ws3" ]; then
+  bad "positional remove: directory still exists: $ws3"
+else
+  ok "positional remove: directory removed"
+fi
+
+# JSON form still works (the harness sends this shape).
+ws4=$(HOOK "$root3" "$CREATE" "{\"name\":\"json\",\"cwd\":\"$root3/$UNIQ\"}" 2>/dev/null)
+HOOK "$root3" "$REMOVE" "{\"worktree_path\":\"$ws4\",\"cwd\":\"$root3/$UNIQ\"}" >/dev/null 2>&1
+if R "$root3" jj workspace list 2>/dev/null | grep -q '^workspace-json:'; then
+  bad "json remove: workspace-json still registered"
+else
+  ok "json remove: workspace forgotten (stdin contract intact)"
+fi
+
+# Slash-separated names. EnterWorktree allows `feat/auth`; the create hook
+# registers `workspace-feat/auth`. A basename-derived forget targets
+# `workspace-auth`, fails silently, and the directory is removed anyway —
+# leaving a registration that points at nothing.
+ws5=$(HOOK "$root3" "$CREATE" "{\"name\":\"feat/auth\",\"cwd\":\"$root3/$UNIQ\"}" 2>/dev/null)
+if R "$root3" jj workspace list 2>/dev/null | grep -q '^workspace-feat/auth:'; then
+  ok "fixture: slash name registered as workspace-feat/auth"
+else
+  bad "fixture: slash name not registered as expected: $(R "$root3" jj workspace list 2>/dev/null)"
+fi
+R "$root3" bash "$REMOVE" "$ws5" "$root3/$UNIQ" >/dev/null 2>&1 </dev/null
+if R "$root3" jj workspace list 2>/dev/null | grep -q '^workspace-feat/auth:'; then
+  bad "slash name: workspace-feat/auth still registered after remove (basename bug)"
+else
+  ok "slash name: workspace-feat/auth forgotten"
+fi
+if [ -e "$ws5" ]; then
+  bad "slash name: directory still exists: $ws5"
+else
+  ok "slash name: directory removed"
+fi
+
+# Trailing slash: a model-typed path may carry one; `workspace-probe/` is not
+# a registry name.
+ws6=$(HOOK "$root3" "$CREATE" "{\"name\":\"slash\",\"cwd\":\"$root3/$UNIQ\"}" 2>/dev/null)
+R "$root3" bash "$REMOVE" "$ws6/" "$root3/$UNIQ" >/dev/null 2>&1 </dev/null
+if R "$root3" jj workspace list 2>/dev/null | grep -q '^workspace-slash:'; then
+  bad "trailing slash: workspace-slash still registered"
+else
+  ok "trailing slash: workspace forgotten"
+fi
+if [ -e "$ws6" ]; then
+  bad "trailing slash: directory still exists: $ws6"
+else
+  ok "trailing slash: directory removed"
+fi
+
+# Prefix guard: the script ends in `rm -rf`, and /finish now supplies the path.
+# Anything outside /tmp/jj-workspaces/<repo>/ must be refused, untouched.
+outside="$root3/$UNIQ/not-a-workspace"
+mkdir -p "$outside"
+R "$root3" bash "$REMOVE" "$outside" "$root3/$UNIQ" >/dev/null 2>&1 </dev/null
+rc=$?
+if [ "$rc" -eq 2 ]; then
+  ok "prefix guard: path outside the harness prefix refused with exit 2"
+else
+  bad "prefix guard: expected exit 2 for $outside, got $rc"
+fi
+if [ -d "$outside" ]; then
+  ok "prefix guard: refused path left untouched"
+else
+  bad "prefix guard: the script removed a directory outside /tmp/jj-workspaces"
+fi
+
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 test "$FAIL" -eq 0
