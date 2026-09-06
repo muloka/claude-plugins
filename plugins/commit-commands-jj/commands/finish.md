@@ -108,7 +108,7 @@ this step: there is no guard there.
 **Selecting option 1, 2 or 4 in such a workspace is the user asking to leave the worktree; call ExitWorktree now.**
 (Its description says not to call it proactively. The `/finish` choice is the ask.)
 
-**Do, in this order, all inside the workspace:**
+**Do, in this order, starting inside the workspace:**
 
 1. **Snapshot.** Run `jj status`. jj snapshots a workspace only when a jj
    command runs inside it; bytes the test suite or the user wrote since the
@@ -141,8 +141,12 @@ this step: there is no guard there.
    jj workspace root
    ```
 4. **If ExitWorktree reports no active worktree session** (a resumed
-   session, or any error), do not claim the exit happened. Run every step the
-   guard permits yourself (the ancestor check, `jj bookmark create`,
+   session, or any error), do not claim the exit happened. Before handing
+   anything back, try the option's first remote command once (Option 1: the
+   bookmark push; Option 2: the fetch; Option 4: the remote deletion, if
+   asked); if it runs, this session is not guarded — continue the option
+   normally from here. Run every step the guard permits yourself (the
+   ancestor check, `jj bookmark create`,
    `jj abandon`, `jj op log`). Hand back only the refused commands, one `! `
    line per command, in order, with `<target-change-id>` substituted:
    - Option 1: `jj git push --bookmark <name>`, then the `gh pr create`
@@ -453,6 +457,37 @@ Then: Workspace cleanup (Step 5).
 
 **For Options 1, 2, and 4 only.**
 
+0. **If Step 3.5 left a workspace, retire that one and stop.** After the
+   exit the current workspace *is* `default`, so the check in 1 below would
+   wrongly conclude there is nothing to do. The WorktreeRemove hook cannot
+   fire for a worktree the session has already left, so `/finish` retires it
+   through the same script the hook runs, with positional arguments. Run it
+   from `<main-root>` — ExitWorktree returns the session to the directory it
+   was launched from, which for `claude --worktree` at the repo root is
+   `<main-root>`; check `pwd` first. If they differ, run the script by its
+   absolute path `<main-root>/.claude/hooks/jj-workspace-remove.sh ...`,
+   which sits outside the pre-approved pattern: expect one permission prompt
+   and say so.
+   ```bash
+   .claude/hooks/jj-workspace-remove.sh <left-workspace-root> <main-root>
+   ```
+   Run this whether or not the user accepted Option 4's remote deletion. The
+   script prints nothing on success, so confirm rather than assume:
+   ```bash
+   jj workspace list --no-pager -T 'self.name() ++ "\n"'
+   ```
+   `<left-workspace-name>` must be gone. If the script does not exist (a
+   repo that never ran `/project-setup`), forget the workspace yourself and
+   hand the directory back — `/finish` never runs `rm`:
+   ```bash
+   jj workspace forget <left-workspace-name>
+   ```
+   ```
+   Workspace <left-workspace-name> forgotten. Remove its directory by hand:
+   rm -rf <left-workspace-root>
+   ```
+   Report what ran. Stop here.
+
 1. **Identify the current workspace by root, not by name.** Read the two
    workspace lines from Context: the current workspace is the row of the
    list whose root equals the current workspace root. (The list template is
@@ -466,11 +501,14 @@ Then: Workspace cleanup (Step 5).
 2. **Branch on provenance — who created the workspace decides who ends it:**
 
    - **Root under `/tmp/jj-workspaces/`** — an ephemeral workspace the
-     WorktreeCreate hook made (`claude --worktree`, `EnterWorktree`). Ours to
-     clean up:
+     WorktreeCreate hook made. Reached only if Step 3.5 did not run (it
+     leaves the worktree for every option that gets here). Ours to clean up:
      ```bash
      jj workspace forget <workspace-name>
      ```
+     jj warns *the current workspace no longer exists after this operation*
+     and leaves the directory with no working copy — say so, and run nothing
+     further with jj from this directory.
    - **Any other root** — a durable side thread (e.g. a `jjtab` sibling
      directory). Ending one with `/finish` is a documented use, but the thread
      outlives any single change, so ending it is the user's call, not a side
@@ -484,7 +522,9 @@ Then: Workspace cleanup (Step 5).
 
 3. **Report what was cleaned up.** Never remove the workspace directory
    itself — the WorktreeRemove hook owns ephemeral directories, and a durable
-   directory's removal is the user's to do by hand.
+   directory's removal is the user's to do by hand. The one exception is an
+   ephemeral workspace this session **left in Step 3.5**: the hook can no
+   longer fire for it, so step 0 retires it through the hook's own script.
 
 ## Quick Reference
 
@@ -501,7 +541,7 @@ Then: Workspace cleanup (Step 5).
 - **Never force-push.** Use `jj git push` only.
 - **Make discard recoverable; don't gate it.** Capture `jj op log -n 1 --no-graph -T 'id.short()'` before abandoning, then hand back `jj op restore <id>`. A typed-confirmation prompt is a git habit — in jj the op log is the safety net, and it works whether or not anyone was asked.
 - **If the discard removed a pushed bookmark from the remote, the recovery command is `jj op restore <id> --what repo`.** The bare form restores remote-tracking refs too, and the following `jj git push` reports `Nothing changed.` over a remote that is still empty.
-- **Don't auto-remove worktree directories.** Let the WorktreeRemove hook handle it.
+- **Don't auto-remove worktree directories.** Let the WorktreeRemove hook handle it. The one exception is an ephemeral workspace this session **left in Step 3.5** (ExitWorktree keep, because the harness refuses `jj git` inside it): the hook cannot fire for it any more, so Step 5.0 runs the hook's own script, `.claude/hooks/jj-workspace-remove.sh <root> <main-root>`, which refuses any path outside `/tmp/jj-workspaces/`. `/finish` itself never runs `rm`.
 - **Provenance gates workspace cleanup.** Auto-forget only ephemeral workspaces (root under `/tmp/jj-workspaces/`); a durable workspace is forgotten only after the user says so.
 - **Menu after green.** Run the project's test suite (Step 2) before presenting options; skip the gate only when no suite is detected. Reviews remain the caller's responsibility.
 
