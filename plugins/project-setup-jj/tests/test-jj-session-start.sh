@@ -322,10 +322,10 @@ while IFS= read -r line; do
   trimmed=$(printf '%s' "$line" | sed 's/^[[:space:]]*//')
   invocation=0
   case "$line" in
-    *'$(jj '*|*'! jj '*) invocation=1 ;;
+    *'$(jj '*) invocation=1 ;;
   esac
   case "$trimmed" in
-    'jj '*) invocation=1 ;;
+    'jj '*|'if ! jj '*|'! jj '*) invocation=1 ;;
   esac
   if [ "$invocation" -eq 0 ]; then continue; fi
   case "$line" in
@@ -408,6 +408,40 @@ case "$out_conflict" in
   *"CONFLICTS PRESENT"*f.txt*) ok "conflicted @ is called out by name" ;;
   *) bad "conflicts" "conflict not surfaced in briefing: $(printf '%s' "$out_conflict" | grep -i conflict || echo '<no conflict line>')" ;;
 esac
+
+# --- worktree isolation notice ---
+# A workspace the WorktreeCreate hook made lives under /tmp/jj-workspaces/, and
+# a session started there is harness-isolated: every `jj git` command is
+# refused. The briefing says so at minute zero, from the root path alone (no
+# env var marks isolation — measured on 2.1.263). Three cases: the hook's
+# location -> notice; default workspace -> no notice; a sibling-directory
+# workspace (jjtab) -> no notice. On macOS the first case runs under the
+# /private/tmp spelling for free, since jj canonicalises the root.
+cd "$WORK/repo"
+ISO_UNIQ="ssprobe-$$-$(date +%s)"
+ISO_ROOT="/tmp/jj-workspaces/$ISO_UNIQ"
+cleanup_iso() { rm -rf "$ISO_ROOT"; rm -rf "$WORK"; }
+trap cleanup_iso EXIT
+mkdir -p "$ISO_ROOT"
+jj workspace add "$ISO_ROOT/probe" --name workspace-probe -r 'trunk()' >/dev/null 2>&1
+out_iso="$(cd "$ISO_ROOT/probe" && bash "$HOOK" 2>/dev/null | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null || true)"
+case "$out_iso" in
+  *"== Worktree isolation =="*"ExitWorktree"*) ok "hook-made workspace: briefing carries the isolation notice naming ExitWorktree" ;;
+  *) bad "isolation notice" "missing from a workspace under $ISO_ROOT: $(printf '%s' "$out_iso" | grep -i -c isolation) isolation line(s)" ;;
+esac
+out_default="$(ctx)"
+case "$out_default" in
+  *"== Worktree isolation =="*) bad "isolation notice" "emitted in the DEFAULT workspace" ;;
+  *) ok "default workspace: no isolation notice" ;;
+esac
+jj workspace add "$WORK/repo-sibling" --name sibling -r 'trunk()' >/dev/null 2>&1
+out_sib="$(cd "$WORK/repo-sibling" && bash "$HOOK" 2>/dev/null | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null || true)"
+case "$out_sib" in
+  *"== Worktree isolation =="*) bad "isolation notice" "emitted in a sibling-directory (jjtab-style) workspace" ;;
+  *) ok "sibling workspace: no isolation notice" ;;
+esac
+jj workspace forget workspace-probe >/dev/null 2>&1
+jj workspace forget sibling >/dev/null 2>&1
 
 # --- a broken environment must not read as clean ---
 # Outside a jj repo the hook exits silently (0, no output) rather than emitting a

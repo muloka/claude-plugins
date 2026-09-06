@@ -69,7 +69,8 @@ fi
 
 # @ and `jj root` are workspace-relative: which workspace this session is
 # attached to determines what @ even means, and a second live workspace means
-# another agent may be editing concurrently.
+# another agent may be editing concurrently. The row for THIS session is marked
+# so the briefing states which one that is instead of leaving it to inference.
 #
 # The template is PINNED, and that is the point of it. jj 0.44 added workspace
 # roots to this command's default output, so every briefing silently grew a
@@ -79,31 +80,68 @@ fi
 # plugins ship — so its shape is ours to choose, not jj's to change under us.
 # What the briefing actually needs is the concurrency signal: who else is live,
 # on which change, and whether that change is empty (nobody mid-work) or not.
+#
+# THE MARKER ASKS jj DIRECTLY, rather than reconstructing the answer. It used
+# to read `jj workspace root` and match that path against each row's
+# `self.root()` in awk. That comparison is unsound: `WorkspaceRef.root()` is
+# optional and renders EMPTY in two ordinary situations jj documents — a
+# workspace created before jj 0.38.0, which recorded no root at all, and a
+# workspace whose directory was later moved, which makes the recorded path
+# stale and drops it. Measured on 0.44.0 in both shapes: `self.root()` comes
+# back empty while `jj workspace root` still returns the true path, so the
+# equality never held, `current_ws` stayed empty, and the marker was silently
+# omitted — the briefing showed a bare `default: <id>` and read as correct.
+# Installed, registered, announced, and dead, in every repo whose workspace
+# predates 0.38.0. The installer's smoke test cannot see it either, because the
+# script goes on emitting perfectly valid JSON.
+#
+# `current_working_copy()` is jj answering the one question it alone can
+# answer: true for the working-copy commit of the CURRENT workspace, with no
+# dependence on a recorded path. Verified in a two-workspace repo from both
+# sides, and in the moved-directory case that defeats root matching. Folding it
+# into the display template also retires a second `jj workspace list` call, the
+# `jj workspace root` call, and the awk pipeline — the last of which had to be
+# written without `exit` to stop jj dying of EPIPE mid-write.
+#
+# Were two workspaces ever to share a working-copy commit, both rows would be
+# marked. jj gives each workspace its own, so this does not arise; and marking
+# both would still be truer than silently picking one.
 workspaces=$(jj --ignore-working-copy workspace list --no-pager \
-  -T 'self.name() ++ ": " ++ self.target().change_id().shortest(8) ++ if(self.target().empty(), " (empty)", "") ++ " " ++ if(self.target().description(), self.target().description().first_line(), "(no description set)") ++ "\n"' \
+  -T 'self.name() ++ ": " ++ self.target().change_id().shortest(8) ++ if(self.target().empty(), " (empty)", "") ++ " " ++ if(self.target().description(), self.target().description().first_line(), "(no description set)") ++ if(self.target().current_working_copy(), " (this session)", "") ++ "\n"' \
   2>/dev/null || echo "(unable to read workspaces)")
 
-# Mark which row is THIS session — the paragraph above says the attached
-# workspace determines what @ means, so the briefing should say which one that
-# is rather than leave it to inference. Match by ROOT, never by name: names
-# repeat across repos while roots cannot, and both sides of the comparison come
-# from jj itself, so the spellings agree (no /tmp vs /private/tmp mismatch).
-# No `exit` inside the awk: under this script's set -euo pipefail, awk exiting
-# on the first match closes the pipe while jj may still be writing later rows,
-# jj dies of EPIPE, and the whole briefing silently vanishes — measured as an
-# intermittent empty payload the moment a second workspace existed.
-current_root=$(jj workspace root --ignore-working-copy 2>/dev/null || true)
-if [ -n "$current_root" ]; then
-  current_ws=$(jj --ignore-working-copy workspace list --no-pager \
-    -T 'self.name() ++ "\t" ++ self.root() ++ "\n"' 2>/dev/null \
-    | awk -F'\t' -v r="$current_root" '!found && $2 == r {print $1; found=1}') || true
-  if [ -n "$current_ws" ]; then
-    workspaces=$(printf '%s\n' "$workspaces" \
-      | awk -v ws="$current_ws" 'index($0, ws ": ") == 1 {$0 = $0 " (this session)"} {print}') || true
-  fi
-fi
-
 identity=$(jj --ignore-working-copy config list user.email -T 'json(self) ++ "\n"' 2>/dev/null || echo "(unable to read user.email)")
+
+# Harness worktree isolation. A workspace the WorktreeCreate hook made lives
+# under /tmp/jj-workspaces/, and a session started there is ISOLATED: Claude
+# Code refuses every `jj git` command in it (it reads the `git` token as a git
+# invocation and has no notion of jj), and most compound shell commands. No
+# environment variable marks this — measured on 2.1.263 — so the root path is
+# the only tell. Saying it here turns three refused pushes into zero surprises.
+#
+# This reintroduces a `jj workspace root` call, which the workspace section
+# above deliberately retired. That retirement was about COMPARING this path to
+# each row's recorded `self.root()`, which is empty for pre-0.38.0 and moved
+# workspaces. This is a prefix test on the live path alone — no recorded path
+# is involved, so the unsoundness does not apply. macOS reports /tmp as
+# /private/tmp; both spellings are matched.
+#
+# Limit: SessionStart does not re-run on a mid-session EnterWorktree. That
+# case is covered by /finish, which leaves the worktree before pushing.
+ws_root=$(jj --ignore-working-copy workspace root 2>/dev/null || true)
+isolation_note=""
+case "$ws_root" in
+  /tmp/jj-workspaces/*|/private/tmp/jj-workspaces/*)
+    isolation_note="
+== Worktree isolation ==
+This workspace was created by the WorktreeCreate hook, so the harness guard
+is active: every \`jj git\` command (push, fetch, remote) will be refused here,
+and so will compound shell commands (pipes, &&, subshells). Before any remote
+step, call ExitWorktree with action keep and continue from the main checkout;
+bookmarks and changes are repo-global. Or hand the command to the user as
+\`! jj git ...\`.
+" ;;
+esac
 
 # Escape string for JSON embedding.
 #
@@ -159,7 +197,7 @@ Conflicts: ${conflicts}
 
 Workspaces:
 ${workspaces}
-
+${isolation_note}
 Working copy status:
 ${working_status}
 

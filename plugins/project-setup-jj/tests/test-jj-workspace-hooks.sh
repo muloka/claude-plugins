@@ -213,5 +213,22 @@ else
   bad "prefix guard: the script removed a directory outside /tmp/jj-workspaces"
 fi
 
+# ---------------------------------------------------------------- repo copies
+# This repo runs its OWN copies of these hooks from .claude/hooks/ (that is
+# what .claude/settings.json points at), and nothing else compares them to the
+# plugin source: test-script-copy-parity.sh sweeps plugins/*/scripts/ only.
+# The session-start copy had drifted by a whole rewrite before this guard
+# existed. Skips (does not fail) when run outside the plugins checkout.
+REPO_HOOKS="$(cd "$(dirname "$0")/../../.." && pwd)/.claude/hooks"
+for f in jj-workspace-create.sh jj-workspace-remove.sh jj-session-start.sh; do
+  if [ ! -f "$REPO_HOOKS/$f" ]; then
+    ok "repo copy of $f not present here (not the plugins checkout) — skipped"
+  elif cmp -s "$SCRIPTS/$f" "$REPO_HOOKS/$f"; then
+    ok "repo copy of $f matches the plugin source"
+  else
+    bad "repo copy .claude/hooks/$f has drifted from plugins/project-setup-jj/scripts/$f — cp the plugin copy over it"
+  fi
+done
+
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 test "$FAIL" -eq 0
