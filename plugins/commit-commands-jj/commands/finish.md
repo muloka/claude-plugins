@@ -1,6 +1,6 @@
 ---
 description: Finish development work — push+PR, squash into trunk, keep, or discard
-allowed-tools: Bash(jj:*), Bash(jj git push:*), Bash(gh pr create:*), Bash(gh pr view:*), Bash(.claude/hooks/jj-workspace-remove.sh:*), AskUserQuestion, Read, ExitWorktree
+allowed-tools: Bash(jj:*), Bash(jj git push:*), Bash(gh pr create:*), Bash(gh pr view:*), Bash(.claude/hooks/jj-workspace-remove.sh:*), Bash(pwd), AskUserQuestion, Read, ExitWorktree
 ---
 
 **CRITICAL: This is a jj (Jujutsu) plugin. You MUST NOT use ANY raw git commands — not even for context discovery. This includes git checkout, git commit, git diff, git log, git status, git add, git branch, git remote, git rev-parse, git config, git show, git fetch, git pull, git push, git merge, git rebase, git stash, git reset, git tag, or any other `git` invocation. Do not run `ls .git`, `git log`, `git remote -v` or similar to detect repo state. Always use jj equivalents (jj log, jj status, jj diff, etc.). The only exceptions are `jj git` subcommands (e.g. `jj git push`, `jj git fetch`) and `gh` CLI for GitHub operations.**
@@ -142,10 +142,12 @@ this step: there is no guard there.
    ```
 4. **If ExitWorktree reports no active worktree session** (a resumed
    session, or any error), do not claim the exit happened. Before handing
-   anything back, try the option's first remote command once (Option 1: the
-   bookmark push; Option 2: the fetch; Option 4: the remote deletion, if
-   asked); if it runs, this session is not guarded — continue the option
-   normally from here. Run every step the guard permits yourself (the
+   anything back, run `jj git fetch` once as a probe (it is harmless, needs
+   no bookmark, and is refused if and only if the guard is active). If it
+   runs, this session is not guarded — continue the option normally from
+   here, and in Step 5 treat the workspace as one Step 3.5 did not leave
+   (Step 5.2 applies; Step 5.0 does not). If it is refused, hand back as
+   follows. Run every step the guard permits yourself (the
    ancestor check, `jj bookmark create`,
    `jj abandon`, `jj op log`). Hand back only the refused commands, one `! `
    line per command, in order, with `<target-change-id>` substituted:
@@ -155,7 +157,7 @@ this step: there is no guard there.
      reports it ran.
    - Option 4: `jj git push --deleted`, only if the user asked for the remote
      branch to go.
-   Skip Step 5. The workspace stays registered at `<left-workspace-root>`
+   Skip Step 5 on this hand-back path. The workspace stays registered at `<left-workspace-root>`
    with its directory intact, so `/clean_stale` will **not** retire it (it
    forgets only rows whose directory is gone); tell the user to run
    `jj workspace forget <left-workspace-name>` once the handed-back commands
@@ -501,14 +503,18 @@ Then: Workspace cleanup (Step 5).
 2. **Branch on provenance — who created the workspace decides who ends it:**
 
    - **Root under `/tmp/jj-workspaces/`** — an ephemeral workspace the
-     WorktreeCreate hook made. Reached only if Step 3.5 did not run (it
-     leaves the worktree for every option that gets here). Ours to clean up:
-     ```bash
-     jj workspace forget <workspace-name>
+     WorktreeCreate hook made. Reached only if Step 3.5 did not leave the
+     worktree (its not-guarded branch, or a session it never applied to).
+     The session is still standing inside this workspace, so do **not**
+     forget it from here: jj would warn *the current workspace no longer
+     exists after this operation* and leave this directory with no working
+     copy, and any recovery command just handed back would be unrunnable.
+     Report the workspace as kept and hand back the retirement for later,
+     from the main checkout:
      ```
-     jj warns *the current workspace no longer exists after this operation*
-     and leaves the directory with no working copy — say so, and run nothing
-     further with jj from this directory.
+     From the main checkout: jj workspace forget <workspace-name>
+     then remove <root>
+     ```
    - **Any other root** — a durable side thread (e.g. a `jjtab` sibling
      directory). Ending one with `/finish` is a documented use, but the thread
      outlives any single change, so ending it is the user's call, not a side
@@ -530,7 +536,7 @@ Then: Workspace cleanup (Step 5).
 
 | Option | Push | Merge | Keep Workspace | Cleanup |
 |--------|------|--------|----------------|---------|
-| 1. PR | ✓ | - | ✓ | bookmark only |
+| 1. PR | ✓ | - | – | bookmark; a left workspace is retired (5.0) |
 | 2. Local merge | - | ✓ | - | ✓ |
 | 3. Keep | - | - | ✓ | - |
 | 4. Discard | - | - | - | ✓ |
