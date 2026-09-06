@@ -70,11 +70,13 @@ This creates/updates the following in your project:
 |------|---------|
 | `.claude/hooks/jj-session-start.sh` | SessionStart hook showing jj context |
 | `.claude/hooks/require-jj-new.sh` | PreToolUse hook — advises Claude to run `jj new` before editing into a non-empty change (informational — does not block) |
-| `.claude/hooks/jj-workspace-create.sh` | WorktreeCreate hook — creates the jj workspace for `claude --worktree` / `EnterWorktree` under `/tmp/jj-workspaces/<repo>/<name>`, based on `trunk()` (falls back to `@-` in a repo with no remote, where `trunk()` would be the root commit). A session in such a workspace is **harness-isolated**: every `jj git` command is refused there — the SessionStart briefing says so, and `/finish` leaves the worktree before pushing |
-| `.claude/hooks/jj-workspace-remove.sh` | WorktreeRemove hook — forgets the workspace and removes the directory. Also callable as `jj-workspace-remove.sh <worktree_path> <cwd>` (used by `/finish` after ExitWorktree); refuses any path outside `/tmp/jj-workspaces/` |
+| `.claude/hooks/jj-workspace-create.sh` | WorktreeCreate hook — creates the jj workspace for `claude --worktree`, `EnterWorktree`, and subagents dispatched with `isolation: "worktree"` under `/tmp/jj-workspaces/<repo>/<name>`, based on `trunk()` (falls back to `@-` in a repo with no remote, where `trunk()` would be the root commit) (an isolated subagent therefore starts from trunk, not from the orchestrator's local stack) |
+| `.claude/hooks/jj-workspace-remove.sh` | WorktreeRemove hook — forgets the workspace and removes the directory. Also callable as `jj-workspace-remove.sh <worktree_path> <cwd>` (used by `/finish` after ExitWorktree); refuses any path outside `/tmp/jj-workspaces/` (or containing `..`) |
 | `.claude/settings.json` | Hooks (SessionStart, PreToolUse, PreCompact, WorktreeCreate, WorktreeRemove) + the `Bash(git *)` deny floor — **commit this**, it is what makes fresh clones and jj workspaces enforce the rules (#97) |
 | `.claude/settings.local.json` | Personal settings: jj/gh allow-list. **Not** the statusline — that lives in the tracked `settings.json` so jj workspaces inherit it |
 | `CLAUDE.md` | jj VCS policy directive (created or updated) |
+
+The SessionStart briefing also warns when the session is in a harness-isolated workspace (one the WorktreeCreate hook made): every `jj git` command is refused there. SessionStart does not re-run on a mid-session `EnterWorktree`, so that case is covered by `/finish`, which leaves the worktree before pushing.
 
 **Restart Claude Code** after running `/project-setup` for the SessionStart hook to take effect.
 
@@ -98,6 +100,14 @@ Conflicts: none            # or "CONFLICTS PRESENT" + the conflicted paths
 
 Workspaces:
 <jj workspace list — which workspace @ belongs to, and who else is live>
+
+== Worktree isolation ==   # only when the workspace root is under /tmp/jj-workspaces/
+This workspace was created by the WorktreeCreate hook, so the harness guard
+is active: every `jj git` command (push, fetch, remote) will be refused here,
+and so will compound shell commands (pipes, &&, subshells). Before any remote
+step, call ExitWorktree with action keep and continue from the main checkout;
+bookmarks and changes are repo-global. Or hand the command to the user as
+`! jj git ...`.
 
 Working copy status:
 <modified/added files>

@@ -264,15 +264,31 @@ re-run on a mid-session `EnterWorktree`; that case is covered by deliverable
 
 ```bash
 base=$(jj -R "$cwd" log -r 'trunk() ~ root()' --no-graph -T 'commit_id' 2>/dev/null || true)
-[ -n "$base" ] || base=$(jj -R "$cwd" log -r '@-' --no-graph -T 'commit_id' 2>/dev/null || true)
+[ -n "$base" ] || base=$(jj -R "$cwd" log -r '@- ~ root()' --no-graph -T 'commit_id' 2>/dev/null || true)
+[ -n "$base" ] || base=$(jj -R "$cwd" log -r '@ ~ root()' --no-graph -T 'commit_id' 2>/dev/null || true)
 ```
 
 Then `--revision "$base"` if non-empty, else no `--revision`, as today. The
 comment is rewritten around the two hazards: a thread based on `@-`
 inherits whatever is parked there, including an undescribed empty change
 that later blocks `jj git push`; and `trunk()` alone silently means the root
-commit in a repo with no remote. The kaisen fan-out sentence goes, since
-kaisen does not call this hook.
+commit in a repo with no remote. The fallback is `@- ~ root()`, not plain
+`@-`, for the same reason: in a fresh repo (only `@` with files, parent =
+root) `@-` IS the root commit, and without the subtraction this tier would
+silently reproduce the empty-workspace bug tier 1 exists to avoid.
+
+**Amendment found during final-review fix-up (measured, jj 0.44):** falling
+all the way through to jj's own no-`--revision` default does NOT recover
+that fresh-repo case. `jj workspace add` with no revision makes the new
+workspace a SIBLING of the source `@` — same parents, not a copy of `@`
+itself — so when `@`'s parent is root (the fresh-repo case), the sibling is
+just as empty as the bug this guard exists to fix. A third guarded tier,
+`@ ~ root()`, is required: passing `--revision` = `@` makes the new
+workspace a CHILD of `@`, which checks out `@`'s content. Only a truly
+virgin repo (`@` itself is root, nothing committed at all) has nothing left
+for any tier to resolve, and only that case still falls through to jj's
+default. The kaisen fan-out sentence goes, since kaisen does not call this
+hook.
 
 Trade-off, stated in the comment: with a real origin, `trunk()` is
 `main@origin`. A local `main` that is ahead of origin (Option 2 merged

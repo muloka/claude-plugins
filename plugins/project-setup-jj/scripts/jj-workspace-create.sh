@@ -22,7 +22,8 @@ cwd=$(echo "$input" | jq -r '.cwd')
 DIR="/tmp/jj-workspaces/$(basename "$cwd")/$name"
 mkdir -p "$(dirname "$DIR")"
 
-# Base revision: trunk, guarded — then @-, then jj's default.
+# Base revision: trunk, guarded — then @-, guarded the same way — then @
+# itself, guarded the same way — then jj's default.
 #
 # Why trunk and not @-: a thread based on @- inherits whatever is parked on
 # the default workspace, including an undescribed empty change that later
@@ -35,15 +36,41 @@ mkdir -p "$(dirname "$DIR")"
 # `main` that is ahead of origin (merged locally, push not yet asked for) is a
 # transient state; a deliberate stacked follow-up on current context is
 # `jjtab <name> '@-'` territory, not this hook's.
+#
+# Why `@- ~ root()` and not plain `@-`: the tier-2 fallback carries the same
+# guard for the same reason — in a fresh repo (only `@` with files, parent =
+# root) `@-` IS the root commit, and without the subtraction this tier would
+# silently produce the same empty workspace tier 1 exists to avoid.
+#
+# Why a third `@ ~ root()` tier, and why NOT simply fall through to jj's
+# no-revision default at that point: `jj workspace add` with no --revision
+# makes the new workspace a SIBLING of the source @ — same parents, not a
+# copy of @ itself (measured 2026-09-05, jj 0.44: help text says "share the
+# same parent(s)"). In the exact fresh-repo case above (only `@` with files,
+# parent = root) that reproduces the empty-tree bug via a different route,
+# because @'s parent is root. Passing `--revision "$base"` with base = @
+# instead makes the new workspace a CHILD of @, which checks out @'s content.
+# Only a truly virgin repo — @ itself is root, nothing committed at all — has
+# nothing left for any tier to resolve, and that case still falls through to
+# jj's default.
+#
+# This hook is also reached through `isolation: "worktree"` subagent
+# dispatch, not only `claude --worktree` / EnterWorktree — an isolated
+# subagent therefore starts from trunk, not from the orchestrator's local
+# stack, and no longer sees the orchestrator's unpushed work. kaisen is
+# unaffected: it calls `jj workspace add` itself and never reaches this hook.
 base=$(jj -R "$cwd" log -r 'trunk() ~ root()' --no-graph -T 'commit_id' 2>/dev/null || true)
 if [ -z "$base" ]; then
-  base=$(jj -R "$cwd" log -r '@-' --no-graph -T 'commit_id' 2>/dev/null || true)
+  base=$(jj -R "$cwd" log -r '@- ~ root()' --no-graph -T 'commit_id' 2>/dev/null || true)
+fi
+if [ -z "$base" ]; then
+  base=$(jj -R "$cwd" log -r '@ ~ root()' --no-graph -T 'commit_id' 2>/dev/null || true)
 fi
 
 if [ -n "$base" ]; then
   jj -R "$cwd" workspace add "$DIR" --name "workspace-$name" --revision "$base" >&2
 else
-  # Nothing resolved (empty repo?): let jj pick.
+  # Nothing resolved (truly virgin repo — @ itself is root): let jj pick.
   jj -R "$cwd" workspace add "$DIR" --name "workspace-$name" >&2
 fi
 

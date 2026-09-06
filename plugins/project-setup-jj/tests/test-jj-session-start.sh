@@ -420,10 +420,17 @@ esac
 cd "$WORK/repo"
 ISO_UNIQ="ssprobe-$$-$(date +%s)"
 ISO_ROOT="/tmp/jj-workspaces/$ISO_UNIQ"
-cleanup_iso() { rm -rf "$ISO_ROOT"; rm -rf "$WORK"; }
+if [ -d /tmp/jj-workspaces ]; then iso_parent_existed=1; else iso_parent_existed=0; fi
+cleanup_iso() {
+  rm -rf "$ISO_ROOT"
+  # Don't leave an empty /tmp/jj-workspaces/ behind if it didn't exist before
+  # this test created it. rmdir on a non-empty dir is a harmless no-op.
+  if [ "$iso_parent_existed" -eq 0 ]; then rmdir /tmp/jj-workspaces 2>/dev/null || true; fi
+  rm -rf "$WORK"
+}
 trap cleanup_iso EXIT
 mkdir -p "$ISO_ROOT"
-jj workspace add "$ISO_ROOT/probe" --name workspace-probe -r 'trunk()' >/dev/null 2>&1
+jj workspace add "$ISO_ROOT/probe" --name workspace-probe -r 'trunk()' >/dev/null 2>&1 || true
 out_iso="$(cd "$ISO_ROOT/probe" && bash "$HOOK" 2>/dev/null | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null || true)"
 case "$out_iso" in
   *"== Worktree isolation =="*"ExitWorktree"*) ok "hook-made workspace: briefing carries the isolation notice naming ExitWorktree" ;;
@@ -434,7 +441,7 @@ case "$out_default" in
   *"== Worktree isolation =="*) bad "isolation notice" "emitted in the DEFAULT workspace" ;;
   *) ok "default workspace: no isolation notice" ;;
 esac
-jj workspace add "$WORK/repo-sibling" --name sibling -r 'trunk()' >/dev/null 2>&1
+jj workspace add "$WORK/repo-sibling" --name sibling -r 'trunk()' >/dev/null 2>&1 || true
 out_sib="$(cd "$WORK/repo-sibling" && bash "$HOOK" 2>/dev/null | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null || true)"
 case "$out_sib" in
   *"== Worktree isolation =="*) bad "isolation notice" "emitted in a sibling-directory (jjtab-style) workspace" ;;

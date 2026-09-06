@@ -36,7 +36,7 @@ TMPROOT=$(mktemp -d)
 # Unique basename so two concurrent runs (or a real project named "cwd") never
 # share /tmp/jj-workspaces/<basename>.
 UNIQ="hooktest-$$-$(date +%s)"
-cleanup() { rm -rf "$TMPROOT" "/tmp/jj-workspaces/$UNIQ"; }
+cleanup() { rm -rf "$TMPROOT" "/tmp/jj-workspaces/$UNIQ" "/tmp/jj-workspaces-evil-$UNIQ"; }
 trap cleanup EXIT
 
 # new_repo -> prints a sandbox root. The repo lives at <root>/<UNIQ> so the
@@ -129,6 +129,27 @@ else
 fi
 HOOK "$root2" "$REMOVE" "{\"worktree_path\":\"$ws2\",\"cwd\":\"$root2/$UNIQ\"}" >/dev/null 2>&1
 
+# Arm 3: fresh repo, no remote, no parked change — @- IS the root commit
+# (only `@` with files, parent = root). The tier-2 fallback (`@- ~ root()`)
+# must carry the same guard tier 1 does, or it silently produces the same
+# empty workspace an unguarded `trunk()` would; expect the fallthrough to
+# tier 3 (no --revision), files present, parent not the root commit.
+root2b=$(new_repo)
+seed_repo "$root2b"
+ws2b=$(HOOK "$root2b" "$CREATE" "{\"name\":\"freshroot\",\"cwd\":\"$root2b/$UNIQ\"}" 2>/dev/null)
+if [ -f "$ws2b/README.md" ]; then
+  ok "fresh repo (@- is root): workspace contains the repo's files"
+else
+  bad "fresh repo (@- is root): README.md missing from the workspace"
+fi
+ws2b_parent=$(R "$root2b" jj -R "$ws2b" log -r '@-' --no-graph -T 'commit_id' 2>/dev/null)
+if [ -n "$ws2b_parent" ] && ! printf '%s' "$ws2b_parent" | grep -qE '^0+$'; then
+  ok "fresh repo (@- is root): workspace parent is not the root commit"
+else
+  bad "fresh repo (@- is root): workspace parent is '$ws2b_parent' (root commit or empty — tier-2 guard failed)"
+fi
+HOOK "$root2b" "$REMOVE" "{\"worktree_path\":\"$ws2b\",\"cwd\":\"$root2b/$UNIQ\"}" >/dev/null 2>&1
+
 # ---------------------------------------------------------------- remove hook
 # Positional form: `remove.sh <worktree_path> <cwd>`. /finish calls this from
 # the main checkout after ExitWorktree, where a stdin JSON pipe is a compound
@@ -211,6 +232,83 @@ if [ -d "$outside" ]; then
   ok "prefix guard: refused path left untouched"
 else
   bad "prefix guard: the script removed a directory outside /tmp/jj-workspaces"
+fi
+
+# '..' traversal: the prefix guard is lexical (a case pattern match on the
+# string, not a resolved path), so a crafted path that lexically starts with
+# /tmp/jj-workspaces/<repo>/ but RESOLVES elsewhere (via the '..' segments
+# `rm -rf` itself will follow) must be refused before it ever reaches rm.
+victim="$root3/$UNIQ/victim"
+mkdir -p "$victim"
+crafted="/tmp/jj-workspaces/$UNIQ/x/../../../..$victim"
+R "$root3" bash "$REMOVE" "$crafted" "$root3/$UNIQ" >/dev/null 2>&1 </dev/null
+rc=$?
+if [ "$rc" -eq 2 ]; then
+  ok "'..' traversal: refused with exit 2"
+else
+  bad "'..' traversal: expected exit 2, got $rc"
+fi
+if [ -d "$victim" ]; then
+  ok "'..' traversal: victim directory untouched"
+else
+  bad "'..' traversal: victim directory was removed"
+fi
+
+# Near-miss prefix: a directory that merely starts with the same characters as
+# /tmp/jj-workspaces (but is a different directory name) must not satisfy the
+# guard. Cleaned up by the top-level trap.
+evil="/tmp/jj-workspaces-evil-$UNIQ/a/b"
+mkdir -p "$evil"
+R "$root3" bash "$REMOVE" "$evil" "$root3/$UNIQ" >/dev/null 2>&1 </dev/null
+rc=$?
+if [ "$rc" -eq 2 ]; then
+  ok "near-miss prefix: refused with exit 2"
+else
+  bad "near-miss prefix: expected exit 2, got $rc"
+fi
+if [ -d "$evil" ]; then
+  ok "near-miss prefix: directory untouched"
+else
+  bad "near-miss prefix: directory was removed"
+fi
+
+# One-segment path: the repo directory itself (/tmp/jj-workspaces/<repo>, with
+# no <name> tail) exists because earlier cases created workspaces under it,
+# and must be refused rather than treated as a valid workspace path.
+R "$root3" bash "$REMOVE" "/tmp/jj-workspaces/$UNIQ" "$root3/$UNIQ" >/dev/null 2>&1 </dev/null
+rc=$?
+if [ "$rc" -eq 2 ]; then
+  ok "one-segment path: refused with exit 2"
+else
+  bad "one-segment path: expected exit 2, got $rc"
+fi
+if [ -d "/tmp/jj-workspaces/$UNIQ" ]; then
+  ok "one-segment path: repo directory untouched"
+else
+  bad "one-segment path: repo directory was removed"
+fi
+
+# Double trailing slash: the strip must be a loop, not a single '%/' removal.
+wsds=$(HOOK "$root3" "$CREATE" "{\"name\":\"dslash\",\"cwd\":\"$root3/$UNIQ\"}" 2>/dev/null)
+R "$root3" bash "$REMOVE" "$wsds//" "$root3/$UNIQ" >/dev/null 2>&1 </dev/null
+if R "$root3" jj workspace list 2>/dev/null | grep -q '^workspace-dslash:'; then
+  bad "double trailing slash: workspace-dslash still registered"
+else
+  ok "double trailing slash: workspace forgotten"
+fi
+if [ -e "$wsds" ]; then
+  bad "double trailing slash: directory still exists: $wsds"
+else
+  ok "double trailing slash: directory removed"
+fi
+
+# One-argument call must not silently fall into the stdin branch.
+R "$root3" bash "$REMOVE" "onlyonearg" >/dev/null 2>&1 </dev/null
+rc=$?
+if [ "$rc" -eq 2 ]; then
+  ok "one-argument call: refused with exit 2"
+else
+  bad "one-argument call: expected exit 2, got $rc"
 fi
 
 # ---------------------------------------------------------------- repo copies
