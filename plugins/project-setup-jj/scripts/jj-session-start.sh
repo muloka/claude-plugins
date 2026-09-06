@@ -112,6 +112,37 @@ workspaces=$(jj --ignore-working-copy workspace list --no-pager \
 
 identity=$(jj --ignore-working-copy config list user.email -T 'json(self) ++ "\n"' 2>/dev/null || echo "(unable to read user.email)")
 
+# Harness worktree isolation. A workspace the WorktreeCreate hook made lives
+# under /tmp/jj-workspaces/, and a session started there is ISOLATED: Claude
+# Code refuses every `jj git` command in it (it reads the `git` token as a git
+# invocation and has no notion of jj), and most compound shell commands. No
+# environment variable marks this — measured on 2.1.263 — so the root path is
+# the only tell. Saying it here turns three refused pushes into zero surprises.
+#
+# This reintroduces a `jj workspace root` call, which the workspace section
+# above deliberately retired. That retirement was about COMPARING this path to
+# each row's recorded `self.root()`, which is empty for pre-0.38.0 and moved
+# workspaces. This is a prefix test on the live path alone — no recorded path
+# is involved, so the unsoundness does not apply. macOS reports /tmp as
+# /private/tmp; both spellings are matched.
+#
+# Limit: SessionStart does not re-run on a mid-session EnterWorktree. That
+# case is covered by /finish, which leaves the worktree before pushing.
+ws_root=$(jj --ignore-working-copy workspace root 2>/dev/null || true)
+isolation_note=""
+case "$ws_root" in
+  /tmp/jj-workspaces/*|/private/tmp/jj-workspaces/*)
+    isolation_note="
+== Worktree isolation ==
+This workspace was created by the WorktreeCreate hook, so the harness guard
+is active: every \`jj git\` command (push, fetch, remote) will be refused here,
+and so will compound shell commands (pipes, &&, subshells). Before any remote
+step, call ExitWorktree with action keep and continue from the main checkout;
+bookmarks and changes are repo-global. Or hand the command to the user as
+\`! jj git ...\`.
+" ;;
+esac
+
 # Escape string for JSON embedding.
 #
 # The five short forms below are NOT sufficient. JSON forbids every control
@@ -166,7 +197,7 @@ Conflicts: ${conflicts}
 
 Workspaces:
 ${workspaces}
-
+${isolation_note}
 Working copy status:
 ${working_status}
 
