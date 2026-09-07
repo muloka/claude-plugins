@@ -424,8 +424,9 @@ fi
 #       precedes every option's remote command by construction;
 #   (2) Step 3.5 names ExitWorktree;
 #   (3) no fenced line in Step 3.5 STARTS WITH `jj git` — the remote commands
-#       stay in the options, after the exit (a prose mention inside a fence is
-#       not an instruction to run one);
+#       stay in the options, after the exit. The one deliberate exception is
+#       the no-op fallback's read-only probe (`jj git remote list`), which is
+#       prose, not a fence, on purpose;
 #   (4) Step 3.5 pins action: "keep" and never says remove/discard_changes —
 #       remove destroys the change (spec: #85118);
 #   (5) the sentence declaring the option choice as the user's ask sits inside
@@ -473,6 +474,17 @@ if printf '%s\n' "$s5" | grep -qF 'left in Step 3.5' && printf '%s\n' "$rules" |
   ok "finish.md never-remove rule carries the Step 3.5 exception in both Step 5 and Important Rules"
 else
   bad "finish.md never-remove exception is missing from Step 5 or Important Rules (they must agree)"
+fi
+
+# --- (7) the frontmatter grants the two tools Step 3.5 / Step 5.0 depend on.
+# Nothing else in any suite reads allowed-tools; deleting ExitWorktree from
+# line 3 would pass every assertion above while the command silently lost
+# the one thing this change adds.
+if head -5 "$FIN" | grep -q '^allowed-tools:.*ExitWorktree' \
+   && head -5 "$FIN" | grep -q '^allowed-tools:.*jj-workspace-remove\.sh'; then
+  ok "finish.md allowed-tools names ExitWorktree and the WorktreeRemove script"
+else
+  bad "finish.md allowed-tools lacks ExitWorktree or .claude/hooks/jj-workspace-remove.sh"
 fi
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"

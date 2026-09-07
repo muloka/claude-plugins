@@ -1,6 +1,6 @@
 ---
 description: Finish development work — push+PR, squash into trunk, keep, or discard
-allowed-tools: Bash(jj:*), Bash(jj git push:*), Bash(gh pr create:*), Bash(gh pr view:*), Bash(.claude/hooks/jj-workspace-remove.sh:*), Bash(pwd), AskUserQuestion, Read, ExitWorktree
+allowed-tools: Bash(jj:*), Bash(jj git push:*), Bash(gh pr create:*), Bash(gh pr view:*), Bash(.claude/hooks/jj-workspace-remove.sh:*), Bash(pwd:*), AskUserQuestion, Read, ExitWorktree
 ---
 
 **CRITICAL: This is a jj (Jujutsu) plugin. You MUST NOT use ANY raw git commands — not even for context discovery. This includes git checkout, git commit, git diff, git log, git status, git add, git branch, git remote, git rev-parse, git config, git show, git fetch, git pull, git push, git merge, git rebase, git stash, git reset, git tag, or any other `git` invocation. Do not run `ls .git`, `git log`, `git remote -v` or similar to detect repo state. Always use jj equivalents (jj log, jj status, jj diff, etc.). The only exceptions are `jj git` subcommands (e.g. `jj git push`, `jj git fetch`) and `gh` CLI for GitHub operations.**
@@ -61,6 +61,13 @@ merges happen.
    session only proves the tree it ran on — if `@` has changed since, run it
    again. (The test command is usually outside this command's pre-approved
    tools, so expect a permission prompt.)
+
+   In a harness-isolated workspace (root under `/tmp/jj-workspaces/`, see
+   Step 3.5) the harness refuses compound commands and anything whose text
+   contains `git` — a `for … find … .github …` suite loop is refused on both
+   counts. A refusal is not a test failure: run the suite's components as
+   separate plain commands, or hand the loop back as a `! ` line and wait
+   for the result, then continue.
 
 3. **If tests fail**, report the failures and stop:
    ```
@@ -142,9 +149,11 @@ this step: there is no guard there.
    ```
 4. **If ExitWorktree reports no active worktree session** (a resumed
    session, or any error), do not claim the exit happened. Before handing
-   anything back, run `jj git fetch` once as a probe (it is harmless, needs
-   no bookmark, and is refused if and only if the guard is active). If it
-   runs, this session is not guarded — continue the option normally from
+   anything back, run `jj git remote list` once as a probe (read-only, needs
+   no bookmark, and is refused if and only if the guard is active — do not
+   use `jj git fetch` here: when a remote branch backing the change is
+   already gone, a fetch abandons the change before Option 4 has captured
+   its restore point). If it runs, this session is not guarded — continue the option normally from
    here, and in Step 5 treat the workspace as one Step 3.5 did not leave
    (Step 5.2 applies; Step 5.0 does not). If it is refused, hand back as
    follows. Run every step the guard permits yourself (the
@@ -159,9 +168,14 @@ this step: there is no guard there.
      branch to go.
    Skip Step 5 on this hand-back path. The workspace stays registered at `<left-workspace-root>`
    with its directory intact, so `/clean_stale` will **not** retire it (it
-   forgets only rows whose directory is gone); tell the user to run
-   `jj workspace forget <left-workspace-name>` once the handed-back commands
-   have run. This is the only path on which `/finish` hands back.
+   forgets only rows whose directory is gone); once the handed-back commands
+   have run, hand back its retirement too, to run from the main checkout —
+   never from inside it:
+   ```
+   From the main checkout: jj workspace forget <left-workspace-name>
+   then remove <left-workspace-root>
+   ```
+   This is the only path on which `/finish` hands back.
 5. **Continue with the option's steps.** Use `<target-change-id>` wherever
    the prose says `<target>` or `TARGET`; the one deliberate **commit**-id
    capture in Option 1 step 6 stands. State, rather than hide, what running
@@ -184,7 +198,11 @@ this step: there is no guard there.
 ## Step 4: Execute choice
 
 If any command in this step is refused with *"This session is isolated in the
-worktree ..."*, Step 3.5 was skipped — return to it before retrying.
+worktree ..."*, Step 3.5 was skipped — return to it before retrying. If Step
+3.5's trigger does not hold — a guarded worktree that is not under
+`/tmp/jj-workspaces/`, such as Claude Code's native `.claude/worktrees/` in a
+repo without the WorktreeCreate hook — hand the refused command back as a
+`! ` line and continue.
 
 ### Option 1: Push and create PR (most common)
 
@@ -332,7 +350,8 @@ worktree ..."*, Step 3.5 was skipped — return to it before retrying.
       jj git push --deleted
       ```
 
-7. Then: Workspace cleanup (Step 5).
+7. Then: Workspace cleanup (Step 5) — run it now, as soon as the PR is open;
+   do not defer it to the merge, which is often another session.
 
 ### Option 2: Merge into trunk locally (fast-forward)
 
@@ -536,10 +555,10 @@ Then: Workspace cleanup (Step 5).
 
 | Option | Push | Merge | Keep Workspace | Cleanup |
 |--------|------|--------|----------------|---------|
-| 1. PR | ✓ | - | – | bookmark; a left workspace is retired (5.0) |
-| 2. Local merge | - | ✓ | - | ✓ |
+| 1. PR | ✓ | - | - | bookmark; a workspace left in Step 3.5 is retired (5.0) |
+| 2. Local merge | - | ✓ | - | ✓ (5.0 if left in Step 3.5) |
 | 3. Keep | - | - | ✓ | - |
-| 4. Discard | - | - | - | ✓ |
+| 4. Discard | - | - | - | ✓ (5.0 if left in Step 3.5) |
 
 ## Important Rules
 
@@ -548,7 +567,7 @@ Then: Workspace cleanup (Step 5).
 - **Make discard recoverable; don't gate it.** Capture `jj op log -n 1 --no-graph -T 'id.short()'` before abandoning, then hand back `jj op restore <id>`. A typed-confirmation prompt is a git habit — in jj the op log is the safety net, and it works whether or not anyone was asked.
 - **If the discard removed a pushed bookmark from the remote, the recovery command is `jj op restore <id> --what repo`.** The bare form restores remote-tracking refs too, and the following `jj git push` reports `Nothing changed.` over a remote that is still empty.
 - **Don't auto-remove worktree directories.** Let the WorktreeRemove hook handle it. The one exception is an ephemeral workspace this session **left in Step 3.5** (ExitWorktree keep, because the harness refuses `jj git` inside it): the hook cannot fire for it any more, so Step 5.0 runs the hook's own script, `.claude/hooks/jj-workspace-remove.sh <root> <main-root>`, which refuses any path outside `/tmp/jj-workspaces/`. `/finish` itself never runs `rm`.
-- **Provenance gates workspace cleanup.** Auto-forget only ephemeral workspaces (root under `/tmp/jj-workspaces/`); a durable workspace is forgotten only after the user says so.
+- **Provenance gates workspace cleanup.** Auto-forget only ephemeral workspaces (root under `/tmp/jj-workspaces/`); a durable workspace is forgotten only after the user says so. Never forget a workspace from inside it — jj leaves the directory with no working copy and any just-handed-back recovery unrunnable; from there, hand the retirement back to run from the main checkout (Step 5.2).
 - **Menu after green.** Run the project's test suite (Step 2) before presenting options; skip the gate only when no suite is detected. Reviews remain the caller's responsibility.
 
 ## Integration

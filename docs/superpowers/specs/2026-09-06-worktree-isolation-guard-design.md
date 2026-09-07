@@ -209,8 +209,11 @@ user to remove by hand — `/finish` itself never runs `rm`. The script prints
 nothing on success, so `/finish` reports what it ran and re-reads
 `jj workspace list` to confirm the row is gone.
 
-The provenance branches in Step 5.2 are unchanged for the no-exit case
-(Option 4 unpushed stays inside; ephemeral roots are forgotten as today).
+(Revision 3, from the Part B final review) Step 5.2 is reached only when Step
+3.5 did not leave the worktree — its not-guarded branch, or a session it
+never applied to. It no longer forgets an ephemeral workspace from inside it
+(jj leaves the directory with no working copy); it reports the workspace
+kept and hands back forget-then-remove for the main checkout.
 
 **Rule edits.**
 
@@ -346,7 +349,10 @@ today.
 - **ExitWorktree no-ops or errors** (resumed session, or anything
   unmeasured): deliverable 1 step 4 — say so, hand back one `! ` block,
   skip cleanup. Never print the "leaving the worktree" line before the tool
-  has confirmed.
+  has confirmed. (Revision 3) Before handing back, the model probes once
+  with the read-only `jj git remote list`; if it runs, the session is not
+  guarded (plain `claude` started inside a hook-made directory) and the
+  option continues normally, with Step 5.2 for cleanup.
 - **The push fails after the exit.** The session stays in the main checkout;
   the workspace is intact on disk and registered; the change is reachable by
   its recorded change ID from anywhere. `/finish` reports the failure and
@@ -369,8 +375,10 @@ today.
 
 ## Testing
 
-- **test-command-prose-claims.sh** (commit-commands-jj), three assertions on
-  finish.md, all scoped to fenced code blocks and the named section so
+- **test-command-prose-claims.sh** (commit-commands-jj), seven assertions on
+  finish.md (Revision 2 raised three to six; Revision 3 added a frontmatter
+  check that allowed-tools names ExitWorktree and the WorktreeRemove
+  script), all scoped to fenced code blocks and the named section so
   frontmatter and the CRITICAL paragraph cannot satisfy them: (a) inside
   Step 3.5, `ExitWorktree` precedes the first executable `jj git`; (b) the
   sentence declaring the option choice as the user's ask is present

@@ -122,7 +122,7 @@ Finishes development work by presenting a menu of completion options and executi
    - **Keep as-is:** reports the change ID and stops — no cleanup
    - **Discard:** records a restore point from the op log, runs `jj abandon`, and hands back the exact `jj op restore <id>` that undoes it
 5. In a harness-isolated workspace (one the WorktreeCreate hook made for `claude --worktree` / `EnterWorktree`, where Claude Code refuses every `jj git` command), leaves the worktree with `ExitWorktree` keep *before* the first remote command and finishes from the main checkout — your option choice is the ask
-6. For push, merge, and discard, cleans up the jj workspace if running in a non-default one (`jj workspace forget`) — auto-forgetting only ephemeral hook-created workspaces (retiring a left one through the WorktreeRemove hook's script), and asking before ending a durable side thread
+6. For push, merge, and discard, cleans up the jj workspace if running in a non-default one (`jj workspace forget`) — auto-forgetting only ephemeral hook-created workspaces — and never from inside the workspace being forgotten (retiring a left one through the WorktreeRemove hook's script), and asking before ending a durable side thread
 
 **Usage:**
 ```bash
@@ -148,7 +148,7 @@ Finishes development work by presenting a menu of completion options and executi
 - Detects and warns about ancestor changes not part of the target work before pushing
 - After a PR merges, abandons the now-landed local ancestor changes as part of cleanup
 - Gates the menu behind the project's test suite (skipped only when no suite is detected); reviews remain the caller's concern
-- Workspace cleanup respects provenance — auto-forgets only ephemeral hook-created workspaces (`/tmp/jj-workspaces/`), and asks before ending a durable side thread
+- Workspace cleanup respects provenance — auto-forgets only ephemeral hook-created workspaces (`/tmp/jj-workspaces/`) — and never from inside the workspace being forgotten, and asks before ending a durable side thread
 - Finishes unattended from a session that started with `claude --worktree`: leaves the harness worktree before pushing instead of handing every `jj git` command back to you. For work that will push, `jjtab` (workspace-jj README) remains the recommended door — it has no guard at all
 
 ### `/describe`
