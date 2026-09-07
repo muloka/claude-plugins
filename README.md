@@ -44,7 +44,7 @@ Bootstrap jj workflow enforcement for any project with a single command. Sets up
 
 ## workspace-jj
 
-Enables Claude Code's `--worktree` flag and subagent `isolation: "worktree"` in jj repositories. Claude Code uses git worktrees by default for isolated parallel sessions — this plugin replaces that with jj workspaces via `WorktreeCreate` and `WorktreeRemove` hooks, so `--worktree` works natively in jj repos.
+Isolated side threads for jj repositories. **The default door is `jjtab`**, a shell function from the plugin README that makes a jj workspace beside the repo and launches plain `claude` in it — no harness guard, so fetch, push and `/finish` all work, and the thread can be resumed later. The plugin also makes Claude Code's `--worktree` flag and subagent `isolation: "worktree"` work in jj repos, replacing git worktrees with jj workspaces via `WorktreeCreate` and `WorktreeRemove` hooks; a session started that way is harness-isolated (every `jj git` command is refused inside it), so keep it for throwaway spikes and for isolation you need from inside a running session — `/finish` leaves the worktree before pushing if such a session turns into PR work.
 
 **Setup:**
 
@@ -56,8 +56,8 @@ Enables Claude Code's `--worktree` flag and subagent `isolation: "worktree"` in 
 /project-setup
 
 # 3. Restart Claude Code, then start a thread
-jjtab feature-auth          # work that will push: hand-made workspace, plain claude (see the plugin README)
-claude --worktree spike     # read-only spike: harness worktree — `jj git` is refused inside it
+jjtab feature-auth          # default: hand-made workspace beside the repo, plain claude, no guard (function in the plugin README)
+claude --worktree spike     # only for a throwaway spike, or isolation from inside a session — `jj git` is refused inside it
 ```
 
 Claude Code doesn't pick up `WorktreeCreate`/`WorktreeRemove` hooks from plugins — they must be in project settings. `/project-setup` (from `project-setup-jj`) handles this: its installer copies the hook handlers to `.claude/hooks/` and registers them in `.claude/settings.local.json`. There is no separate `/workspace-setup` command — it was folded into `/project-setup` so one command installs every jj hook.

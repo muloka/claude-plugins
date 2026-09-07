@@ -6,6 +6,8 @@ Wave-based parallel orchestration with spec review gates for jj (Jujutsu) reposi
 
 Provides the **kaisen** skill — a parallel task orchestrator that dispatches subagents to isolated jj workspaces, gates each wave with a test + peer review pass, then reunifies results into a single change. The jj-native replacement for superpowers' `subagent-driven-development`. Workspace hooks are installed by `/project-setup` from the [project-setup-jj](../project-setup-jj) plugin.
 
+**For side threads, the default door is `jjtab`** — a shell function ([below](#side-threads-which-door-to-use)) that makes a jj workspace beside the repo and launches plain `claude` in it, with no harness guard. `claude --worktree` and `EnterWorktree` still work in jj repos through the hooks, but a session started that way is guarded (no `jj git` inside until it leaves); keep them for throwaway spikes and for isolation you need *from inside* a session. `/finish` is the safety net when one of those turns into PR work anyway.
+
 ## How It Works
 
 - **WorktreeCreate**: Runs `jj workspace add --revision <trunk>` to create an isolated workspace at `/tmp/jj-workspaces/<project>/<name>/`, based on `trunk()` (falling back to `@-`, then `@` itself, in a repo with no remote — each guarded against resolving to the root commit, which would give an empty workspace). Workspaces are created outside the repo to prevent jj's auto-snapshotting from attributing workspace edits to the default workspace's `@`.
@@ -35,10 +37,11 @@ Workspace hooks are installed automatically by `/project-setup` from the [projec
 ## Usage
 
 ```bash
-# A thread that will end in a PR: hand-made workspace, plain claude, no guard
-jjtab feature-auth            # shell function below
+# Default for any side thread: hand-made workspace beside the repo, plain claude, no guard
+jjtab feature-auth            # shell function below; base is trunk(), add a revset to change it
 
-# A read-only spike: harness worktree (guarded — no jj git inside)
+# Only for a throwaway spike, or isolation from inside a running session:
+# harness worktree (guarded — no jj git inside until /finish or ExitWorktree leaves it)
 claude --worktree spike-auth
 
 # List all workspaces
@@ -47,17 +50,17 @@ claude --worktree spike-auth
 
 ## Side Threads: Which Door to Use
 
-The harness guard (above) decides the door: anything that will push starts in a workspace the harness did not create.
+**Default: `jjtab`.** Start a side thread with it unless you know the thread will never push and you want nothing left behind. The harness guard (above) is the reason: a workspace the harness did not create has no guard, so fetch, push and `/finish` all run from inside it, and it can be resumed tomorrow by `cd`-ing back in and running `claude`. A `claude --worktree` session can leave its worktree only once, and a resumed one may not be able to leave at all.
 
 | Situation | Use | Guard |
 |-----------|-----|-------|
-| New tab, anything that ends in a PR | `jjtab <name> [revset]` (below) | none |
-| New tab, read-only spike | `claude --worktree <name>` — the WorktreeCreate hook makes the workspace | yes |
-| Already in a session, read-only spike | ask Claude to enter a worktree (native `EnterWorktree` → same hook; it cannot enter a `jjtab` workspace) | yes |
-| In a guarded workspace and need to push | `/finish` leaves the worktree for you (commit-commands-jj 0.20+); otherwise `ExitWorktree` with keep, then push from the main checkout — bookmarks and changes are repo-global | lifted |
+| New tab, any side thread (**default**) | `jjtab <name> [revset]` (below) | none |
+| New tab, throwaway spike that will never push | `claude --worktree <name>` — the WorktreeCreate hook makes the workspace | yes |
+| Already inside a session and need isolation now | ask Claude to enter a worktree (native `EnterWorktree` → same hook; it cannot enter a `jjtab` workspace) | yes |
+| In a guarded workspace and it turned into PR work | `/finish` leaves the worktree for you (commit-commands-jj 0.20+); otherwise `ExitWorktree` with keep, then push from the main checkout — bookmarks and changes are repo-global. One-way: the session finishes in the main checkout | lifted |
 | Parallel agent execution of a plan | `/kaisen` — the skill manages workspaces itself | none |
 
-`jjtab` is a terminal door only: it ends by launching `claude`, so Claude cannot route itself there mid-session — which is why `/finish` handles the guarded case.
+`jjtab` is a terminal door only: it ends by launching `claude`, so Claude cannot route itself there mid-session — which is why the in-session row exists and why `/finish` handles the guarded case.
 
 Each workspace has its own working copy (`@`), so tabs never affect each other; all changes remain visible in the shared `jj log` from anywhere. One rule: never `jj edit` (or otherwise rewrite) a change that another workspace has checked out as its `@` — that creates a divergent change (`change_id??`, two commits for one change). Recover by abandoning the unwanted commit by its commit ID.
 
