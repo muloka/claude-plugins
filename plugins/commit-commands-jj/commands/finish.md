@@ -63,11 +63,12 @@ merges happen.
    tools, so expect a permission prompt.)
 
    In a harness-isolated workspace (root under `/tmp/jj-workspaces/`, see
-   Step 3.5) the harness refuses compound commands and anything whose text
-   contains `git` — a `for … find … .github …` suite loop is refused on both
-   counts. A refusal is not a test failure: run the suite's components as
-   separate plain commands, or hand the loop back as a `! ` line and wait
-   for the result, then continue.
+   Step 3.5) the harness refuses shell shapes it cannot model and anything
+   that names `git` in a form it cannot verify. Measured: a `for … do … done`
+   suite loop is refused as "too complex to verify"; a plain
+   `find … | sort` pipe listing the suites was not. A refusal is not a test
+   failure: run the suite's components as separate plain commands, or hand
+   the loop back as a `! ` line and wait for the result, then continue.
 
 3. **If tests fail**, report the failures and stop:
    ```
