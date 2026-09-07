@@ -8,10 +8,12 @@ Provides the **kaisen** skill — a parallel task orchestrator that dispatches s
 
 ## How It Works
 
-- **WorktreeCreate**: Runs `jj workspace add --revision @-` to create an isolated workspace at `/tmp/jj-workspaces/<project>/<name>/`, pinned to the parent revision for independent branching. Workspaces are created outside the repo to prevent jj's auto-snapshotting from attributing workspace edits to the default workspace's `@`.
-- **WorktreeRemove**: Runs `jj workspace forget` and removes the directory on cleanup
+- **WorktreeCreate**: Runs `jj workspace add --revision <trunk>` to create an isolated workspace at `/tmp/jj-workspaces/<project>/<name>/`, based on `trunk()` (falling back to `@-`, then `@` itself, in a repo with no remote — each guarded against resolving to the root commit, which would give an empty workspace). Workspaces are created outside the repo to prevent jj's auto-snapshotting from attributing workspace edits to the default workspace's `@`.
+- **WorktreeRemove**: Runs `jj workspace forget` and removes the directory on cleanup. `/finish` calls the same script itself for a worktree the session has already left.
 
-Workspaces share the same repository store (lightweight, fast to create) but each gets an independent working copy pinned to the same parent revision.
+Workspaces share the same repository store (lightweight, fast to create) but each gets an independent working copy on the same base.
+
+**A session in a hook-made workspace is harness-isolated.** Claude Code refuses every `jj git` command there (push, fetch, even `remote list`) and most compound shell commands: it reads the `git` token as a git invocation and cannot be configured otherwise. The SessionStart briefing says so at minute zero; `/finish` (commit-commands-jj 0.20+) leaves the worktree with `ExitWorktree` keep before its first remote command. The briefing fires only at session start, so a mid-session `EnterWorktree` gets no notice — `/finish` still covers it. A workspace you make by hand (`jjtab` below) has no guard at all.
 
 ## Installation
 
@@ -33,11 +35,11 @@ Workspace hooks are installed automatically by `/project-setup` from the [projec
 ## Usage
 
 ```bash
-# Start Claude in an isolated jj workspace
-claude --worktree feature-auth
+# A thread that will end in a PR: hand-made workspace, plain claude, no guard
+jjtab feature-auth            # shell function below
 
-# Auto-generated name
-claude --worktree
+# A read-only spike: harness worktree (guarded — no jj git inside)
+claude --worktree spike-auth
 
 # List all workspaces
 /workspace-list
@@ -45,24 +47,42 @@ claude --worktree
 
 ## Side Threads: Which Door to Use
 
-| Situation | Use | Ceremony |
-|-----------|-----|----------|
-| New terminal tab, ephemeral thread | `claude --worktree <name>` from the main checkout | one command — the WorktreeCreate hook makes the jj workspace (in `/tmp`, pinned to `@-`) and the session starts inside it |
-| New terminal tab, durable thread | `jjtab <name> [revset]` shell function (below) | one command — sibling directory next to the repo, survives reboots, custom base revset |
-| Already inside a session | ask Claude to enter a worktree (native `EnterWorktree` → same hook) | zero |
-| Parallel agent execution of a plan | `/kaisen` | the skill orchestrates workspaces itself |
+The harness guard (above) decides the door: anything that will push starts in a workspace the harness did not create.
+
+| Situation | Use | Guard |
+|-----------|-----|-------|
+| New tab, anything that ends in a PR | `jjtab <name> [revset]` (below) | none |
+| New tab, read-only spike | `claude --worktree <name>` — the WorktreeCreate hook makes the workspace | yes |
+| Already in a session, read-only spike | ask Claude to enter a worktree (native `EnterWorktree` → same hook; it cannot enter a `jjtab` workspace) | yes |
+| In a guarded workspace and need to push | `/finish` leaves the worktree for you (commit-commands-jj 0.20+); otherwise `ExitWorktree` with keep, then push from the main checkout — bookmarks and changes are repo-global | lifted |
+| Parallel agent execution of a plan | `/kaisen` — the skill manages workspaces itself | none |
+
+`jjtab` is a terminal door only: it ends by launching `claude`, so Claude cannot route itself there mid-session — which is why `/finish` handles the guarded case.
 
 Each workspace has its own working copy (`@`), so tabs never affect each other; all changes remain visible in the shared `jj log` from anywhere. One rule: never `jj edit` (or otherwise rewrite) a change that another workspace has checked out as its `@` — that creates a divergent change (`change_id??`, two commits for one change). Recover by abandoning the unwanted commit by its commit ID.
 
 The `jjtab` function for your shell config:
 
 ```bash
-# jjtab NAME [REVSET] — jj workspace as a sibling dir + launch claude in it.
-# Default base: parents of the current @. e.g.: jjtab hotfix 'trunk()'
+# jjtab NAME [REVSET] — durable jj workspace beside the repo + plain claude in it.
+#   - base is trunk(), never `@-`: a thread must not inherit a parked empty change.
+#   - dir is <repo>-ws/NAME, a sibling of the repo; survives reboots.
+# Plain `claude`, NOT `claude --worktree`: the harness worktree-isolation guard
+# refuses every `jj git push/fetch` form and cannot be configured off, so a
+# thread that must push needs a workspace the harness did not create.
+# Run from the MAIN checkout: `jj root` is the current workspace's root, so
+# running inside <repo>-ws/<x> would nest <x>-ws under it (guarded below).
+# Finish with /finish in-session, or `jj workspace forget NAME` + rm the dir.
 jjtab() {
   local name=${1:?usage: jjtab NAME [REVSET]}
-  local rev=${2:-'@-'}
-  local dir="../$(basename "$PWD")-$name"
+  local rev=${2:-'trunk()'}
+  local root
+  root=$(jj root) || return
+  case "$(dirname "$root")" in
+    *-ws) echo "jjtab: run from the main checkout, not a workspace ($root)" >&2; return 1 ;;
+  esac
+  local dir="${root}-ws/$name"
+  mkdir -p "$(dirname "$dir")" || return   # jj workspace add needs the parent to exist
   jj workspace add "$dir" --name "$name" --revision "$rev" || return
   cd "$dir" && claude
 }

@@ -55,8 +55,9 @@ Enables Claude Code's `--worktree` flag and subagent `isolation: "worktree"` in 
 # 2. Run setup in your jj project (copies hook scripts, configures settings)
 /project-setup
 
-# 3. Restart Claude Code, then use worktrees
-claude --worktree feature-auth
+# 3. Restart Claude Code, then start a thread
+jjtab feature-auth          # work that will push: hand-made workspace, plain claude (see the plugin README)
+claude --worktree spike     # read-only spike: harness worktree — `jj git` is refused inside it
 ```
 
 Claude Code doesn't pick up `WorktreeCreate`/`WorktreeRemove` hooks from plugins — they must be in project settings. `/project-setup` (from `project-setup-jj`) handles this: its installer copies the hook handlers to `.claude/hooks/` and registers them in `.claude/settings.local.json`. There is no separate `/workspace-setup` command — it was folded into `/project-setup` so one command installs every jj hook.
