@@ -414,5 +414,78 @@ else
   bad "jj op revert is gone — undo.md recommends a command that no longer exists"
 fi
 
+# --- finish.md Step 3.5 (worktree isolation, spec 2026-09-06). A session in a
+# hook-made workspace (/tmp/jj-workspaces/) is harness-isolated: every `jj git`
+# command is refused. finish.md leaves the worktree (ExitWorktree keep) BEFORE
+# its first remote command, and only because the user's option choice is the
+# ask — the tool's own text says "only when the user asks". Six claims:
+#
+#   (1) "## Step 3.5" comes before "## Step 4: Execute choice" — the exit
+#       precedes every option's remote command by construction;
+#   (2) Step 3.5 names ExitWorktree;
+#   (3) no fenced line in Step 3.5 STARTS WITH `jj git` — the remote commands
+#       stay in the options, after the exit. The one deliberate exception is
+#       the no-op fallback's read-only probe (`jj git remote list`), which is
+#       prose, not a fence, on purpose;
+#   (4) Step 3.5 pins action: "keep" and never says remove/discard_changes —
+#       remove destroys the change (spec: #85118);
+#   (5) the sentence declaring the option choice as the user's ask sits inside
+#       Step 3.5 (checked whitespace-insensitively: markdown reflows);
+#   (6) the never-remove-the-directory rule carries the SAME exception in both
+#       places it is stated (Step 5 and Important Rules).
+FIN="$CMDS/finish.md"
+section() { awk -v h="$2" -v n="$3" '$0 ~ "^"h{f=1;next} $0 ~ "^"n{f=0} f' "$1"; }
+l35=$(grep -n '^## Step 3.5' "$FIN" | head -1 | cut -d: -f1)
+l4=$(grep -n '^## Step 4: Execute choice' "$FIN" | head -1 | cut -d: -f1)
+if [ -n "$l35" ] && [ -n "$l4" ] && [ "$l35" -lt "$l4" ]; then
+  ok "finish.md: '## Step 3.5' precedes '## Step 4: Execute choice'"
+else
+  bad "finish.md: no '## Step 3.5' heading before '## Step 4: Execute choice' (l35='$l35' l4='$l4')"
+fi
+s35=$(section "$FIN" '## Step 3.5' '## Step 4')
+if [ -z "$s35" ]; then
+  bad "finish.md has no Step 3.5 section — four assertions skipped"
+else
+  if printf '%s\n' "$s35" | grep -q 'ExitWorktree'; then
+    ok "finish.md Step 3.5 names ExitWorktree"
+  else
+    bad "finish.md Step 3.5 never names ExitWorktree"
+  fi
+  if printf '%s\n' "$s35" | awk '/^[[:space:]]*```/{inb=!inb; next} inb' | grep -qE '^[[:space:]]*(\$ )?jj git'; then
+    bad "finish.md Step 3.5 executes a 'jj git' command — that runs BEFORE the exit and will be refused"
+  else
+    ok "finish.md Step 3.5 holds no executable 'jj git' (remote commands come after the exit)"
+  fi
+  if printf '%s\n' "$s35" | grep -qF 'action: "keep"' \
+     && ! printf '%s\n' "$s35" | grep -qEi 'action: "remove"|discard_changes'; then
+    ok "finish.md Step 3.5 exits with keep, never remove/discard"
+  else
+    bad "finish.md Step 3.5 does not pin ExitWorktree to keep — remove destroys the change (spec: #85118)"
+  fi
+  if printf '%s\n' "$s35" | tr '\n' ' ' | tr -s ' ' | grep -qF 'is the user asking to leave the worktree'; then
+    ok "finish.md Step 3.5 states that the option choice is the user's ask to leave the worktree"
+  else
+    bad "finish.md Step 3.5 lacks the sentence making the option choice the user's ask (ExitWorktree's own text forbids proactive calls)"
+  fi
+fi
+s5=$(section "$FIN" '## Step 5' '## Quick Reference')
+rules=$(section "$FIN" '## Important Rules' '## Integration')
+if printf '%s\n' "$s5" | grep -qF 'left in Step 3.5' && printf '%s\n' "$rules" | grep -qF 'left in Step 3.5'; then
+  ok "finish.md never-remove rule carries the Step 3.5 exception in both Step 5 and Important Rules"
+else
+  bad "finish.md never-remove exception is missing from Step 5 or Important Rules (they must agree)"
+fi
+
+# --- (7) the frontmatter grants the two tools Step 3.5 / Step 5.0 depend on.
+# Nothing else in any suite reads allowed-tools; deleting ExitWorktree from
+# line 3 would pass every assertion above while the command silently lost
+# the one thing this change adds.
+if head -5 "$FIN" | grep -q '^allowed-tools:.*ExitWorktree' \
+   && head -5 "$FIN" | grep -q '^allowed-tools:.*jj-workspace-remove\.sh'; then
+  ok "finish.md allowed-tools names ExitWorktree and the WorktreeRemove script"
+else
+  bad "finish.md allowed-tools lacks ExitWorktree or .claude/hooks/jj-workspace-remove.sh"
+fi
+
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 test "$FAIL" -eq 0
