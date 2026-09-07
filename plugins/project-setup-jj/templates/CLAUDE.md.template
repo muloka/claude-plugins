@@ -1,4 +1,4 @@
-<!-- jj-project-setup:start hash:87d3fc01 -->
+<!-- jj-project-setup:start hash:80cc4886 -->
 ## VCS — jj (Jujutsu)
 
 This project uses **jj (Jujutsu)** as its VCS. Never use raw git commands. Use jj equivalents instead (e.g. `jj log`, `jj status`, `jj diff`). The only exceptions are `jj git` subcommands (e.g. `jj git push`) and the `gh` CLI for GitHub operations.
@@ -28,7 +28,8 @@ Three things that serial path needs here.
 **Its helper scripts shell out to `git`, which is blocked.** Resolve the jj-native replacements once per run (a local checkout of the plugins repo has them at `plugins/workspace-jj/scripts` instead):
 
 ```bash
-SDD=$(ls -d ~/.claude/plugins/cache/*/workspace-jj/*/scripts 2>/dev/null | sort -V | tail -1)
+SDD="$(jq -r '[.plugins | to_entries[] | select(.key | startswith("workspace-jj@")) | .value[0].installPath][0] // empty' ~/.claude/plugins/installed_plugins.json 2>/dev/null)/scripts"   # the ENABLED version, from Claude Code's own registry
+[ -d "$SDD" ] || SDD=$(ls -d ~/.claude/plugins/cache/*/workspace-jj/*/scripts 2>/dev/null | sort -V | tail -1)   # fallback when there is no registry entry: highest cached version
 ```
 
 | Superpowers script | Use instead |
