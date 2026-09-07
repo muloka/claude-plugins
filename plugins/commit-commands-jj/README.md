@@ -116,12 +116,12 @@ Finishes development work by presenting a menu of completion options and executi
 1. Verifies the target change (current or parent, if `@` is empty) has content against trunk
 2. Runs the project's test suite — the menu only appears after a green run (skipped when no suite is detected)
 3. Presents four options: push and create a PR, merge into trunk locally, keep as-is, or discard
-4. Executes the chosen workflow:
+4. For push, merge and discard in a harness-isolated workspace (one the WorktreeCreate hook made for `claude --worktree` / `EnterWorktree`, where Claude Code refuses every `jj git` command), leaves the worktree with `ExitWorktree` keep *before* the first remote command and finishes from the main checkout — your option choice is the ask
+5. Executes the chosen workflow:
    - **Push and create PR:** warns about non-target ancestor changes that would be swept into the PR, creates a bookmark if needed (or uses `jj git push --change <target>` for a quick anonymous push), pushes with `jj git push --bookmark`, and opens the PR with `gh pr create`
    - **Merge into trunk locally:** fetches, rebases the change onto trunk, and fast-forwards the trunk bookmark with `jj bookmark move` (not `jj squash --into trunk()` — trunk is immutable, so that form errors)
    - **Keep as-is:** reports the change ID and stops — no cleanup
    - **Discard:** records a restore point from the op log, runs `jj abandon`, and hands back the exact `jj op restore <id>` that undoes it
-5. In a harness-isolated workspace (one the WorktreeCreate hook made for `claude --worktree` / `EnterWorktree`, where Claude Code refuses every `jj git` command), leaves the worktree with `ExitWorktree` keep *before* the first remote command and finishes from the main checkout — your option choice is the ask
 6. For push, merge, and discard, cleans up the jj workspace if running in a non-default one (`jj workspace forget`) — auto-forgetting only ephemeral hook-created workspaces — and never from inside the workspace being forgotten (retiring a left one through the WorktreeRemove hook's script), and asking before ending a durable side thread
 
 **Usage:**
