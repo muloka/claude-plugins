@@ -70,11 +70,11 @@ This creates/updates the following in your project:
 |------|---------|
 | `.claude/hooks/jj-session-start.sh` | SessionStart hook showing jj context |
 | `.claude/hooks/require-jj-new.sh` | PreToolUse hook — advises Claude to run `jj new` before editing into a non-empty change (informational — does not block) |
-| `.claude/hooks/jj-workspace-create.sh` | WorktreeCreate hook — creates the jj workspace for `claude --worktree`, `EnterWorktree`, and subagents dispatched with `isolation: "worktree"` under `/tmp/jj-workspaces/<repo>/<name>`, based on `trunk()` (falls back to `@-` in a repo with no remote, where `trunk()` would be the root commit) (an isolated subagent therefore starts from trunk, not from the orchestrator's local stack) |
+| `.claude/hooks/jj-workspace-create.sh` | WorktreeCreate hook — creates the jj workspace for `claude --worktree`, `EnterWorktree`, and subagents dispatched with `isolation: "worktree"` under `/tmp/jj-workspaces/<repo>/<name>`, based on `trunk()` (falling back to `@-`, then `@` itself, in a repo with no remote — each guarded against resolving to the root commit, which would give an empty workspace) (an isolated subagent therefore starts from trunk, not from the orchestrator's local stack) |
 | `.claude/hooks/jj-workspace-remove.sh` | WorktreeRemove hook — forgets the workspace and removes the directory. Also callable as `jj-workspace-remove.sh <worktree_path> <cwd>` (used by `/finish` after ExitWorktree); refuses any path outside `/tmp/jj-workspaces/` (or containing `..`) |
 | `.claude/settings.json` | Hooks (SessionStart, PreToolUse, PreCompact, WorktreeCreate, WorktreeRemove) + the `Bash(git *)` deny floor — **commit this**, it is what makes fresh clones and jj workspaces enforce the rules (#97) |
 | `.claude/settings.local.json` | Personal settings: jj/gh allow-list. **Not** the statusline — that lives in the tracked `settings.json` so jj workspaces inherit it |
-| `CLAUDE.md` | jj VCS policy directive (created or updated) |
+| `CLAUDE.md` | jj VCS policy directive inside a managed `jj-project-setup` block (created or updated). A block you have **hand-edited** is never overwritten: when the template later changes, the installer keeps your block, writes the fresh one to `CLAUDE.md.jj-project-setup.new`, and reports `kept_edited` for you to merge by hand |
 
 The SessionStart briefing also warns when the session is in a harness-isolated workspace (one the WorktreeCreate hook made): every `jj git` command is refused there. SessionStart does not re-run on a mid-session `EnterWorktree`, so that case is covered by `/finish`, which leaves the worktree before pushing.
 

@@ -43,6 +43,21 @@ mv "$PLUG/templates/CLAUDE.md.template.tmp" "$PLUG/templates/CLAUDE.md.template"
 
 newproj() { mktemp -d; }   # fresh project root per case
 
+# A stale-but-UNEDITED block: the marker records the hash of its own body,
+# exactly as a real install does (marker and body ship together from the
+# template). The earlier fixtures paired `hash:deadbeef` with `OLD BODY` — a
+# block no installer ever produced. Once the installer tells hand edits apart
+# from staleness by comparing the recorded hash with the body's actual hash,
+# that dishonest fixture reads as "edited" and every stale case would pass for
+# the wrong reason or fail for no reason. Fixture-is-honest, or the assertion
+# built on it is not.
+stale_block() {
+  local body="$1" h
+  h=$(printf '%s\n' "$body" | md5hash)
+  printf '<!-- jj-project-setup:start hash:%s -->\n%s\n<!-- jj-project-setup:end -->\n' "$h" "$body"
+}
+OLDHASH=$(printf 'OLD BODY\n' | md5hash)
+
 # ---- Case 1: fresh install ----
 P=$(newproj)
 OUT=$(bash "$INSTALL" $INSTALL_MODE "$PLUG" "$P")
@@ -112,7 +127,7 @@ bash "$INSTALL" $INSTALL_MODE "$PLUG" "$P" >/dev/null
 grep -q 'jj-project-setup:start' "$P/CLAUDE.md" && grep -q 'keep me' "$P/CLAUDE.md" && ok "claude_md 5b: prepended, existing kept" || bad "claude_md 5b" "marker or existing content missing"
 # 5c differing hash -> section replaced, surrounding intact
 P=$(newproj); mkdir -p "$P"
-printf '# Top\n<!-- jj-project-setup:start hash:deadbeef -->\nOLD BODY\n<!-- jj-project-setup:end -->\n# Bottom\n' > "$P/CLAUDE.md"
+{ printf '# Top\n'; stale_block 'OLD BODY'; printf '# Bottom\n'; } > "$P/CLAUDE.md"
 bash "$INSTALL" $INSTALL_MODE "$PLUG" "$P" >/dev/null
 grep -q 'Use jj, not git.' "$P/CLAUDE.md" && ! grep -q 'OLD BODY' "$P/CLAUDE.md" && grep -q '# Top' "$P/CLAUDE.md" && grep -q '# Bottom' "$P/CLAUDE.md" && ok "claude_md 5c: section replaced, surroundings intact" || bad "claude_md 5c" "replace wrong"
 # 5d marker on LINE 1 -> replaced without duplicating the marker pair.
@@ -124,16 +139,16 @@ grep -q 'Use jj, not git.' "$P/CLAUDE.md" && ! grep -q 'OLD BODY' "$P/CLAUDE.md"
 # OLD hash, and because the installer reads the FIRST marker's hash it would
 # recur on every subsequent run.
 P=$(newproj); mkdir -p "$P"
-printf '<!-- jj-project-setup:start hash:deadbeef -->\nOLD BODY\n<!-- jj-project-setup:end -->\n# Bottom\n' > "$P/CLAUDE.md"
+{ stale_block 'OLD BODY'; printf '# Bottom\n'; } > "$P/CLAUDE.md"
 bash "$INSTALL" $INSTALL_MODE "$PLUG" "$P" >/dev/null
 s_count=$(grep -c 'jj-project-setup:start' "$P/CLAUDE.md")
 e_count=$(grep -c 'jj-project-setup:end' "$P/CLAUDE.md")
-if [ "$s_count" -eq 1 ] && [ "$e_count" -eq 1 ] && ! grep -q 'deadbeef' "$P/CLAUDE.md" \
+if [ "$s_count" -eq 1 ] && [ "$e_count" -eq 1 ] && ! grep -q "$OLDHASH" "$P/CLAUDE.md" \
    && grep -q 'Use jj, not git.' "$P/CLAUDE.md" && ! grep -q 'OLD BODY' "$P/CLAUDE.md" \
    && grep -q '# Bottom' "$P/CLAUDE.md"; then
   ok "claude_md 5d: marker on line 1 replaced without duplication"
 else
-  bad "claude_md 5d" "start=$s_count end=$e_count (want 1/1, no stale deadbeef)"
+  bad "claude_md 5d" "start=$s_count end=$e_count (want 1/1, no stale hash $OLDHASH)"
 fi
 # 5e re-running over a line-1 marker stays at one pair (the defect compounded
 # per run, so idempotence is the property that actually protects the file).
@@ -153,7 +168,7 @@ fi
 # its block rather than above, so the reordering that triggers this is one edit
 # away.
 P=$(newproj); mkdir -p "$P"
-printf 'Docs: never edit inside the jj-project-setup:start block.\n# Top\n<!-- jj-project-setup:start hash:deadbeef -->\nOLD BODY\n<!-- jj-project-setup:end -->\n# Bottom\n' > "$P/CLAUDE.md"
+{ printf 'Docs: never edit inside the jj-project-setup:start block.\n# Top\n'; stale_block 'OLD BODY'; printf '# Bottom\n'; } > "$P/CLAUDE.md"
 bash "$INSTALL" $INSTALL_MODE "$PLUG" "$P" >/dev/null
 if grep -q 'Docs: never edit inside' "$P/CLAUDE.md" && grep -q '# Top' "$P/CLAUDE.md" \
    && grep -q '# Bottom' "$P/CLAUDE.md" && grep -q 'Use jj, not git.' "$P/CLAUDE.md" \
@@ -165,7 +180,7 @@ fi
 # 5g prose BELOW the block (the shape a real project actually has) keeps
 # working. Regression guard — expected to pass before and after the fix.
 P=$(newproj); mkdir -p "$P"
-printf '<!-- jj-project-setup:start hash:deadbeef -->\nOLD BODY\n<!-- jj-project-setup:end -->\n# Notes\nThis file has a jj-project-setup:start/end managed block.\n' > "$P/CLAUDE.md"
+{ stale_block 'OLD BODY'; printf '# Notes\nThis file has a jj-project-setup:start/end managed block.\n'; } > "$P/CLAUDE.md"
 bash "$INSTALL" $INSTALL_MODE "$PLUG" "$P" >/dev/null
 if grep -q 'managed block' "$P/CLAUDE.md" && grep -q 'Use jj, not git.' "$P/CLAUDE.md" \
    && ! grep -q 'OLD BODY' "$P/CLAUDE.md" \
@@ -173,6 +188,41 @@ if grep -q 'managed block' "$P/CLAUDE.md" && grep -q 'Use jj, not git.' "$P/CLAU
   ok "claude_md 5g: prose below the block still updates cleanly"
 else
   bad "claude_md 5g" "below-block prose case broke"
+fi
+# 5h a HAND-EDITED block is kept, not clobbered, when the template moves on.
+# The recorded hash says what the body WAS when installed; a body that no
+# longer hashes to it was edited by the project. Observed in a real project: a
+# hardened `SDD=` line inside the block was silently reverted by a template
+# bump, because the installer compared the recorded hash only with the
+# template's and never with the body in front of it. The fresh block goes
+# beside the file, the summary says so, and the exit code stays 0 (the rest of
+# the install is written; non-zero means NOTHING was).
+P=$(newproj); mkdir -p "$P"
+printf '# Top\n<!-- jj-project-setup:start hash:%s -->\nOLD BODY\nlocal hardening line\n<!-- jj-project-setup:end -->\n# Bottom\n' "$OLDHASH" > "$P/CLAUDE.md"
+OUT=$(bash "$INSTALL" $INSTALL_MODE "$PLUG" "$P"); rc=$?
+if grep -q 'local hardening line' "$P/CLAUDE.md" && ! grep -q 'Use jj, not git.' "$P/CLAUDE.md" \
+   && grep -q '# Top' "$P/CLAUDE.md" && grep -q '# Bottom' "$P/CLAUDE.md" \
+   && printf '%s\n' "$OUT" | grep -qx 'claude_md=kept_edited' \
+   && [ -f "$P/CLAUDE.md.jj-project-setup.new" ] && grep -q 'Use jj, not git.' "$P/CLAUDE.md.jj-project-setup.new" \
+   && [ "$rc" -eq 0 ]; then
+  ok "claude_md 5h: hand-edited block kept, fresh block written beside it, summary kept_edited"
+else
+  bad "claude_md 5h" "edited block clobbered or misreported: rc=$rc $(printf '%s\n' "$OUT" | grep claude_md) new=$([ -f "$P/CLAUDE.md.jj-project-setup.new" ] && echo yes || echo no)"
+fi
+# 5i a hand-edited block with an UNCHANGED template stays exactly as it is —
+# the pre-existing behaviour (recorded hash == template hash -> unchanged),
+# pinned so the new edit-detection cannot regress it into a rewrite.
+P=$(newproj)
+bash "$INSTALL" $INSTALL_MODE "$PLUG" "$P" >/dev/null           # installs the current block
+printf 'local hardening line\n' >> "$P/CLAUDE.md"                # edit OUTSIDE the block first...
+sed_tmp="$P/CLAUDE.md.tmp"; awk '{print} /^Use jj, not git\.$/{print "local hardening inside"}' "$P/CLAUDE.md" > "$sed_tmp"; mv "$sed_tmp" "$P/CLAUDE.md"   # ...and INSIDE it
+CM_BEFORE=$(cat "$P/CLAUDE.md")
+OUT=$(bash "$INSTALL" $INSTALL_MODE "$PLUG" "$P")
+if [ "$(cat "$P/CLAUDE.md")" = "$CM_BEFORE" ] && printf '%s\n' "$OUT" | grep -qx 'claude_md=unchanged' \
+   && [ ! -f "$P/CLAUDE.md.jj-project-setup.new" ]; then
+  ok "claude_md 5i: edited block + unchanged template -> left alone, no .new file"
+else
+  bad "claude_md 5i" "edited block was touched although the template had not changed: $(printf '%s\n' "$OUT" | grep claude_md)"
 fi
 
 # ---- Case 6: malformed existing settings -> abort, no clobber ----

@@ -350,6 +350,20 @@ elif grep -qE "$START_RE" "$CLAUDE_MD"; then
   else
     s_line=$(grep -nE "$START_RE" "$CLAUDE_MD" | head -1 | cut -d: -f1)
     e_line=$(grep -nE "$END_RE" "$CLAUDE_MD" | head -1 | cut -d: -f1)
+    # A body that no longer hashes to the RECORDED hash was edited by the
+    # project after install: marker and body ship together from the template,
+    # so at install time they agree, and nothing but a hand edit breaks that.
+    # Comparing the recorded hash only with the TEMPLATE's cannot see it — a
+    # real project hardened the `SDD=` line inside its block and a later
+    # template bump silently reverted it. Keep the edited block, write the
+    # fresh one beside the file for the user to merge, and say so in the
+    # summary. Exit stays 0: the rest of the install is written, and non-zero
+    # is the contract for "nothing was".
+    body_hash=$(sed -n "$((s_line+1)),$((e_line-1))p" "$CLAUDE_MD" | md5hash)
+    if [ -n "$installed_hash" ] && [ "$body_hash" != "$installed_hash" ]; then
+      cp "$TEMPLATE" "$CLAUDE_MD.jj-project-setup.new"
+      claude_outcome="kept_edited"
+    else
     # The prefix slice must be skipped entirely when the marker is on line 1.
     # `sed -n "1,0p"` is an inverted range, and BSD sed prints line 1 for it
     # rather than nothing — which re-emitted the stale start marker above the
@@ -365,6 +379,7 @@ elif grep -qE "$START_RE" "$CLAUDE_MD"; then
     } > "$CLAUDE_MD.tmp"
     mv "$CLAUDE_MD.tmp" "$CLAUDE_MD"
     claude_outcome="updated"
+    fi
   fi
 else
   { cat "$TEMPLATE"; echo; cat "$CLAUDE_MD"; } > "$CLAUDE_MD.tmp"

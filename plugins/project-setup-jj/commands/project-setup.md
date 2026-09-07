@@ -53,7 +53,7 @@ Read the script's `key=value` summary and confirm to the user what was set up:
 - `.claude/settings.json` — hooks (SessionStart, PreCompact, PreToolUse, WorktreeCreate, WorktreeRemove) + the `Bash(git *)` deny floor — value from `settings_tracked=` (`created`, `merged`, or `skipped` in `--local` mode). **Tell the user to commit this file** — that is what makes fresh clones and jj workspaces enforce the rules.
 - `.claude/settings.local.json` — jj/gh allow-list, and in `--local` mode the hooks too — value from `settings=`
 - Legacy `.claude/scripts/` — per the `legacy_scripts=` value: `removed` (migrated and the empty directory cleaned up), `kept_not_empty` (our files removed, directory kept because other files such as `statusline-jj.sh` remain), or `absent` (nothing to migrate)
-- CLAUDE.md — `created`, `updated`, or `already up to date` per the `claude_md=` value
+- CLAUDE.md — per the `claude_md=` value: `created`, `updated`, `already up to date`, or `kept_edited`. **`kept_edited` means the managed block was hand-edited after install and the template has since changed: the installer left the edited block in place and wrote the fresh one to `CLAUDE.md.jj-project-setup.new`.** Tell the user to merge the two by hand (their hardening plus the new template text), delete the `.new` file, and re-run `/project-setup` — do not merge it for them, and do not present the setup as up to date.
 - Smoke test — value from `smoke=`. `pass` means the copied handlers parse, are
   executable, and `jj-session-start.sh` actually ran and emitted valid JSON.
   `fail:<reason>` means the install is written and registered but a handler does
