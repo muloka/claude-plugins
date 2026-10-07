@@ -1,5 +1,5 @@
 ---
-allowed-tools: Bash(jj op log:*), Bash(jj op revert:*), Bash(jj log:*), Bash(jj status:*)
+allowed-tools: Bash(jj op log:*), Bash(jj op revert:*), Bash(jj op restore:*), Bash(jj log:*), Bash(jj status:*), Bash(jj evolog:*), Bash(jj describe:*)
 description: Undo the last jj operation
 ---
 
@@ -22,18 +22,18 @@ description: Undo the last jj operation
 
 ## Your task
 
-In jj, every operation is recorded in the operation log, and `jj op revert` reverses the last one. This is a safe undo — it restores the repository to its state before the last operation.
+In jj, every operation is recorded in the operation log, and `jj op revert <op-id>` reverses one of them. Most of the work is choosing the right one and knowing what reverting it does to files the user edited afterwards.
 
-1. Review the operation log (shown in context above) to identify the last operation
-2. Run `jj op revert <op-id>` using the most recent operation ID from the log
-3. Confirm the result with `jj status` and `jj log --limit 5 --no-graph -T 'json(self) ++ "\n"'`
-4. Report what was undone (describe the operation that was reversed)
+1. **Find the operation to undo.** It is the newest entry in the log above with `"is_snapshot": false`. An entry with `"is_snapshot": true` ("snapshot working copy") is jj recording file edits made since the previous jj command. This command's own Context created the top one if anything had changed. Reverting a snapshot entry deletes those edits from disk. Bare `jj undo` does the same, because it reverts the newest entry whatever it is.
+2. **If no snapshot entry is newer than it**, run `jj op revert <op-id>`.
+3. **If one is**, the user edited files after that operation, and reverting it leaves the change divergent: a restored copy without the edits next to the current copy with them. Don't revert it. When the operation's effect is simple to reverse directly, do that instead. A `describe`, for example, is undone by describing again with the previous message, which `jj evolog -r @` shows. Otherwise, tell the user what the operation did and that they edited files since, and offer two choices: the revert, which leaves the change divergent, or `jj op restore <op-id>` to the entry before it, which also discards the later edits.
+4. Confirm the result with `jj status` and `jj log --limit 5 --no-graph -T 'json(self) ++ "\n"'`.
+5. Report what was undone and how, in a sentence or two.
 
 Notes:
-- `jj op revert` reverses a specific operation (use the most recent op ID to undo the last one)
 - For restoring to an older state, use `jj op restore <op-id>` (the op IDs are visible in `jj op log`)
 - The revert itself is an operation and can be reverted
-- This is much safer than git's approach — no risk of losing commits
+- No commit is ever lost: `jj op log` keeps every state, so even a wrong revert can be walked back with `jj op restore`
 - Prefer `jj op revert <op-id>` over bare `jj undo` here. `jj undo` is *not*
   deprecated — it is current — but it is **sequential**: calling it twice walks
   two operations back, not one. An agent that retries after an ambiguous result
@@ -41,5 +41,3 @@ Notes:
   reverses, so it says the same thing every time it runs
 - `jj op undo` **was** deprecated in favour of `jj op revert`, and has been
   removed. Don't confuse it with bare `jj undo`, which still exists
-
-You have the capability to call multiple tools in a single response. Perform the undo using a single message. Do not use any other tools or do anything else. Do not send any other text or messages besides these tool calls.

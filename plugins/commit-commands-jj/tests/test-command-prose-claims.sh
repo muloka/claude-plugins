@@ -544,5 +544,86 @@ else
   fi
 fi
 
+# --- undo.md: which operation to revert, and what reverting it does to edits
+# made since. The command's Context runs `jj op log`, which SNAPSHOTS first, so
+# once the user has edited a file the newest log entry is that snapshot, not
+# their command. Measured 2026-10-07 by handing the old prose to agents: neither
+# reverted the snapshot, but reverting the command beneath it split the change
+# into two divergent copies — one left it that way, the other only recovered by
+# reverting its own revert. Every jj fact the prose now states is pinned here,
+# so a jj release that changes one turns this red instead of the prose rotting.
+UNDO="$CMDS/undo.md"
+u_ctx=$(grep -m1 'Recent operations' "$UNDO" | sed -e 's/^[^!]*!`//' -e 's/`[^`]*$//')
+u_setup() {   # a describe the user regrets, then a file edit jj has not seen yet
+  ur=$(new_repo)
+  R "$ur" jj git init . --no-colocate >/dev/null 2>&1
+  printf 'b\n' > "$ur/cwd/b.txt"
+  R "$ur" jj describe -m "add b" >/dev/null 2>&1
+  R "$ur" jj describe -m "oops: wrong message" >/dev/null 2>&1
+  printf 'notes\n' > "$ur/cwd/notes.txt"           # the Edit tool never snapshots
+  R "$ur" bash -c "$u_ctx" > "$ur/ctx.jsonl" 2>/dev/null   # the Context line, as written
+}
+u_state() {   # description | divergent | notes.txt on disk
+  printf '%s|%s|%s' \
+    "$(R "$ur" jj log --ignore-working-copy -r @ --no-graph -T 'description.first_line()' 2>/dev/null)" \
+    "$(R "$ur" jj log --ignore-working-copy -r @ --no-graph -T 'divergent' 2>/dev/null)" \
+    "$([ -f "$ur/cwd/notes.txt" ] && echo kept || echo deleted)"
+}
+if [ -z "$u_ctx" ]; then
+  bad "undo.md has no 'Recent operations' Context line to run"
+else
+  u_setup
+  u_top=$(head -1 "$ur/ctx.jsonl" | jq -r '"\(.is_snapshot) \(.description)"' 2>/dev/null)
+  if [ "$u_top" = "true snapshot working copy" ]; then
+    ok "undo.md: after an edit, the Context's own op log puts a snapshot entry on top (is_snapshot: true)"
+  else
+    bad "undo.md: the newest Context entry after an edit is '$u_top', not an is_snapshot snapshot — the prose's step 1 is stale"
+  fi
+  R "$ur" jj op revert "$(head -1 "$ur/ctx.jsonl" | jq -r .id)" >/dev/null 2>&1
+  case "$(u_state)" in
+    *"|deleted") ok "undo.md: reverting the snapshot entry deletes the user's edits from disk" ;;
+    *) bad "undo.md: reverting the snapshot entry kept the edits ($(u_state)) — the prose's warning is stale" ;;
+  esac
+
+  u_setup; R "$ur" jj undo >/dev/null 2>&1
+  case "$(u_state)" in
+    *"|deleted") ok "undo.md: bare jj undo also reverts the snapshot and deletes the edits" ;;
+    *) bad "undo.md: bare jj undo kept the edits ($(u_state)) — the prose's warning about it is stale" ;;
+  esac
+
+  u_setup
+  R "$ur" jj op revert "$(jq -r 'select(.is_snapshot == false) | .id' "$ur/ctx.jsonl" | head -1)" >/dev/null 2>&1
+  case "$(u_state)" in
+    *"|true|kept") ok "undo.md: reverting the command beneath a snapshot leaves the change divergent" ;;
+    *) bad "undo.md: reverting the command beneath a snapshot gave '$(u_state)', not a divergent change — step 3's warning is stale" ;;
+  esac
+
+  u_setup; R "$ur" jj describe -m "add b" >/dev/null 2>&1
+  if [ "$(u_state)" = "add b|false|kept" ]; then
+    ok "undo.md: undoing a describe by describing again keeps the edits and no divergence"
+  else
+    bad "undo.md: describing again gave '$(u_state)', want 'add b|false|kept'"
+  fi
+
+  # Control: with nothing edited since, the newest entry IS the user's command
+  # and a plain revert is clean — the prose's step 2.
+  ur=$(new_repo)
+  R "$ur" jj git init . --no-colocate >/dev/null 2>&1
+  printf 'b\n' > "$ur/cwd/b.txt"
+  R "$ur" jj describe -m "add b" >/dev/null 2>&1
+  R "$ur" jj describe -m "oops: wrong message" >/dev/null 2>&1
+  R "$ur" bash -c "$u_ctx" > "$ur/ctx.jsonl" 2>/dev/null
+  if [ "$(head -1 "$ur/ctx.jsonl" | jq -r .is_snapshot)" = false ]; then
+    R "$ur" jj op revert "$(head -1 "$ur/ctx.jsonl" | jq -r .id)" >/dev/null 2>&1
+    if [ "$(R "$ur" jj log --ignore-working-copy -r @ --no-graph -T 'description.first_line() ++ "|" ++ divergent')" = "add b|false" ]; then
+      ok "undo.md: with no edits since, the newest entry is the command and reverting it is clean"
+    else
+      bad "undo.md: a plain revert with no edits since did not restore 'add b' cleanly"
+    fi
+  else
+    bad "undo.md: the Context recorded a snapshot even though nothing was edited"
+  fi
+fi
+
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 test "$FAIL" -eq 0
