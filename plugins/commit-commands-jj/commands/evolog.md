@@ -30,5 +30,3 @@ Notes:
 - Useful for debugging "what happened to this change?" after syncs, rebases, or collaboration
 - Each evolution entry includes the operation that caused it
 - The change ID stays the same across all versions — only the commit ID changes
-
-You have the capability to call multiple tools in a single response. Perform the inspection using a single message. Do not use any other tools or do anything else. Do not send any other text or messages besides these tool calls.

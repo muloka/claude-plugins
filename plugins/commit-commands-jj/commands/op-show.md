@@ -30,5 +30,3 @@ Notes:
 - Use `jj op log` to find operation IDs
 - Pairs with `/undo` — inspect an operation before deciding whether to reverse it
 - The JSON metadata uses the same Operation type as `jj op log`
-
-You have the capability to call multiple tools in a single response. Perform the inspection using a single message. Do not use any other tools or do anything else. Do not send any other text or messages besides these tool calls.

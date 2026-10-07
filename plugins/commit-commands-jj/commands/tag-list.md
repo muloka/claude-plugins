@@ -27,5 +27,3 @@ Notes:
 - Tags in jj work similarly to Git tags — they point to specific commits
 - The JSON metadata uses the same CommitRef type as `jj bookmark list`
 - Use `jj tag list` to see all tags; filter with revsets for specific tags
-
-You have the capability to call multiple tools in a single response. Perform the inspection using a single message. Do not use any other tools or do anything else. Do not send any other text or messages besides these tool calls.

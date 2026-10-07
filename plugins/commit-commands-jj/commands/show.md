@@ -29,5 +29,3 @@ Notes:
 - `jj show` combines revision metadata + diff in one command
 - Use `-r <rev>` to inspect any revision (change IDs, commit IDs, bookmarks, or revsets)
 - The JSON metadata uses the same Commit type as `jj log`
-
-You have the capability to call multiple tools in a single response. Perform the inspection using a single message. Do not use any other tools or do anything else. Do not send any other text or messages besides these tool calls.

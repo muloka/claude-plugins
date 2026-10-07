@@ -31,5 +31,3 @@ In jj, the working copy IS already a change. The natural flow is:
 Based on the above changes, finalize the current jj change with an appropriate description.
 
 There is no `git add` equivalent in jj. All working copy changes are automatically included. If the user needs to split changes, they should use `jj split` before running `/commit`.
-
-You have the capability to call multiple tools in a single response. Finalize the change using a single message. Do not use any other tools or do anything else. Do not send any other text or messages besides these tool calls.
