@@ -334,7 +334,7 @@ repo without the WorktreeCreate hook — hand the refused command back as a
 
    d. **Move the working copy onto the merged trunk:**
       ```bash
-      jj new trunk()
+      jj new 'trunk()'
       ```
       This is not optional. Abandoning re-parents `@` onto whatever the bottom
       of the stack sat on — the *pre-merge* trunk — so `@` silently lands on a
@@ -370,8 +370,13 @@ rewrites nothing that is shared:
 
 2. Rebase the work onto trunk:
    ```bash
-   jj rebase -r <target> -d trunk()
+   jj rebase -b <target> -d 'trunk()'
    ```
+   `-b` (branch), not `-r`. `-r` moves the target alone: the changes beneath
+   it stay on the old trunk, so step 3's bookmark move leaves them out of the
+   merge, and the target's descendants, `@` included, are re-parented onto the
+   target's old parent, off trunk entirely. `-b` moves every change between
+   trunk and the target, and their descendants come along.
    The ancestor concern from Option 1 applies here too: moving the bookmark
    to the target brings every ancestor with it, so if the ancestor check
    shows unrelated changes between trunk and the target, surface them first.

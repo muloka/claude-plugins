@@ -487,5 +487,62 @@ else
   bad "finish.md allowed-tools lacks ExitWorktree or .claude/hooks/jj-workspace-remove.sh"
 fi
 
+# --- finish.md Option 2, run AS WRITTEN. The step-2 rebase is lifted out of the
+# file and executed, then step 3's bookmark move, so this checks the prose
+# rather than a hand-written stand-in for it. The scenario is the one Option 2
+# exists for: trunk moved since the work began (the reason step 1 fetches), the
+# work is a stack of two changes, and `@` is the empty change `jj commit` leaves
+# on top of the target — which Step 1 calls the common case.
+#
+# What must hold afterwards is what a merge means: the trunk bookmark carries
+# EVERY change in the stack plus the upstream work, and the working copy still
+# sits on top of it. `jj rebase -r` failed both. It moves the target alone, so
+# the bookmark move left the bottom of the stack out of trunk, and it re-parents
+# the target's descendants onto the target's OLD parent, stranding `@` off trunk
+# with the merged files reading as missing on disk. Step 4's check
+# (`jj log -r <trunk-bookmark>`) printed a healthy-looking log either way.
+fr=$(new_repo)
+R "$fr" jj git init . --no-colocate >/dev/null 2>&1
+( cd "$fr" && env -i PATH="$PATH" HOME="$fr/home" TERM=dumb git init --bare --quiet origin.git )
+R "$fr" jj git remote add origin "$fr/origin.git" >/dev/null 2>&1
+printf 'base\n' > "$fr/cwd/README.md"
+R "$fr" jj describe -m "Initial commit" >/dev/null 2>&1
+R "$fr" jj bookmark create main -r @ >/dev/null 2>&1
+R "$fr" jj git push --bookmark main >/dev/null 2>&1
+# Upstream's commit is made first and published LAST, so `@` never has to move:
+# an empty, undescribed `@` is discarded the moment you leave it, and editing
+# back to it then fails silently — the scenario would quietly stop having `@`
+# on top of the work at all.
+R "$fr" jj new main -m "Upstream work" >/dev/null 2>&1; printf 'up\n' > "$fr/cwd/up.txt"
+f_up=$(R "$fr" jj log -r @ --no-graph -T 'change_id.short()')
+R "$fr" jj new main -m "A: first half" >/dev/null 2>&1;  printf 'a\n' > "$fr/cwd/a.txt"
+R "$fr" jj new -m "B: second half" >/dev/null 2>&1;      printf 'b\n' > "$fr/cwd/b.txt"
+f_target=$(R "$fr" jj log -r @ --no-graph -T 'change_id.short()')
+R "$fr" jj new >/dev/null 2>&1                          # what `jj commit` leaves
+f_wc=$(R "$fr" jj log -r @ --no-graph -T 'change_id.short()')
+R "$fr" jj bookmark set main -r "$f_up" >/dev/null 2>&1
+R "$fr" jj git push --bookmark main >/dev/null 2>&1      # trunk has moved
+if [ "$(R "$fr" jj log -r "$f_target+" --no-graph -T 'change_id.short()')" != "$f_wc" ] \
+   || [ "$(R "$fr" jj log -r 'trunk()' --no-graph -T 'change_id.short()')" != "$f_up" ]; then
+  bad "scaffold: @ is not an empty child of the target, or trunk() did not move — Option 2 untested"
+fi
+
+f_rebase=$(section "$FIN" '### Option 2' '### Option 3' \
+  | awk '/^[[:space:]]*```/{inb=!inb; next} inb' | grep -E '^[[:space:]]*jj rebase' | head -1 \
+  | sed -e 's/^[[:space:]]*//' -e "s/<target>/$f_target/g")
+if [ -z "$f_rebase" ]; then
+  bad "finish.md Option 2 has no fenced 'jj rebase' step to run"
+else
+  R "$fr" bash -c "$f_rebase" >/dev/null 2>&1
+  R "$fr" jj bookmark move main --to "$f_target" >/dev/null 2>&1   # step 3
+  f_main=$(R "$fr" jj file list -r main 2>/dev/null | sort | tr '\n' ' ')
+  f_disk=$(cd "$fr/cwd" && ls a.txt b.txt up.txt 2>/dev/null | tr '\n' ' ')
+  if [ "$f_main" = "README.md a.txt b.txt up.txt " ] && [ "$f_disk" = "a.txt b.txt up.txt " ]; then
+    ok "finish.md Option 2 merges the whole stack into trunk and keeps @ on top ($f_rebase)"
+  else
+    bad "finish.md Option 2 ('$f_rebase') left main with [$f_main] and the working copy with [$f_disk]; want every change in main and @ on top of it"
+  fi
+fi
+
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 test "$FAIL" -eq 0
