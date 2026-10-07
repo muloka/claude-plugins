@@ -535,7 +535,8 @@ if [ -z "$f_rebase" ]; then
 else
   R "$fr" bash -c "$f_rebase" >/dev/null 2>&1
   R "$fr" jj bookmark move main --to "$f_target" >/dev/null 2>&1   # step 3
-  f_main=$(R "$fr" jj file list -r main 2>/dev/null | sort | tr '\n' ' ')
+  # LC_ALL=C: the CI macOS leg sorts case-insensitively (README.md after a.txt)
+  f_main=$(R "$fr" jj file list -r main 2>/dev/null | LC_ALL=C sort | tr '\n' ' ')
   f_disk=$(cd "$fr/cwd" && ls a.txt b.txt up.txt 2>/dev/null | tr '\n' ' ')
   if [ "$f_main" = "README.md a.txt b.txt up.txt " ] && [ "$f_disk" = "a.txt b.txt up.txt " ]; then
     ok "finish.md Option 2 merges the whole stack into trunk and keeps @ on top ($f_rebase)"
