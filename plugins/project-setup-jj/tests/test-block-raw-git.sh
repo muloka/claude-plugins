@@ -531,6 +531,70 @@ assert_blocked "-name without -prune is a search for the directory" \
 assert_blocked "plain read still denied with no exclusion present" \
   'cat .git/HEAD' "$JJ_DIR"
 
+echo "=== jj repo: a heredoc body is data, not a command ==="
+# Newlines are folded to clause separators, so before this every body line that
+# began with `git` was judged as a command: a PR body with a fenced ```bash
+# block, or a commit message whose second paragraph opens "git push was…", was
+# denied and could not be submitted. /finish and /commit-push-pr both write
+# bodies this way. The shapes below come from a corpus written independently of
+# the stripping code, without sight of it — the same pass writing both is how
+# the #105 must-allow set missed what it missed.
+assert_passthrough "heredoc: PR body with a fenced block of git lines" \
+  $'gh pr create --title "fix: guard heredocs" --body "$(cat <<\'EOF\'\n## Summary\n- Stop false positives\n\n## Test plan\n```bash\ngit status\ngit push origin main\n```\nEOF\n)"' "$JJ_DIR"
+assert_passthrough "heredoc: commit message with a paragraph opening on git" \
+  $'jj describe -m "$(cat <<\'EOF\'\nfix: hook parsing\n\ngit push was failing because the hook matched the body.\nEOF\n)"' "$JJ_DIR"
+assert_passthrough "heredoc: unquoted delimiter, prose only" \
+  $'cat > docs/usage.md <<EOF\nRun the following:\ngit clone https://example.com/repo.git\nEOF' "$JJ_DIR"
+assert_passthrough "heredoc: double-quoted delimiter" \
+  $'cat > notes.md <<"EOF"\ngit log is now jj log\nEOF' "$JJ_DIR"
+assert_passthrough "heredoc: <<- strips leading tabs from the terminator" \
+  $'cat > script-notes.txt <<-EOF\n\tgit fetch origin\n\tEOF' "$JJ_DIR"
+assert_passthrough "heredoc: two heredocs, each with its own delimiter" \
+  $'cat > a.txt <<\'EOF\'\ngit add .\nEOF\ncat > b.txt <<\'END\'\ngit commit -m wip\nEND\nwc -l a.txt b.txt' "$JJ_DIR"
+assert_passthrough "heredoc: an indented EOF under plain << does not end the body" \
+  $'cat > weird.txt <<\'EOF\'\nfirst\n  EOF\ngit status\nEOF\necho ok' "$JJ_DIR"
+assert_passthrough "heredoc: a tab-indented EOF under plain << does not end the body either" \
+  $'cat > f.txt <<EOF\n\tEOF\ngit push is body text here\nEOF' "$JJ_DIR"
+assert_passthrough "heredoc: unquoted body with only variable expansion" \
+  $'cat > CHANGELOG.md <<EOF\n## $VER\ngit tags are no longer created.\nEOF' "$JJ_DIR"
+
+# The body is data only while it IS the body. Each of these runs git for real,
+# and must keep denying.
+assert_blocked "heredoc: git after the terminator still runs" \
+  $'cat > /tmp/m.txt <<\'EOF\'\nhello\nEOF\ngit status' "$JJ_DIR"
+assert_blocked "heredoc: the opener line itself is a command" \
+  $'git commit -F - <<EOF\nfix: thing\nEOF' "$JJ_DIR"
+assert_blocked "heredoc: a <<- terminator ends the body, git after it runs" \
+  $'cat > n.txt <<-EOF\n\tdata\n\tEOF\ngit add .' "$JJ_DIR"
+# An unquoted body still performs command substitution — the shell RUNS $(…)
+# inside it. Only a quoted delimiter makes the body inert.
+assert_blocked "heredoc: \$(git …) in an unquoted body executes" \
+  $'cat > out.txt <<EOF\nHEAD is $(git rev-parse HEAD)\nEOF' "$JJ_DIR"
+# A body handed to a shell is a script, not data.
+assert_blocked "heredoc: body fed to bash" \
+  $'bash <<\'EOF\'\ngit status\nEOF' "$JJ_DIR"
+assert_blocked "heredoc: body fed to bash -s" \
+  $'bash -s <<\'EOF\'\ncd repo\ngit pull\nEOF' "$JJ_DIR"
+assert_blocked "heredoc: body piped into a shell" \
+  $'cat <<EOF | bash\ngit log -1\nEOF' "$JJ_DIR"
+assert_blocked "heredoc: body sourced" \
+  $'source /dev/stdin <<\'EOF\'\ngit fetch\nEOF' "$JJ_DIR"
+assert_blocked "heredoc: body handed to eval" \
+  $'eval "$(cat <<\'EOF\'\ngit status\nEOF\n)"' "$JJ_DIR"
+# Fail closed wherever the body's end is not where it appears to be: nothing is
+# stripped unless its terminator is found.
+assert_blocked "heredoc: unterminated body is not stripped" \
+  $'cat > f.txt <<\'EOF\'\nsome text\ngit push' "$JJ_DIR"
+assert_blocked "heredoc: a tab-indented terminator does not end a plain << body" \
+  $'cat > f.txt <<EOF\nbody\n\tEOF\ngit push' "$JJ_DIR"
+# This one carries a would-be terminator on purpose: without it the fail-closed
+# rule alone keeps the command denied, and the case would prove nothing about
+# telling `<<<` from `<<`.
+assert_blocked "heredoc: a here-string <<< opens no body" \
+  $'cat <<< EOF\ngit status\nEOF' "$JJ_DIR"
+assert_blocked "heredoc: an arithmetic << opens no body" \
+  $'x=$((1 << 3))\necho $x\ngit log' "$JJ_DIR"
+
 echo ""
 echo "=== Results: $pass passed, $fail failed ==="
 if [ "$fail" -gt 0 ]; then
