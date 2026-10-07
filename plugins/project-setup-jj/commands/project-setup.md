@@ -48,7 +48,7 @@ Earlier versions installed these handlers into `.claude/scripts/`. The script mi
 
 Read the script's `key=value` summary and confirm to the user what was set up:
 
-- Hook handlers installed in `.claude/hooks/` (SessionStart, require-jj-new, workspace create/remove)
+- Hook handlers installed in `.claude/hooks/` (SessionStart, workspace create/remove); a re-run also removes the retired require-jj-new hook
 - Which layout was used — value from `mode=` (`tracked` or `local`)
 - `.claude/settings.json` — hooks (SessionStart, PreCompact, PreToolUse, WorktreeCreate, WorktreeRemove) + the `Bash(git *)` deny floor — value from `settings_tracked=` (`created`, `merged`, or `skipped` in `--local` mode). **Tell the user to commit this file** — that is what makes fresh clones and jj workspaces enforce the rules.
 - `.claude/settings.local.json` — jj/gh allow-list, and in `--local` mode the hooks too — value from `settings=`

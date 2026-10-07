@@ -24,7 +24,7 @@ bad() { echo "  FAIL: $1 — $2"; fail=$((fail+1)); }
 PLUG="$(mktemp -d)"
 trap 'rm -rf "$PLUG"' EXIT
 mkdir -p "$PLUG/scripts" "$PLUG/templates"
-for s in jj-session-start.sh require-jj-new.sh jj-workspace-create.sh jj-workspace-remove.sh; do
+for s in jj-session-start.sh jj-workspace-create.sh jj-workspace-remove.sh; do
   printf '#!/usr/bin/env bash\n# stub %s\n' "$s" > "$PLUG/scripts/$s"
 done
 cat > "$PLUG/templates/CLAUDE.md.template" <<'TPL'
@@ -61,14 +61,17 @@ OLDHASH=$(printf 'OLD BODY\n' | md5hash)
 # ---- Case 1: fresh install ----
 P=$(newproj)
 OUT=$(bash "$INSTALL" $INSTALL_MODE "$PLUG" "$P")
-for s in jj-session-start.sh require-jj-new.sh jj-workspace-create.sh jj-workspace-remove.sh; do
+for s in jj-session-start.sh jj-workspace-create.sh jj-workspace-remove.sh; do
   [ -x "$P/.claude/hooks/$s" ] && ok "fresh: $s copied +x" || bad "fresh" "$s not executable/copied"
 done
+[ ! -e "$P/.claude/hooks/require-jj-new.sh" ] && ok "fresh: retired require-jj-new.sh not installed" || bad "fresh" "require-jj-new.sh installed"
 jq empty "$P/.claude/settings.local.json" 2>/dev/null && ok "fresh: settings valid JSON" || bad "fresh" "settings not valid JSON"
-for ev in SessionStart PreCompact PreToolUse WorktreeCreate WorktreeRemove; do
+for ev in SessionStart PreCompact WorktreeCreate WorktreeRemove; do
   [ "$(jq --arg e "$ev" '(.hooks[$e]|length) > 0' "$P/.claude/settings.local.json")" = true ] \
     && ok "fresh: hooks.$ev present" || bad "fresh" "hooks.$ev missing"
 done
+[ "$(jq 'has("hooks") and (.hooks | has("PreToolUse"))' "$P/.claude/settings.local.json")" = false ] \
+  && ok "fresh: no PreToolUse registration (its only handler was retired)" || bad "fresh" "PreToolUse still registered"
 # Hook commands must be portable: $CLAUDE_PROJECT_DIR-relative, never an absolute
 # machine path. An absolute path pins the settings file to one checkout — it cannot
 # be shared with collaborators and resolves to nothing in a clone or jj workspace
@@ -77,7 +80,7 @@ allcmds=$(jq -r '[.hooks[][].hooks[].command] | .[]' "$P/.claude/settings.local.
 n_abs=$(printf '%s\n' "$allcmds" | grep -c '^/' || true)
 [ "$n_abs" -eq 0 ] && ok "fresh: no absolute hook paths" || bad "fresh" "$n_abs hook command(s) absolute: $allcmds"
 n_portable=$(printf '%s\n' "$allcmds" | grep -c '^\$CLAUDE_PROJECT_DIR/\.claude/hooks/' || true)
-[ "$n_portable" -eq 4 ] && ok "fresh: 4 hook paths use \$CLAUDE_PROJECT_DIR/.claude/hooks" || bad "fresh" "expected 4 portable hook paths under .claude/hooks, got $n_portable"
+[ "$n_portable" -eq 3 ] && ok "fresh: 3 hook paths use \$CLAUDE_PROJECT_DIR/.claude/hooks" || bad "fresh" "expected 3 portable hook paths under .claude/hooks, got $n_portable"
 # Nothing may still point at the legacy .claude/scripts/ location.
 n_legacy=$(printf '%s\n' "$allcmds" | grep -c '/\.claude/scripts/' || true)
 [ "$n_legacy" -eq 0 ] && ok "fresh: no hook path points at legacy .claude/scripts/" || bad "fresh" "$n_legacy legacy hook path(s) remain"
@@ -273,22 +276,24 @@ JSON
 P=$(newproj); oldlayout "$P"
 bash "$INSTALL" $INSTALL_MODE "$PLUG" "$P" >/dev/null
 # 8a scripts land in the new home
-for s in jj-session-start.sh require-jj-new.sh jj-workspace-create.sh jj-workspace-remove.sh; do
+for s in jj-session-start.sh jj-workspace-create.sh jj-workspace-remove.sh; do
   [ -x "$P/.claude/hooks/$s" ] && ok "migrate: $s now in .claude/hooks/ +x" || bad "migrate" "$s not in .claude/hooks/"
 done
 # 8b settings point at the new home, and nothing points at the old one
 mig_cmds=$(jq -r '[.hooks[][].hooks[].command] | .[]' "$P/.claude/settings.local.json")
 m_new=$(printf '%s\n' "$mig_cmds" | grep -c '^\$CLAUDE_PROJECT_DIR/\.claude/hooks/' || true)
-[ "$m_new" -eq 4 ] && ok "migrate: 4 hook commands point at .claude/hooks/" || bad "migrate" "expected 4 new-path commands, got $m_new"
+[ "$m_new" -eq 3 ] && ok "migrate: 3 hook commands point at .claude/hooks/" || bad "migrate" "expected 3 new-path commands, got $m_new"
 m_old=$(printf '%s\n' "$mig_cmds" | grep -c '/\.claude/scripts/' || true)
 [ "$m_old" -eq 0 ] && ok "migrate: zero commands still point at .claude/scripts/" || bad "migrate" "$m_old stale command(s) still registered"
 # 8c exactly ONE registration per hook — the duplicate-registration guard
-for pair in "SessionStart:jj-session-start.sh" "PreToolUse:require-jj-new.sh" \
+for pair in "SessionStart:jj-session-start.sh" \
             "WorktreeCreate:jj-workspace-create.sh" "WorktreeRemove:jj-workspace-remove.sh"; do
   ev="${pair%%:*}"; base="${pair##*:}"
   n=$(jq --arg e "$ev" --arg b "$base" '[.hooks[$e][].hooks[].command] | map(select(endswith($b))) | length' "$P/.claude/settings.local.json")
   [ "$n" = 1 ] && ok "migrate: exactly one $ev registration for $base" || bad "migrate" "$ev has $n registrations of $base (want 1 — both would fire)"
 done
+n=$(jq '[(.hooks // {})[][]?.hooks[]?.command] | map(select(endswith("require-jj-new.sh"))) | length' "$P/.claude/settings.local.json")
+[ "$n" = 0 ] && ok "migrate: the retired require-jj-new registration is stripped" || bad "migrate" "$n require-jj-new registration(s) survive"
 # 8d the four old files are gone
 leftover=0
 for s in jj-session-start.sh require-jj-new.sh jj-workspace-create.sh jj-workspace-remove.sh; do
@@ -323,7 +328,7 @@ bash "$INSTALL" $INSTALL_MODE "$PLUG" "$P" >/dev/null
 MIG_BEFORE=$(cat "$P/.claude/settings.local.json")
 bash "$INSTALL" $INSTALL_MODE "$PLUG" "$P" >/dev/null
 [ "$(cat "$P/.claude/settings.local.json")" = "$MIG_BEFORE" ] && ok "migrate-rerun: settings byte-identical" || bad "migrate-rerun" "settings churned on re-run after migration"
-for pair in "SessionStart:jj-session-start.sh" "PreToolUse:require-jj-new.sh" \
+for pair in "SessionStart:jj-session-start.sh" \
             "WorktreeCreate:jj-workspace-create.sh" "WorktreeRemove:jj-workspace-remove.sh"; do
   ev="${pair%%:*}"; base="${pair##*:}"
   n=$(jq --arg e "$ev" --arg b "$base" '[.hooks[$e][].hooks[].command] | map(select(endswith($b))) | length' "$P/.claude/settings.local.json")
@@ -346,10 +351,12 @@ L="$P/.claude/settings.local.json"
 echo "$OUT" | grep -q '^mode=tracked$'            && ok "tracked: summary reports mode" || bad "tracked" "no mode= line"
 echo "$OUT" | grep -q '^settings_tracked=created$' && ok "tracked: summary reports tracked outcome" || bad "tracked" "no settings_tracked= line"
 
-for ev in SessionStart PreToolUse PreCompact WorktreeCreate WorktreeRemove; do
+for ev in SessionStart PreCompact WorktreeCreate WorktreeRemove; do
   [ "$(jq --arg e "$ev" '(.hooks[$e]|length) > 0' "$T")" = true ] \
     && ok "tracked: $ev registered in settings.json" || bad "tracked" "$ev missing from settings.json"
 done
+[ "$(jq '(.hooks // {}) | has("PreToolUse")' "$T")" = false ] \
+  && ok "tracked: no PreToolUse registration" || bad "tracked" "PreToolUse registered in settings.json"
 [ "$(jq '.permissions.deny | index("Bash(git *)") != null' "$T")" = true ] \
   && ok "tracked: deny floor is tracked" || bad "tracked" "deny missing from settings.json"
 
@@ -391,6 +398,35 @@ done
   && ok "migrate97: an unrelated user hook survives the move" || bad "migrate97" "user hook destroyed by the migration"
 [ "$(jq '(.permissions.deny // []) | index("Bash(git *)")' "$L")" = "null" ] \
   && ok "migrate97: managed deny entry no longer duplicated locally" || bad "migrate97" "deny entry left in both files"
+
+echo "=== retiring require-jj-new: an existing install is cleaned up on re-run ==="
+# require-jj-new.sh printed plain stdout from a PreToolUse hook, which Claude Code
+# writes to the debug log and never shows the model; it ran two jj processes and
+# a working-copy snapshot on every edit for nothing. Every project installed so
+# far has it registered and copied in, so re-running /project-setup must take
+# both away — and must leave a user's own PreToolUse hook exactly where it was.
+P=$(mktemp -d)
+mkdir -p "$P/.claude/hooks"
+for s in jj-session-start.sh require-jj-new.sh jj-workspace-create.sh jj-workspace-remove.sh; do
+  printf '#!/usr/bin/env bash\n# previous install %s\n' "$s" > "$P/.claude/hooks/$s"; chmod +x "$P/.claude/hooks/$s"
+done
+cat > "$P/.claude/settings.json" <<JSON
+{"hooks":{
+  "SessionStart":[{"matcher":"startup|resume|clear|compact","hooks":[{"type":"command","command":"\$CLAUDE_PROJECT_DIR/.claude/hooks/jj-session-start.sh","async":false}]}],
+  "PreToolUse":[{"matcher":"Edit|Write|NotebookEdit","hooks":[{"type":"command","command":"\$CLAUDE_PROJECT_DIR/.claude/hooks/require-jj-new.sh"}]},
+                {"matcher":"Bash","hooks":[{"type":"command","command":"/opt/mine/bash-guard.sh"}]}]
+}}
+JSON
+bash "$INSTALL" "$PLUG" "$P" >/dev/null
+T="$P/.claude/settings.json"
+[ ! -e "$P/.claude/hooks/require-jj-new.sh" ] && ok "retire: installed require-jj-new.sh removed" || bad "retire" "require-jj-new.sh still in .claude/hooks/"
+n=$(jq '[(.hooks // {})[][]?.hooks[]?.command] | map(select(endswith("require-jj-new.sh"))) | length' "$T")
+[ "$n" = 0 ] && ok "retire: its registration is stripped from settings.json" || bad "retire" "$n require-jj-new registration(s) remain"
+[ "$(jq '[.hooks.PreToolUse[]?.hooks[]?.command] | index("/opt/mine/bash-guard.sh") != null' "$T")" = true ] \
+  && ok "retire: a user's own PreToolUse hook survives" || bad "retire" "user PreToolUse hook removed"
+RETIRE_BEFORE=$(cat "$T")
+bash "$INSTALL" "$PLUG" "$P" >/dev/null
+[ "$(cat "$T")" = "$RETIRE_BEFORE" ] && ok "retire: re-running is a no-op" || bad "retire" "settings churned on the second run"
 
 echo "=== tracked: a blanket .claude/ ignore rule aborts with no side effects ==="
 # Negations cannot re-include a file under an excluded directory, so writing a
