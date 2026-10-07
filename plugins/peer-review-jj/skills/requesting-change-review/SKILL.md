@@ -140,10 +140,13 @@ For multiple generalists, dispatch all in a single message with parallel Agent c
 Squash clean files (no findings) into the reviewed parent:
 
 ```bash
-jj squash --into $REVIEWED_PARENT <files with no findings>
+jj squash --into $REVIEWED_PARENT -u <files with no findings>
 ```
 
-This shrinks the working copy diff to show only unreviewed files.
+This shrinks the working copy diff to show only unreviewed files. `-u` keeps
+the parent's `review:` description. Without it, the squash that empties the
+duplicate (the last clean file, so every all-clean review) asks jj to combine
+the two descriptions and opens an editor, which hangs an agent session.
 
 ## Handoff
 

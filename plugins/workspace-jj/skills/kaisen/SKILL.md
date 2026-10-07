@@ -337,8 +337,9 @@ Once waves are confirmed:
      (Global Constraints, shared definitions) so the brief stands alone
    - **Ad-hoc input:** Write `<artifacts>/task-N-brief.md` yourself containing
      the full task description
-3. Record the integrity baseline: run `jj diff -r @ --stat` and keep the
-   result. It is the recorded baseline every Workspace Integrity Check
+3. Record the integrity baseline: run `jj diff -r @ --stat` and
+   `jj log -r @ --no-graph -T description`, and keep both results. Together
+   they are the recorded baseline every Workspace Integrity Check
    compares against — `@` may legitimately be non-empty at PLAN, and
    comparing against zero would report the run's own starting content as a
    leak.
@@ -396,12 +397,18 @@ Agent tool:
   model: <per Model Selection — always specify explicitly>
   prompt: |
     ## Working Directory
-    CRITICAL: Your first action MUST be:
-      cd <workspace-path>
-    ALL work happens in that directory. Do not operate in any other directory.
-    Verify you are in the right workspace:
-      jj workspace list
-    Confirm you see workspace-<task-name> marked as the active workspace.
+    Your workspace is <workspace-path>, and all of your work happens there.
+    Your shell does not stay in it: every Bash call starts back in the
+    session's directory, which is the orchestrator's workspace of this same
+    repository. A `cd` run on its own is gone by the next call, and a bare
+    `jj describe` or `jj log -r @` then acts on the orchestrator's change
+    instead of yours. So:
+      - Begin every Bash call with `cd <workspace-path> && `, for example
+          cd <workspace-path> && jj status
+      - Give Read, Edit and Write absolute paths under <workspace-path>.
+    Check once before starting:
+      cd <workspace-path> && jj workspace list
+    and confirm workspace-<task-name> is the one marked as current.
 
     ## Your Task
 
@@ -463,10 +470,11 @@ Agent tool:
     - Any issues or concerns
 
     Before reporting back, describe your change so it can be recovered if
-    you die before reporting, then capture your change ID and workspace name:
-    jj describe -m "Task N: <short description>"
-    jj log -r @ --no-graph -T 'change_id'
-    basename "$PWD"
+    you die before reporting, then capture your change ID and workspace name.
+    These run in your workspace like every other command:
+    cd <workspace-path> && jj describe -m "Task N: <short description>"
+    cd <workspace-path> && jj log -r @ --no-graph -T 'change_id'
+    cd <workspace-path> && basename "$PWD"
 
     Then report back ONLY the following, under 15 lines — the detail lives
     in the report file:
@@ -538,20 +546,21 @@ change=<id> files=<paths>` (or `done-with-concerns …`, `blocked reason=…`,
 
 ### Workspace Integrity Check (Primary Gate)
 
-**This is the first validation step after agents return.** Without `isolation: "worktree"`, agents rely on `cd` to reach their workspace. If an agent fails to `cd`, edits land in the orchestrator's workspace `@`. The integrity check catches this before review wastes cycles.
+**This is the first validation step after agents return.** Without `isolation: "worktree"`, agents reach their workspace only by prefixing every call with `cd <workspace-path> &&`, because a subagent's shell returns to the session's directory between calls. A call without the prefix lands in the orchestrator's workspace `@`: edits leak into it, and a `jj describe` overwrites its description. The integrity check catches both before review wastes cycles: Step 1 compares `@`'s diff and its description against the recorded baseline.
 
 **Step 1:** Check the orchestrator's workspace `@` for leaked changes:
 
 ```bash
 jj diff -r @ --stat
+jj log -r @ --no-graph -T description
 ```
 
 Compare against the **recorded baseline**, never against zero. `@` is not
 required to be empty — it routinely holds the plan document, or work in
-progress the run builds on. PLAN records `jj diff -r @ --stat` as the run's
-baseline; every FAN IN re-records it, so from Wave 2 on the baseline includes
-all prior waves' merged content. If `@` differs from the current baseline, at
-least one agent failed to `cd` to its workspace.
+progress the run builds on. PLAN records both outputs as the run's
+baseline; every FAN IN re-records them, so from Wave 2 on the baseline includes
+all prior waves' merged content. If either differs from the current baseline,
+at least one agent ran a command without its `cd <workspace-path> &&` prefix.
 
 **Step 2:** For each agent that reported DONE or DONE_WITH_CONCERNS, verify its change landed in the correct workspace:
 
@@ -719,8 +728,10 @@ When reviewers find critical or important issues:
    list — never one subagent per finding (per-finding fixers each rebuild
    context and re-run suites). Dispatch **without** `isolation: "worktree"`
    (the workspace already exists — `isolation` would create a new one), on
-   the same model as the task's implementer (see Model Selection). Tell it
-   to work in the existing workspace directory path, and name the test files
+   the same model as the task's implementer (see Model Selection). Give it
+   the implementer template's Working Directory block for the existing
+   workspace path (its shell resets every call, exactly as the implementer's
+   did), and name the test files
    covering the change — a small fix doesn't need the whole suite. Before
    dispatching, record the change's current commit ID —
    `jj log -r <change-id> --no-graph -T 'commit_id.short()'` — to the ledger
@@ -743,7 +754,7 @@ When reviewers find critical or important issues:
    "the fix", and a `jj describe` or a second snapshot silently shifts the
    window — a truncated delta is indistinguishable from a small one
 4. Re-run the Workspace Integrity Check (Phase 3) against the recorded baseline.
-   Fix subagents reach their workspace by `cd`, exactly as implementers do, and
+   Fix subagents reach their workspace by the same per-call `cd` prefix as implementers, and
    are exactly as able to miss it — a check that runs only after COLLECT does
    not cover an agent dispatched after COLLECT
 5. Repeat until no critical/important findings remain
@@ -918,7 +929,11 @@ before fan-in. Change IDs are stable regardless of workspace lifecycle.
 ### After the Wave's FAN IN
 
 1. Append `wave W: fanned-in` to the ledger
-2. Append the wave's summary to `<artifacts>/prior-waves.md` (for Wave 2+
+2. Re-record the integrity baseline: run PLAN step 3's two commands again
+   and keep the new results. The squash just changed `@`'s content and its
+   description, so the next wave's Integrity Check must compare against this
+   state, not PLAN's.
+3. Append the wave's summary to `<artifacts>/prior-waves.md` (for Wave 2+
    dispatch prompts):
 
    ```markdown
@@ -930,7 +945,7 @@ before fan-in. Change IDs are stable regardless of workspace lifecycle.
    `jj diff -r <change-id> --stat` if you need to refresh which files a task
    touched. Never paste diffs.
 
-3. **If this was the final (or only) wave — run the combined-result gate.**
+4. **If this was the final (or only) wave — run the combined-result gate.**
    The fully-integrated tree now lives in the orchestrator's `@` (every merged
    task materialized on disk). Run the project's *entire* test suite there — the
    same discovery the project's CI uses, not just the wave's touched suites:

@@ -29,6 +29,82 @@ done
 
 command=$(echo "$input" | jq -r '.tool_input.command // ""')
 
+# A heredoc body is data, not a command line. Newlines are folded into clause
+# separators below, so before this every body line beginning with `git` was
+# judged as a command: a PR body carrying a fenced ```bash block, or a commit
+# message whose second paragraph opened "git push was…", was denied and could
+# not be submitted. /finish and /commit-push-pr both instruct writing bodies
+# exactly this way, and current models default to `"$(cat <<'EOF' … EOF)"`.
+#
+# So bodies are removed before anything else looks at the command. The opener
+# line stays — `git commit -F - <<EOF` is still a git command — and so does
+# everything after the terminator. Four rules keep the strip from becoming a
+# way around the wall:
+#
+#   - Fail closed. A body is dropped only once its terminator is found; an
+#     unterminated one is put back whole. A stray `<<` that is not a heredoc
+#     (`$((1 << n))`, a here-string `<<<`) therefore costs nothing.
+#   - An unquoted delimiter does not make the body inert: the shell still runs
+#     `$(…)` inside it. Those lines keep their substitutions, which the clause
+#     splitter then judges as usual. Only a quoted delimiter (`<<'EOF'`,
+#     `<<"EOF"`) makes the whole body data.
+#   - A body handed to a shell is a script. If the opener line runs a shell
+#     (`bash <<EOF`, `cat <<EOF | sh`, `source /dev/stdin <<EOF`, `eval`), its
+#     bodies are not stripped.
+#   - The terminator must match exactly, with leading tabs removed only for
+#     `<<-`, as the shell does. An indented `EOF` under plain `<<` does not end
+#     the body.
+#
+# Delimiters are plain words (letters, digits, underscore). Anything else, such
+# as `<<\EOF`, is left alone, which again fails closed. Being quote-blind like
+# the rest of this file, a `<<WORD` inside a quoted string on a line of its own
+# reads as an opener; that needs a matching terminator line to strip anything,
+# so it is an evasion shape, not a habit — the same class as `bash -c`.
+#
+# POSIX awk only (match/substr/index, no gawk extensions), so it runs on the
+# macOS leg's BSD awk as well as on Linux.
+strip_heredoc_bodies() {
+  awk -v q="'" '
+    BEGIN {
+      opener_re = "<<-?[ \t]*[^ \t;&|<>()]+"
+      shell_re = "(^|[;&|({]|[$][(])[ \t]*((sudo|env|command|exec|time|nohup)[ \t]+)*([^ \t;&|()]*/)?(bash|sh|zsh|dash|ksh|fish|source|eval|[.])([ \t]|$)"
+      n = 0; cur = 0; held = ""
+    }
+    cur < n {
+      held = held $0 "\n"
+      t = $0
+      if (dash[cur]) sub(/^\t+/, "", t)
+      if (t == delim[cur]) {
+        cur++; held = ""
+        if (cur == n) { n = 0; cur = 0 }
+        next
+      }
+      if (!quoted[cur] && index($0, "$(") > 0) print substr($0, index($0, "$("))
+      next
+    }
+    {
+      print
+      if ($0 ~ shell_re) next
+      rest = $0
+      while (match(rest, opener_re)) {
+        prev = (RSTART > 1) ? substr(rest, RSTART - 1, 1) : ""
+        tok = substr(rest, RSTART + 2, RLENGTH - 2)
+        rest = substr(rest, RSTART + RLENGTH)
+        if (prev == "<") continue
+        d = 0
+        if (substr(tok, 1, 1) == "-") { d = 1; tok = substr(tok, 2) }
+        sub(/^[ \t]+/, "", tok)
+        qd = (tok ~ ("[\"" q "]"))
+        gsub("[\"" q "]", "", tok)
+        if (tok !~ /^[A-Za-z_][A-Za-z0-9_]*$/) continue
+        delim[n] = tok; dash[n] = d; quoted[n] = qd; n++
+      }
+    }
+    END { if (cur < n) printf "%s", held }
+  '
+}
+command=$(printf '%s\n' "$command" | strip_heredoc_bodies)
+
 # Normalize: collapse newlines
 command_normalized=$(echo "$command" | tr '\n' ';')
 
