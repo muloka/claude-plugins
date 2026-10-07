@@ -33,5 +33,3 @@ Notes:
 - `jj new` does NOT require the current change to be committed first — jj auto-snapshots the working copy
 - The previous change keeps its content; the new change starts empty
 - To start a change on top of a different revision: `jj new <rev>`
-
-You have the capability to call multiple tools in a single response. Create the new change using a single message. Do not use any other tools or do anything else. Do not send any other text or messages besides these tool calls.

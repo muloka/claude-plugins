@@ -34,5 +34,3 @@ Notes:
 - Any modifications you make will amend that change in place
 - All descendant changes are automatically rebased
 - This command does NOT auto-return to the tip — the user controls when they're finished
-
-You have the capability to call multiple tools in a single response. Switch to the target change using a single message. Do not use any other tools or do anything else. Do not send any other text or messages besides these tool calls.

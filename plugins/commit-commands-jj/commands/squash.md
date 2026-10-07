@@ -38,5 +38,3 @@ Notes:
 - After squashing, the working copy moves to the (now-combined) parent change
 - `jj squash` is the idiomatic way to fold small fixups into a previous change
 - For squashing into a non-parent change, use `jj squash --into <rev>`
-
-You have the capability to call multiple tools in a single response. Perform the squash using a single message. Do not use any other tools or do anything else. Do not send any other text or messages besides these tool calls.

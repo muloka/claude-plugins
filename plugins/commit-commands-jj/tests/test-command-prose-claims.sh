@@ -626,5 +626,64 @@ else
   fi
 fi
 
+# --- finish.md step 6(b), the SIBLING check, run as written. It is the gate in
+# front of step (c)'s abandon, so a false "ok" destroys the only copy of work
+# that never landed. Two shapes broke the old `--summary | awk '{print $2}'`
+# loop: a rename (`R {old.txt => new.txt}` → `{old.txt`) and a path with a
+# space (→ `my`). Each produced a path that does not exist on either side,
+# both `jj file show` calls failed into empty output, and `diff -q` of two
+# empties said `ok`. So the "didn't land" arm below needs every file to say
+# DIFFERS, and the control arm, where trunk holds the same content, needs every
+# file to say `ok` — a loop that can only say DIFFERS proves nothing.
+fs_loop=$(awk '/Sibling PRs merged separately/{f=1} f&&/^[[:space:]]*```/{if(inb){exit}; inb=1; next} f&&inb' "$FIN" \
+  | sed -e 's/^[[:space:]]*//')
+fs_setup() {   # $1 = whether trunk should hold the target's content
+  fsr=$(new_repo)
+  R "$fsr" jj git init . --no-colocate >/dev/null 2>&1
+  R "$fsr" jj config set --repo 'revset-aliases."trunk()"' main >/dev/null 2>&1
+  printf 'old\n' > "$fsr/cwd/old.txt"; printf 'x\n' > "$fsr/cwd/x.txt"
+  R "$fsr" jj describe -m base >/dev/null 2>&1
+  R "$fsr" jj bookmark create main -r @ >/dev/null 2>&1
+  R "$fsr" jj new -m "the sibling's work" >/dev/null 2>&1
+  mv "$fsr/cwd/old.txt" "$fsr/cwd/new.txt"
+  printf 'spaced\n' > "$fsr/cwd/my file.txt"
+  printf 'x2\n' > "$fsr/cwd/x.txt"
+  fs_target=$(R "$fsr" jj log -r @ --no-graph -T 'change_id.short()')
+  if [ "$1" = landed ]; then        # upstream rebuilt the same content on main
+    R "$fsr" jj new main -m "squash-merged" >/dev/null 2>&1
+    R "$fsr" jj restore --from "$fs_target" >/dev/null 2>&1
+    R "$fsr" jj bookmark set main -r @ >/dev/null 2>&1
+  fi
+}
+if [ -z "$fs_loop" ]; then
+  bad "finish.md: no fenced sibling-check loop under 'Sibling PRs merged separately'"
+else
+  fs_setup not-landed
+  fs_out=$(R "$fsr" bash -c "$(printf '%s\n' "$fs_loop" | sed "s/<target>/$fs_target/g")" 2>&1)
+  if printf '%s\n' "$fs_out" | grep -q . && ! printf '%s\n' "$fs_out" | grep -q '^ok'; then
+    ok "finish.md sibling check reports DIFFERS for every file when the work did not land (rename, space in path)"
+  else
+    bad "finish.md sibling check passed work that never landed: $(printf '%s' "$fs_out" | tr '\n' '|')"
+  fi
+  fs_setup landed
+  fs_out=$(R "$fsr" bash -c "$(printf '%s\n' "$fs_loop" | sed "s/<target>/$fs_target/g")" 2>&1)
+  if printf '%s\n' "$fs_out" | grep -q '^ok' && ! printf '%s\n' "$fs_out" | grep -q '^DIFFERS'; then
+    ok "finish.md sibling check reports ok for every file when trunk holds the same content"
+  else
+    bad "finish.md sibling check flagged work that DID land: $(printf '%s' "$fs_out" | tr '\n' '|')"
+  fi
+fi
+
+# --- No command body may contain $1…$9. Claude Code substitutes positional
+# arguments into command text before the model reads it: `/finish <args>`
+# delivered finish.md's `awk '{print $2}'` as `awk '{print push}'` (observed
+# 2026-10-07). Any such token in a shell example is silently rewritten by
+# whatever the user typed after the command.
+if grep -nE '\$[1-9]' "$CMDS"/*.md >/dev/null 2>&1; then
+  bad "a command file contains \$1-\$9, which Claude Code replaces with the user's arguments: $(grep -nE '\$[1-9]' "$CMDS"/*.md | head -3 | tr '\n' ' ')"
+else
+  ok "no command file contains \$1-\$9 (positional-argument substitution would rewrite it)"
+fi
+
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 test "$FAIL" -eq 0

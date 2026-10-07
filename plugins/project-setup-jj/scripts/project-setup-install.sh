@@ -3,7 +3,7 @@ set -euo pipefail
 
 # project-setup-install.sh [--local] <plugin-root> <project-root>
 # Deterministic installer for /project-setup (#78). No jj dependency.
-# Copies the four consumer hook scripts, deep-merges hooks+permissions into the
+# Copies the three consumer hook scripts, deep-merges hooks+permissions into the
 # project's settings (replace-by-identity at HOOK granularity; PreCompact by
 # value; permissions union-deduped), installs/updates the CLAUDE.md section
 # (4-case hash logic), and prints a key=value summary. Aborts without any side
@@ -69,9 +69,15 @@ SETTINGS="$CLAUDE_DIR/settings.local.json"
 SETTINGS_TRACKED="$CLAUDE_DIR/settings.json"
 CLAUDE_MD="$PROJECT_ROOT/CLAUDE.md"
 
-# The four handlers this installer owns. Named once: the copy loop, the settings
+# The three handlers this installer owns. Named once: the copy loop, the settings
 # upsert identities, and the legacy cleanup must never disagree about the set.
-MANAGED_SCRIPTS="jj-session-start.sh require-jj-new.sh jj-workspace-create.sh jj-workspace-remove.sh"
+MANAGED_SCRIPTS="jj-session-start.sh jj-workspace-create.sh jj-workspace-remove.sh"
+
+# Handlers earlier versions installed and this one takes away, from either
+# layout. require-jj-new.sh printed plain stdout from a PreToolUse hook, which
+# Claude Code writes to its debug log and never shows the model, so it advised
+# no one while running jj, and snapshotting the working copy, on every edit.
+RETIRED_SCRIPTS="require-jj-new.sh"
 
 # --- 0. fail-safe: validate existing settings files BEFORE any side effect ---
 # (must run before the copy loop so a malformed settings file aborts touching
@@ -153,14 +159,13 @@ EOF
   fi
 fi
 
-# --- 1. dirs + copy the four consumer hook scripts ---
+# --- 1. dirs + copy the consumer hook scripts ---
 mkdir -p "$DST"
 for s in $MANAGED_SCRIPTS; do
   cp "$SRC/$s" "$DST/$s"
   chmod +x "$DST/$s"
 done
 echo "session_start=copied"
-echo "require_jj_new=copied"
 echo "workspace_hooks=copied"
 
 # --- 2. settings.local.json merge ---
@@ -182,7 +187,6 @@ echo "workspace_hooks=copied"
 # makes a single run REPLACE the old registration instead of joining it.
 HOOK_DIR='$CLAUDE_PROJECT_DIR/.claude/hooks'
 SS="$HOOK_DIR/jj-session-start.sh"
-RJN="$HOOK_DIR/require-jj-new.sh"
 WSC="$HOOK_DIR/jj-workspace-create.sh"
 WSR="$HOOK_DIR/jj-workspace-remove.sh"
 
@@ -225,9 +229,8 @@ JQ_DEFS='
     | upsert("SessionStart";
         ["/.claude/hooks/jj-session-start.sh", "/.claude/scripts/jj-session-start.sh"];
         {matcher:"startup|resume|clear|compact", hooks:[{type:"command", command:$ss, async:false}]})
-    | upsert("PreToolUse";
-        ["/.claude/hooks/require-jj-new.sh", "/.claude/scripts/require-jj-new.sh"];
-        {matcher:"Edit|Write|NotebookEdit", hooks:[{type:"command", command:$rjn}]})
+    | strip("PreToolUse";
+        ["/.claude/hooks/require-jj-new.sh", "/.claude/scripts/require-jj-new.sh"])
     | upsert("WorktreeCreate";
         ["/.claude/hooks/jj-workspace-create.sh", "/.claude/scripts/jj-workspace-create.sh"];
         {hooks:[{type:"command", command:$wsc}]})
@@ -269,7 +272,7 @@ if [ "$MODE" = "tracked" ]; then
   # Tracked file owns hooks + the deny floor: the enforcement everyone in the
   # repo should get identically.
   merged_tracked=$(printf '%s' "$tracked_base" | jq \
-    --arg ss "$SS" --arg rjn "$RJN" --arg wsc "$WSC" --arg wsr "$WSR" \
+    --arg ss "$SS" --arg wsc "$WSC" --arg wsr "$WSR" \
     "$JQ_DEFS"' (.hooks //= {}) | all_hooks | add_deny')
   printf '%s\n' "$merged_tracked" > "$SETTINGS_TRACKED"
 
@@ -283,7 +286,7 @@ if [ "$MODE" = "tracked" ]; then
 else
   # --local: the pre-#97 behaviour, everything in one untracked file.
   merged_local=$(printf '%s' "$base" | jq \
-    --arg ss "$SS" --arg rjn "$RJN" --arg wsc "$WSC" --arg wsr "$WSR" \
+    --arg ss "$SS" --arg wsc "$WSC" --arg wsr "$WSR" \
     "$JQ_DEFS"' (.hooks //= {}) | all_hooks | add_allow | add_deny')
   printf '%s\n' "$merged_local" > "$SETTINGS"
 fi
@@ -297,7 +300,7 @@ echo "settings_tracked=$tracked_outcome"
 # location, the old files are still the live handlers; deleting them first would
 # leave a window where the registered command names a file that no longer exists.
 #
-# Only the four files this installer owns are removed, by name. `.claude/scripts/`
+# Only files this installer owns or has retired are removed, by name. `.claude/scripts/`
 # is NOT ours exclusively — /statusline-jj-setup installs statusline-jj.sh there,
 # and users may keep their own scripts alongside. A blanket `rm -rf` would delete
 # a file installed by a different command, silently breaking a statusline the
@@ -307,9 +310,17 @@ echo "settings_tracked=$tracked_outcome"
 # that: it refuses on a non-empty directory, so the emptiness check and the
 # removal are the same atomic operation. A test-then-remove would race, and a
 # `-rf` would not check at all.
+# Retired handlers go from the current layout too. This also runs after the
+# settings write, which no longer registers them.
+retired_outcome="absent"
+for s in $RETIRED_SCRIPTS; do
+  if [ -e "$DST/$s" ]; then rm -f "$DST/$s"; retired_outcome="removed"; fi
+done
+echo "retired_hooks=$retired_outcome"
+
 legacy_outcome="absent"
 if [ -d "$LEGACY_DST" ]; then
-  for s in $MANAGED_SCRIPTS; do
+  for s in $MANAGED_SCRIPTS $RETIRED_SCRIPTS; do
     rm -f "$LEGACY_DST/$s"
   done
   if rmdir "$LEGACY_DST" 2>/dev/null; then
@@ -408,9 +419,9 @@ for s in $MANAGED_SCRIPTS; do
 done
 
 # Only jj-session-start.sh is actually EXECUTED. It reads nothing from stdin and
-# mutates nothing, so running it is free. require-jj-new.sh expects a tool-call
-# payload and the workspace pair mutates workspaces — for those, syntax and the
-# exec bit is as far as a smoke test can honestly go.
+# mutates nothing, so running it is free. The workspace pair mutates
+# workspaces — for those, syntax and the exec bit is as far as a smoke test can
+# honestly go.
 if [ -z "$smoke_fail" ]; then
   smoke_out=$( (cd "$PROJECT_ROOT" && bash "$DST/jj-session-start.sh" </dev/null) 2>/dev/null ) \
     || smoke_fail="jj-session-start.sh exited non-zero"

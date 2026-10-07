@@ -36,5 +36,3 @@ Based on the above changes, set an appropriate description on the current change
 `jj describe -m "<msg>"`
 
 After describing, the change ID stays the same (only the commit ID changes). There is no staging in jj — the description applies to whatever is in the working copy.
-
-You have the capability to call multiple tools in a single response. Set the description using a single message. Do not use any other tools or do anything else. Do not send any other text or messages besides these tool calls.

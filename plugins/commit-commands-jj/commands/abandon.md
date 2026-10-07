@@ -1,5 +1,5 @@
 ---
-allowed-tools: Bash(jj abandon:*), Bash(jj log:*), Bash(jj status:*), Bash(jj diff:*)
+allowed-tools: Bash(jj abandon:*), Bash(jj op log:*), Bash(jj log:*), Bash(jj status:*), Bash(jj diff:*)
 description: Discard a jj change (current or specified revision)
 ---
 
@@ -59,5 +59,3 @@ Notes:
 - Descendants of the abandoned change are rebased onto its parent
 - If you abandon the working copy change (`@`), jj creates a new empty change automatically
 - To abandon multiple changes, use a revset: `jj abandon <revset>`
-
-You have the capability to call multiple tools in a single response. Perform the abandon using a single message. Do not use any other tools or do anything else. Do not send any other text or messages besides these tool calls.

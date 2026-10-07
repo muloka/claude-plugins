@@ -24,5 +24,3 @@ Based on the above changes:
 6. Create a pull request: `gh pr create --head <bookmark-name>` with an appropriate title and body (the `--head` flag is required because jj uses detached HEAD, so `gh` can't auto-detect the branch)
 
 For colocated repos (`.jj/` + `.git/`), `gh` works directly. For non-colocated repos, if `gh` fails, advise the user to set `GIT_DIR=.jj/repo/store/git` or run `jj git export` first.
-
-You have the capability to call multiple tools in a single response. You MUST do all of the above in a single message. Do not use any other tools or do anything else. Do not send any other text or messages besides these tool calls.
