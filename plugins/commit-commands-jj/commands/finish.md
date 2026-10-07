@@ -313,15 +313,18 @@ repo without the WorktreeCreate hook — hand the refused command back as a
       contribution landed — for every file it touched, trunk's copy must match
       its copy:
       ```bash
-      for f in $(jj diff -r <target> --summary | awk '{print $2}'); do
-        diff -q <(jj file show -r <target> "$f") \
-                <(jj file show -r 'trunk()' "$f") >/dev/null \
+      jj diff -r <target> --name-only | while IFS= read -r f; do
+        diff -q <(jj file show -r <target> "$f" 2>&1) \
+                <(jj file show -r 'trunk()' "$f" 2>&1) >/dev/null \
           && echo "ok      $f" || echo "DIFFERS $f"
       done
       ```
       Every file must report `ok`. A `DIFFERS` means either the merge dropped
       something, or a later change touched the same file — **stop and look**
       either way. Repeat per target; abandon only the targets that pass.
+      `--name-only` and `read -r` keep renamed files and paths with spaces
+      whole, and `2>&1` makes a path missing on one side compare as an error
+      message, not as empty output that matches empty output.
 
    c. **Abandon** the local changes now duplicated in trunk:
       ```bash
