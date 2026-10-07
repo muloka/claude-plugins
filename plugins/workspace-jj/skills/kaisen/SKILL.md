@@ -675,7 +675,7 @@ pass is worse than reporting no gate at all.
 
 ### Step 2: Spec-Informed Peer Review
 
-After tests pass, dispatch batched peer review agents using the `change-reviewer` agent type. Reviewers catch what tests can't: naming, patterns, edge cases, missing requirements that aren't tested, cross-module integration issues.
+After tests pass, dispatch batched peer review agents as `general-purpose` agents carrying the wave-reviewer template (see that file for why not `change-reviewer`). Reviewers catch what tests can't: naming, patterns, edge cases, missing requirements that aren't tested, cross-module integration issues.
 
 **Batching:** ~1 reviewer agent per 300 lines changed in the wave. For a wave with 600 lines across 3 tasks, dispatch 2 reviewers splitting the files between them. For a wave with < 300 lines total, 1 reviewer.
 

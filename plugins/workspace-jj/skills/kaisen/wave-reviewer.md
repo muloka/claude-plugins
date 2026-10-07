@@ -6,13 +6,20 @@ Use this template when dispatching peer review agents during the REVIEW phase.
 
 **Dispatch context:** Wave reviewers run in the orchestrator's context (no `isolation: "worktree"`). They are read-only, using jj revset commands to inspect changes by change ID. All reviewers for the wave run in parallel and cannot conflict.
 
-**Agent type:** `change-reviewer`
+**Agent type:** `general-purpose`, not peer-review-jj's `change-reviewer`. This
+template is a complete review contract (format, severities, scope, the
+plan-mandated rule), and change-reviewer's own defaults compete with it:
+its do-not-report list excludes "intentional changes", and on a fixture
+with a defect the brief itself mandated, change-reviewer reported it as a
+non-blocking `suggestion` in 2 of 4 runs, against `important` in 4 of 4 as
+general-purpose (both caught the other planted findings every time). It also
+drops a dependency: kaisen no longer needs peer-review-jj installed.
 
 ## Template
 
 ```
 Agent tool:
-  subagent_type: "peer-review-jj:change-reviewer"
+  subagent_type: "general-purpose"
   model: <per the skill's Model Selection — sonnet floor; opus for risky or
          final waves. Always explicit; never omitted>
   description: "Wave N review: <files summary>"
@@ -54,6 +61,9 @@ Agent tool:
     for understanding whether the implementation is correct.
 
     CRITICAL: You MUST NOT use ANY raw git commands. Always use jj equivalents.
+
+    This review is read-only: do not edit, create or delete files. Every
+    finding goes in your report.
 
     ## Your Job
 
